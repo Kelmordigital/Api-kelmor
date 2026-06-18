@@ -2,23 +2,18 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.refreshTokens = exports.users = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
-const org_db_schema_1 = require("../org/org.db.schema");
+const profile_db_schema_1 = require("../profiles/profile.db.schema");
+const company_db_schema_1 = require("../companies/company.db.schema");
 exports.users = (0, pg_core_1.pgTable)('users', {
     id: (0, pg_core_1.uuid)('id').primaryKey().defaultRandom(),
     name: (0, pg_core_1.varchar)('name', { length: 200 }).notNull(),
     email: (0, pg_core_1.varchar)('email', { length: 200 }).notNull().unique(),
-    password: (0, pg_core_1.varchar)('password', { length: 300 }).notNull(),
-    phone: (0, pg_core_1.varchar)('phone', { length: 20 }),
-    creci: (0, pg_core_1.varchar)('creci', { length: 50 }),
-    avatar_url: (0, pg_core_1.text)('avatar_url'),
-    // ── Plano / Org ───────────────────────────────────────────────────────────
-    tipo_conta: (0, pg_core_1.text)('tipo_conta').default('corretor'), // 'corretor' | 'imobiliaria'
-    role: (0, pg_core_1.text)('role').default('owner'), // 'owner' | 'agent'
-    organization_id: (0, pg_core_1.uuid)('organization_id').references(() => org_db_schema_1.organizations.id, { onDelete: 'set null' }),
-    // ── Assinatura ────────────────────────────────────────────────────────────
-    plano: (0, pg_core_1.text)('plano').default('basic'), // 'basic' | 'premium' | 'gold'
-    plano_status: (0, pg_core_1.text)('plano_status').default('active'), // 'active' | 'inactive'
-    plano_expira_em: (0, pg_core_1.timestamp)('plano_expira_em'), // null = sem expiração
+    password_hash: (0, pg_core_1.varchar)('password_hash', { length: 300 }).notNull(),
+    profile_id: (0, pg_core_1.integer)('profile_id').notNull().references(() => profile_db_schema_1.profiles.id),
+    company_id: (0, pg_core_1.uuid)('company_id').references(() => company_db_schema_1.companies.id, { onDelete: 'set null' }),
+    email_verified: (0, pg_core_1.boolean)('email_verified').notNull().default(true),
+    is_approved: (0, pg_core_1.boolean)('is_approved').notNull().default(false),
+    finance: (0, pg_core_1.boolean)('finance').notNull().default(false),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
 });

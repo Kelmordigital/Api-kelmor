@@ -1,23 +1,25 @@
+name: Atendimento
+
 services:
-  backend:
+  Atendimento:
     build: .
-    container_name: backend
+    container_name: kelmor-api
     ports:
       - "3001:3000"
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
+      - kelmor-postgres
+      - kelmor-redis
     networks:
-      - backend-network
+      - kelmor-network
     restart: unless-stopped
     volumes:
-      - backend_uploads:/app/uploads
+      - kelmor_uploads:/app/uploads
 
-  postgres:
+  kelmor-postgres:
     image: postgres:16-alpine
-    container_name: backend-postgres
+    container_name: kelmor-postgres
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -26,26 +28,26 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - backend_postgres_data:/var/lib/postgresql/data
+      - kelmor_postgres_data:/var/lib/postgresql/data
     networks:
-      - backend-network
+      - kelmor-network
 
-  redis:
+  kelmor-redis:
     image: redis:7-alpine
-    container_name: backend-redis
+    container_name: kelmor-redis
     restart: unless-stopped
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
-      - backend_redis_data:/data
+      - kelmor_redis_data:/data
     networks:
-      - backend-network
+      - kelmor-network
 
 volumes:
-  backend_postgres_data:
-  backend_redis_data:
-  backend_uploads:
+  kelmor_postgres_data:
+  kelmor_redis_data:
+  kelmor_uploads:
 
 networks:
-  backend-network:
+  kelmor-network:
     driver: bridge

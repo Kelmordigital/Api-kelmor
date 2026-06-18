@@ -3,87 +3,25 @@ export declare const authRepository: {
         id: string;
         name: string;
         email: string;
-        password: string;
-        phone: string | null;
-        creci: string | null;
-        avatar_url: string | null;
-        tipo_conta: string | null;
-        role: string | null;
-        organization_id: string | null;
-        plano: string | null;
-        plano_status: string | null;
-        plano_expira_em: Date | null;
+        password_hash: string;
+        profile_id: number;
+        company_id: string | null;
+        email_verified: boolean;
+        is_approved: boolean;
+        finance: boolean;
         created_at: Date | null;
         updated_at: Date | null;
-    }>;
-    findByPhone(phone: string): Promise<{
-        id: string;
-        name: string;
-        email: string;
-        phone: string | null;
-        creci: string | null;
-        avatar_url: string | null;
-        role: string | null;
-        tipo_conta: string | null;
-        organization_id: string | null;
-        created_at: Date | null;
-        updated_at: Date | null;
-    }>;
-    findAdmin(): Promise<{
-        id: string;
     }>;
     findById(id: string): Promise<{
         id: string;
         name: string;
         email: string;
-        phone: string | null;
-        creci: string | null;
-        avatar_url: string | null;
-        role: string | null;
-        tipo_conta: string | null;
-        organization_id: string | null;
-        created_at: Date | null;
-        updated_at: Date | null;
-    }>;
-    create(data: {
-        name: string;
-        email: string;
-        password: string;
-        phone?: string;
-        creci?: string;
-        tipo_conta?: string;
-        role?: string;
-        organization_id?: string;
-    }): Promise<{
-        id: string;
-        name: string;
-        email: string;
-        phone: string | null;
-        creci: string | null;
-        avatar_url: string | null;
-        role: string | null;
-        tipo_conta: string | null;
-        organization_id: string | null;
-        created_at: Date | null;
-        updated_at: Date | null;
-    }>;
-    update(id: string, data: {
-        name?: string;
-        phone?: string;
-        creci?: string;
-        avatar_url?: string;
-        role?: string;
-        organization_id?: string | null;
-    }): Promise<{
-        id: string;
-        name: string;
-        email: string;
-        phone: string | null;
-        creci: string | null;
-        avatar_url: string | null;
-        role: string | null;
-        tipo_conta: string | null;
-        organization_id: string | null;
+        password_hash: string;
+        profile_id: number;
+        company_id: string | null;
+        email_verified: boolean;
+        is_approved: boolean;
+        finance: boolean;
         created_at: Date | null;
         updated_at: Date | null;
     }>;
@@ -97,6 +35,5 @@ export declare const authRepository: {
     }>;
     deleteRefreshToken(token: string): Promise<void>;
     deleteAllRefreshTokens(userId: string): Promise<void>;
-    updatePassword(id: string, hashedPassword: string): Promise<void>;
 };
 //# sourceMappingURL=auth.repository.d.ts.map

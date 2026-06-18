@@ -11,12 +11,12 @@ export declare const env: {
     EVOLUTION_API_KEY: string;
     OPENAI_API_KEY: string;
     ADMIN_SECRET: string;
+    WEBHOOK_SECRET: string;
     API_URL: string;
     TEST_DATABASE_URL?: string | undefined;
     EVOLUTION_INSTANCE?: string | undefined;
     FILIPE_INSTANCE?: string | undefined;
     FILIPE_PHONE?: string | undefined;
     REDIS_URL?: string | undefined;
-    WEBHOOK_SECRET?: string | undefined;
 };
 //# sourceMappingURL=env.d.ts.map

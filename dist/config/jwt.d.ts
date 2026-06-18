@@ -1,15 +1,14 @@
 export interface JwtPayload {
     sub: string;
-    role: string;
-    tipo_conta: string;
-    organization_id: string | null;
+    email: string;
+    company_id: string | null;
+    profile_tag: string;
+    finance: boolean;
 }
-export declare function signAccessToken(userId: string, extra?: {
-    role?: string;
-    tipo_conta?: string;
-    organization_id?: string | null;
-}): string;
+export declare function signAccessToken(payload: JwtPayload): string;
 export declare function signRefreshToken(userId: string): string;
 export declare function verifyAccessToken(token: string): JwtPayload | null;
-export declare function verifyRefreshToken(token: string): JwtPayload | null;
+export declare function verifyRefreshToken(token: string): {
+    sub: string;
+} | null;
 //# sourceMappingURL=jwt.d.ts.map

@@ -24,7 +24,7 @@ const envSchema = zod_1.z.object({
     FILIPE_PHONE: zod_1.z.string().optional(),
     REDIS_URL: zod_1.z.string().optional(),
     ADMIN_SECRET: zod_1.z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
-    WEBHOOK_SECRET: zod_1.z.string().min(8).optional(),
+    WEBHOOK_SECRET: zod_1.z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: zod_1.z.string().url().default('http://localhost:3000'),
 });
 const parsed = envSchema.safeParse(process.env);

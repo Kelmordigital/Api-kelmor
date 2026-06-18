@@ -9,20 +9,13 @@ exports.verifyAccessToken = verifyAccessToken;
 exports.verifyRefreshToken = verifyRefreshToken;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const env_1 = require("./env");
-function signAccessToken(userId, extra) {
-    return jsonwebtoken_1.default.sign({
-        sub: userId,
-        role: extra?.role ?? 'owner',
-        tipo_conta: extra?.tipo_conta ?? 'corretor',
-        organization_id: extra?.organization_id ?? null,
-    }, env_1.env.JWT_SECRET, {
-        expiresIn: '15m',
-    });
+function signAccessToken(payload) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return jsonwebtoken_1.default.sign(payload, env_1.env.JWT_SECRET, { expiresIn: env_1.env.JWT_EXPIRES_IN });
 }
 function signRefreshToken(userId) {
-    return jsonwebtoken_1.default.sign({ sub: userId }, env_1.env.REFRESH_SECRET, {
-        expiresIn: '7d',
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return jsonwebtoken_1.default.sign({ sub: userId }, env_1.env.REFRESH_SECRET, { expiresIn: env_1.env.REFRESH_EXPIRES_IN });
 }
 function verifyAccessToken(token) {
     try {

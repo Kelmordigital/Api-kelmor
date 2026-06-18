@@ -14,13 +14,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-__exportStar(require("../modules/org/org.db.schema"), exports);
+__exportStar(require("../modules/profiles/profile.db.schema"), exports);
+__exportStar(require("../modules/companies/company.db.schema"), exports);
 __exportStar(require("../modules/auth/auth.schema"), exports);
-__exportStar(require("../modules/leads/lead.db.schema"), exports);
-__exportStar(require("../modules/imoveis/imovel.db.schema"), exports);
-__exportStar(require("../modules/vendas/venda.db.schema"), exports);
-__exportStar(require("../modules/tarefas/tarefa.db.schema"), exports);
-__exportStar(require("../modules/visitas/visita.db.schema"), exports);
-__exportStar(require("../modules/fluxo-caixa/fluxo.db.schema"), exports);
-__exportStar(require("../modules/whatAapp/whatsapp.db.schema"), exports);
 //# sourceMappingURL=shema.js.map

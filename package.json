@@ -11,8 +11,10 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:migrate:test": "cross-env DATABASE_URL=postgresql://kelmor:kelmor123@localhost:5433/kelmor_test drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:migrate:test": "cross-env DATABASE_URL=postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/database/seed.ts",
+    "db:setup": "npm run db:migrate && npm run db:seed"
   },
   "keywords": [],
   "author": "filipin do grau",

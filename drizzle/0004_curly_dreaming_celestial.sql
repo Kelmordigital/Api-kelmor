@@ -1,1 +1,0 @@
-ALTER TABLE "visitas" ALTER COLUMN "data" SET DATA TYPE timestamp with time zone;

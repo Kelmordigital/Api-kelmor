@@ -5,78 +5,15 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1776786747450,
-      "tag": "0000_organic_old_lace",
+      "when": 1781741873382,
+      "tag": "0000_lush_nemesis",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1777833374616,
-      "tag": "0001_certain_ozymandias",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1778203655898,
-      "tag": "0002_fuzzy_randall_flagg",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1778349692936,
-      "tag": "0003_amazing_slyde",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1778350601707,
-      "tag": "0004_curly_dreaming_celestial",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1778351329095,
-      "tag": "0005_amazing_selene",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1778860800000,
-      "tag": "0006_campanhas_anti_ban",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1778947200000,
-      "tag": "0007_funis",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1779414120347,
-      "tag": "0008_add_plano_fields",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1748304000000,
-      "tag": "0009_etiquetas",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1748390400000,
-      "tag": "0010_metas",
+      "when": 1781746357467,
+      "tag": "0001_tired_firedrake",
       "breakpoints": true
     }
   ]
