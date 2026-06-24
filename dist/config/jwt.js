@@ -8,14 +8,16 @@ exports.signRefreshToken = signRefreshToken;
 exports.verifyAccessToken = verifyAccessToken;
 exports.verifyRefreshToken = verifyRefreshToken;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const crypto_1 = require("crypto");
 const env_1 = require("./env");
 function signAccessToken(payload) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return jsonwebtoken_1.default.sign(payload, env_1.env.JWT_SECRET, { expiresIn: env_1.env.JWT_EXPIRES_IN });
 }
 function signRefreshToken(userId) {
+    // jti garante unicidade mesmo em logins consecutivos no mesmo segundo
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return jsonwebtoken_1.default.sign({ sub: userId }, env_1.env.REFRESH_SECRET, { expiresIn: env_1.env.REFRESH_EXPIRES_IN });
+    return jsonwebtoken_1.default.sign({ sub: userId, jti: (0, crypto_1.randomUUID)() }, env_1.env.REFRESH_SECRET, { expiresIn: env_1.env.REFRESH_EXPIRES_IN });
 }
 function verifyAccessToken(token) {
     try {

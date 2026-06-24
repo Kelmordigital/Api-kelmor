@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 import { env } from './env';
 
 export interface JwtPayload {
@@ -15,8 +16,9 @@ export function signAccessToken(payload: JwtPayload): string {
 }
 
 export function signRefreshToken(userId: string): string {
+    // jti garante unicidade mesmo em logins consecutivos no mesmo segundo
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return jwt.sign({ sub: userId }, env.REFRESH_SECRET, { expiresIn: env.REFRESH_EXPIRES_IN as any });
+    return jwt.sign({ sub: userId, jti: randomUUID() }, env.REFRESH_SECRET, { expiresIn: env.REFRESH_EXPIRES_IN as any });
 }
 
 export function verifyAccessToken(token: string): JwtPayload | null {

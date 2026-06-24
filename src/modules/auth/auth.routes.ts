@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { authController } from './auth.controller';
-import { adminMiddleware, authMiddleware } from '../../middlewares/auth.middleware';
+import { adminMiddleware, authMiddleware, requireSuperAdmin } from '../../middlewares/auth.middleware';
 
 export async function authRoutes(app: FastifyInstance) {
     app.post('/register', { preHandler: adminMiddleware }, authController.register);
@@ -8,4 +8,5 @@ export async function authRoutes(app: FastifyInstance) {
     app.post('/refresh', authController.refresh);
     app.delete('/logout', authController.logout);
     app.get('/me', { preHandler: authMiddleware }, authController.me);
+    app.patch('/approve/:id', { preHandler: [authMiddleware, requireSuperAdmin] }, authController.approve);
 }

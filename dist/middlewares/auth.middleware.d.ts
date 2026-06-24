@@ -12,4 +12,6 @@ declare module 'fastify' {
 }
 export declare function authMiddleware(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
 export declare function adminMiddleware(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
+export declare function requireSuperAdmin(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
+export declare function requireFinance(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
 //# sourceMappingURL=auth.middleware.d.ts.map

@@ -22,14 +22,19 @@ const envSchema = z.object({
 
     FRONTEND_URL: z.string().url().default('http://localhost:5173'),
 
-    EVOLUTION_API_URL: z.string().url(),
-    EVOLUTION_API_KEY: z.string().min(1),
+    EVOLUTION_API_URL: z.string().url().optional(),
+    EVOLUTION_API_KEY: z.string().optional(),
     EVOLUTION_INSTANCE: z.string().optional(),
-    OPENAI_API_KEY: z.string().min(1),
+    OPENAI_API_KEY: z.string().optional(),
 
     FILIPE_INSTANCE: z.string().optional(),
     FILIPE_PHONE: z.string().optional(),
     REDIS_URL: z.string().optional(),
+
+    // Bays (Baileys WhatsApp service)
+    BAYS_URL: z.string().url().default('http://localhost:4001'),
+    BAYS_SECRET_KEY: z.string().default(''),
+    BAYS_SESSION_ID: z.string().default('1'),
 
     ADMIN_SECRET: z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),

@@ -35,7 +35,15 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authMiddleware = authMiddleware;
 exports.adminMiddleware = adminMiddleware;
+exports.requireSuperAdmin = requireSuperAdmin;
+exports.requireFinance = requireFinance;
 const jwt_1 = require("../config/jwt");
+const redis_1 = require("../config/redis");
+function sessionKey(profileTag, companyId, userId) {
+    return profileTag === 'superAdmin'
+        ? `superadmin-${userId}`
+        : `company-${companyId}-user-${userId}`;
+}
 async function authMiddleware(req, reply) {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -44,6 +52,14 @@ async function authMiddleware(req, reply) {
     const payload = (0, jwt_1.verifyAccessToken)(authHeader.split(' ')[1]);
     if (!payload) {
         return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Token inválido ou expirado' });
+    }
+    const redis = (0, redis_1.getRedisClient)();
+    if (redis) {
+        const key = sessionKey(payload.profile_tag, payload.company_id, payload.sub);
+        const session = await redis.get(key);
+        if (!session) {
+            return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Sessão expirada. Faça login novamente.' });
+        }
     }
     req.user = {
         id: payload.sub,
@@ -58,6 +74,16 @@ async function adminMiddleware(req, reply) {
     const key = req.headers['x-admin-key'];
     if (!key || key !== env.ADMIN_SECRET) {
         return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Chave de admin inválida' });
+    }
+}
+async function requireSuperAdmin(req, reply) {
+    if (req.user.profile_tag !== 'superAdmin') {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Acesso exclusivo para o administrador do sistema.' });
+    }
+}
+async function requireFinance(req, reply) {
+    if (req.user.profile_tag !== 'superAdmin' && !req.user.finance) {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Acesso negado! Apenas usuários financeiros podem alterar configurações de módulos.' });
     }
 }
 //# sourceMappingURL=auth.middleware.js.map

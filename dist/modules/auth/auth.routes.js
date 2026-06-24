@@ -9,5 +9,6 @@ async function authRoutes(app) {
     app.post('/refresh', auth_controller_1.authController.refresh);
     app.delete('/logout', auth_controller_1.authController.logout);
     app.get('/me', { preHandler: auth_middleware_1.authMiddleware }, auth_controller_1.authController.me);
+    app.patch('/approve/:id', { preHandler: [auth_middleware_1.authMiddleware, auth_middleware_1.requireSuperAdmin] }, auth_controller_1.authController.approve);
 }
 //# sourceMappingURL=auth.routes.js.map

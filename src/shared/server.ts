@@ -8,6 +8,10 @@ import { getRedisClient } from '../config/redis';
 import { errorHandler } from '../middlewares/error.middleware';
 import { registerRequestLogger } from '../middlewares/logger.middleware';
 import { authRoutes } from '../modules/auth/auth.routes';
+import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
+import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
+import { whatsappService } from '../modules/whatsapp/whatsapp.service';
+import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
 
 export function buildApp() {
     const app = Fastify({
@@ -25,6 +29,13 @@ export function buildApp() {
                 },
             }
             : false,
+    });
+
+    // Bays envia DELETE/PUT com Content-Type: application/json mas body vazio — aceitar graciosamente
+    app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+        if (!body || (body as string).trim() === '') { done(null, null); return; }
+        try { done(null, JSON.parse(body as string)); }
+        catch (err: any) { err.statusCode = 400; done(err, undefined); }
     });
 
     app.register(helmet);
@@ -58,6 +69,75 @@ export function buildApp() {
     }));
 
     app.register(authRoutes, { prefix: '/api/v1/auth' });
+    app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
+    app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
+
+    // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
+    app.put('/connection/update/:id', whatsappController.connectionUpdate);
+    // Bays chama tanto /connection/messages-webhook quanto /connection/messages-webhook/:id
+    app.post('/connection/messages-webhook', whatsappController.messagesWebhook);
+    app.post('/connection/messages-webhook/:id', whatsappController.messagesWebhook);
+    // Erros de conexão reportados pelo bays — persiste no banco para diagnóstico
+    app.post('/connection/errors/:id', async (req, reply) => {
+        const { id } = req.params as { id: string };
+        whatsappService.handleConnectionError(Number(id), req.body).catch(() => {});
+        return reply.send({ ok: true });
+    });
+    app.post('/connection/stealth/:id', async (_req, reply) => reply.send({ ok: true }));
+    app.get('/connection/stealth/:id', async (_req, reply) => reply.send({ config: null }));
+    // ACK de entrega de mensagem reportado pelo bays
+    app.post('/connection/message-ack/:id', async (_req, reply) => reply.send({ ok: true }));
+
+    // Bays startup handshake
+    app.post('/container', async (_req, reply) =>
+        reply.send({ id: 1, name: 'kelmor-main', exists: true })
+    );
+    // Retorna todas as conexões cadastradas para o bays reconectar no boot
+    app.get('/connection', whatsappController.getActiveSessions);
+
+    // Baileys auth-session persistence (bays calls these to save/restore credentials)
+    // Stored in Redis under baileys:auth:{prefix}:{key}
+    app.get('/auth-sessions', async (_req, reply) => {
+        const redis = getRedisClient();
+        if (!redis) return reply.send({ prefixes: [] });
+        const keys = await redis.keys('baileys:auth:*');
+        const prefixes = [...new Set(keys.map((k: string) => k.split(':').slice(2, -1).join(':')))];
+        return reply.send({ prefixes });
+    });
+    app.put('/auth-sessions', async (req, reply) => {
+        const { prefix, key, value } = req.body as { prefix: string; key: string; value?: string };
+        const redis = getRedisClient();
+        if (!redis) return reply.send({ ok: true });
+        if (value == null) {
+            await redis.del(`baileys:auth:${prefix}:${key}`);
+        } else {
+            await redis.set(`baileys:auth:${prefix}:${key}`, value);
+        }
+        return reply.send({ ok: true });
+    });
+    app.get('/auth-sessions/:prefix/:key', async (req, reply) => {
+        const { prefix, key } = req.params as { prefix: string; key: string };
+        const redis = getRedisClient();
+        if (!redis) return reply.status(404).send({ value: null });
+        const value = await redis.get(`baileys:auth:${prefix}:${key}`);
+        if (value == null) return reply.status(404).send({ value: null });
+        return reply.send({ value });
+    });
+    app.delete('/auth-sessions/:prefix/:key', async (req, reply) => {
+        const { prefix, key } = req.params as { prefix: string; key: string };
+        const redis = getRedisClient();
+        if (redis) await redis.del(`baileys:auth:${prefix}:${key}`);
+        return reply.send({ ok: true });
+    });
+    app.delete('/auth-sessions/:prefix', async (req, reply) => {
+        const { prefix } = req.params as { prefix: string };
+        const redis = getRedisClient();
+        if (redis) {
+            const keys = await redis.keys(`baileys:auth:${prefix}:*`);
+            if (keys.length > 0) await redis.del(...keys);
+        }
+        return reply.send({ ok: true });
+    });
 
     registerRequestLogger(app);
     app.setErrorHandler(errorHandler);

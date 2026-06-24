@@ -1,0 +1,293 @@
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { contactService } from './contact.service';
+import { ticketService } from './ticket.service';
+import { messageService } from './message.service';
+import { dashboardService, parsePeriod } from './dashboard.service';
+
+export const atendimentoController = {
+
+    async listTickets(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const { status, search, connectionId, dateInit, dateEnd, limit, offset } =
+            req.query as {
+                status?: string;
+                search?: string;
+                connectionId?: string;
+                dateInit?: string;
+                dateEnd?: string;
+                limit?: string;
+                offset?: string;
+            };
+
+        const statusIds = status === 'open' ? [1, 2] : status === 'closed' ? [3] : undefined;
+
+        // Atendentes só veem os próprios tickets em status 2/3
+        const isAdmin = req.user.profile_tag === 'admin' || req.user.profile_tag === 'superAdmin';
+        const attendantId = (!isAdmin && statusIds && !statusIds.includes(1))
+            ? req.user.id
+            : undefined;
+
+        const list = await ticketService.list(companyId, {
+            statusIds,
+            attendantId,
+            connectionId:  connectionId ? Number(connectionId) : undefined,
+            search:        search ?? undefined,
+            dateInit:      dateInit ?? undefined,
+            dateEnd:       dateEnd ?? undefined,
+            limit:         limit  ? Number(limit)  : undefined,
+            offset:        offset ? Number(offset) : undefined,
+        });
+        return reply.send(list);
+    },
+
+    async closeTicket(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const userId = req.user.id;
+        const body = req.body as { ocurrence?: string; service_not_made?: boolean };
+        const ticket = await ticketService.closeTicket(Number(id), userId, companyId, body);
+        return reply.send(ticket);
+    },
+
+    async updateStatus(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const { statusId } = req.body as { statusId: number };
+        const ticket = await ticketService.updateStatus(Number(id), statusId, companyId);
+        return reply.send(ticket);
+    },
+
+    async assignAttendant(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const userId = req.user.id;
+        const ticket = await ticketService.assignAttendant(Number(id), userId, companyId);
+        return reply.send(ticket);
+    },
+
+    async returnToQueue(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const ticket = await ticketService.returnToQueue(Number(id), req.user.id, companyId);
+        return reply.send(ticket);
+    },
+
+    async reopen(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const ticket = await ticketService.reopen(Number(id), req.user.id, companyId);
+        return reply.send(ticket);
+    },
+
+    async transfer(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const { attendantId, queueId } = req.body as { attendantId: string; queueId?: number };
+        if (!attendantId) return reply.status(400).send({ error: 'attendantId obrigatório' });
+        const ticket = await ticketService.transfer(Number(id), req.user.id, attendantId, companyId, queueId);
+        return reply.send(ticket);
+    },
+
+    async togglePin(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const ticket = await ticketService.togglePin(Number(id), companyId);
+        return reply.send(ticket);
+    },
+
+    async countTickets(req: FastifyRequest, reply: FastifyReply) {
+        const { company_id, id: userId, profile_tag } = req.user;
+        const counts = await ticketService.count(company_id!, userId, profile_tag ?? 'user');
+        return reply.send(counts);
+    },
+
+    async listAttendants(req: FastifyRequest, reply: FastifyReply) {
+        const list = await ticketService.listAttendants(req.user.company_id!);
+        return reply.send(list);
+    },
+
+    async registerSale(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const payload = req.body as {
+            isSale: boolean;
+            saleAmount?: string;
+            lossReasonId?: number;
+            lossProductName?: string;
+        };
+        const ticket = await ticketService.registerSale(Number(id), companyId, payload);
+        return reply.send(ticket);
+    },
+
+    async listMessages(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const msgs = await messageService.list(Number(id), companyId);
+        return reply.send(msgs);
+    },
+
+    async sendMessage(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const userId = req.user.id;
+        const { body, fromMe = true, contactId } = req.body as {
+            body: string;
+            fromMe?: boolean;
+            contactId?: number;
+        };
+
+        const msg = await messageService.save(Number(id), contactId ?? null, body, fromMe, companyId, { userId });
+
+        if (fromMe) {
+            const ticket = await ticketService.get(Number(id), companyId);
+            if (ticket) {
+                const contact = await contactService.findById(ticket.contact_id);
+                if (contact?.number) {
+                    const { whatsappService } = await import('../whatsapp/whatsapp.service');
+                    whatsappService.sendMessage(contact.number, body).catch((err: Error) => {
+                        console.error('[sendMessage] bays error:', err.message);
+                    });
+                } else {
+                    console.warn('[sendMessage] Contato sem número, não foi enviado via WhatsApp');
+                }
+            }
+        }
+
+        return reply.send(msg);
+    },
+
+    async listContacts(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const list = await contactService.list(companyId);
+        return reply.send(list);
+    },
+
+    // ────── Analytics de vendas ──────
+
+    async dashboardNotSalesByConnection(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
+        const data = await dashboardService.notSalesByConnection(req.user.company_id!, startDate, endDate);
+        return reply.send(data);
+    },
+
+    async dashboardNotSalesByChannel(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
+        const data = await dashboardService.notSalesByChannel(req.user.company_id!, startDate, endDate);
+        return reply.send(data);
+    },
+
+    async dashboardSalesByConnection(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
+        const data = await dashboardService.salesByConnection(req.user.company_id!, startDate, endDate);
+        return reply.send(data);
+    },
+
+    async dashboardSalesByChannel(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
+        const data = await dashboardService.salesByChannel(req.user.company_id!, startDate, endDate);
+        return reply.send(data);
+    },
+
+    async listReasons(req: FastifyRequest, reply: FastifyReply) {
+        const data = await dashboardService.listReasons(req.user.company_id!);
+        return reply.send(data);
+    },
+
+    async createReason(req: FastifyRequest, reply: FastifyReply) {
+        const { reason, color } = req.body as { reason: string; color?: string };
+        const data = await dashboardService.createReason(req.user.company_id!, reason, color);
+        return reply.send(data);
+    },
+
+    // ────── Novos endpoints de dashboard por período ──────
+
+    async dashKpis(req: FastifyRequest, reply: FastifyReply) {
+        const { period: raw } = req.query as { period?: string };
+        const period = parsePeriod(raw);
+        const { profile_tag, company_id, id: userId } = req.user;
+
+        if (profile_tag === 'superAdmin') {
+            return reply.send(await dashboardService.getSuperAdminStats(period));
+        }
+
+        const attendantId = profile_tag === 'user' ? userId : undefined;
+        return reply.send(await dashboardService.getKpis(company_id!, period, attendantId));
+    },
+
+    async dashGraph(req: FastifyRequest, reply: FastifyReply) {
+        const { period: raw } = req.query as { period?: string };
+        const period = parsePeriod(raw);
+        const { profile_tag, company_id, id: userId } = req.user;
+
+        if (profile_tag === 'superAdmin') {
+            return reply.send(await dashboardService.getSuperAdminGraph(period));
+        }
+
+        const attendantId = profile_tag === 'user' ? userId : undefined;
+        return reply.send(await dashboardService.getGraph(company_id!, period, attendantId));
+    },
+
+    async dashFunnel(req: FastifyRequest, reply: FastifyReply) {
+        const { profile_tag, company_id, id: userId } = req.user;
+
+        if (profile_tag === 'superAdmin') {
+            return reply.send(await dashboardService.getSuperAdminFunnel());
+        }
+
+        const attendantId = profile_tag === 'user' ? userId : undefined;
+        return reply.send(await dashboardService.getFunnel(company_id!, attendantId));
+    },
+
+    async dashMovimentos(req: FastifyRequest, reply: FastifyReply) {
+        const { period: raw } = req.query as { period?: string };
+        const period = parsePeriod(raw);
+        const { profile_tag, company_id, id: userId } = req.user;
+
+        if (profile_tag === 'superAdmin') {
+            return reply.send([]);
+        }
+
+        const attendantId = profile_tag === 'user' ? userId : undefined;
+        return reply.send(await dashboardService.getMovimentos(company_id!, period, attendantId));
+    },
+
+    async dashRecent(req: FastifyRequest, reply: FastifyReply) {
+        const { limit } = req.query as { limit?: string };
+        const { profile_tag, company_id, id: userId } = req.user;
+
+        if (profile_tag === 'superAdmin') {
+            return reply.send(await dashboardService.getSuperAdminRecent());
+        }
+
+        const attendantId = profile_tag === 'user' ? userId : undefined;
+        return reply.send(await dashboardService.getRecent(company_id!, Number(limit ?? 5), attendantId));
+    },
+
+    async dashTopAttendants(req: FastifyRequest, reply: FastifyReply) {
+        const { period: raw } = req.query as { period?: string };
+        const period = parsePeriod(raw);
+        const { profile_tag, company_id } = req.user;
+
+        if (profile_tag === 'user') {
+            return reply.status(403).send({ error: 'Forbidden' });
+        }
+        if (profile_tag === 'superAdmin' || !company_id) {
+            return reply.send([]);
+        }
+
+        return reply.send(await dashboardService.getTopAttendants(company_id, period));
+    },
+
+    async dashChannels(req: FastifyRequest, reply: FastifyReply) {
+        const { period: raw } = req.query as { period?: string };
+        const period = parsePeriod(raw);
+        const { profile_tag, company_id, id: userId } = req.user;
+
+        if (profile_tag === 'superAdmin' || !company_id) {
+            return reply.send([]);
+        }
+
+        const attendantId = profile_tag === 'user' ? userId : undefined;
+        return reply.send(await dashboardService.getChannelsByPeriod(company_id, period, attendantId));
+    },
+};
