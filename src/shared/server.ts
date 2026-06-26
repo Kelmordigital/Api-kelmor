@@ -3,6 +3,9 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
+import staticFiles from '@fastify/static';
+import path from 'path';
 import { env } from '../config/env';
 import { getRedisClient } from '../config/redis';
 import { errorHandler } from '../middlewares/error.middleware';
@@ -14,6 +17,9 @@ import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
 import { botsRoutes } from '../modules/bots/bots.routes';
+import { quickMessagesRoutes } from '../modules/quick-messages/quick-messages.routes';
+import { etiquetasRoutes } from '../modules/etiquetas/etiqueta.routes';
+import { filasRoutes } from '../modules/filas/fila.routes';
 
 export function buildApp() {
     const app = Fastify({
@@ -58,6 +64,16 @@ export function buildApp() {
 
     app.register(cookie, { secret: env.REFRESH_SECRET });
 
+    app.register(multipart, {
+        limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+    });
+
+    app.register(staticFiles, {
+        root: path.join(process.cwd(), 'uploads'),
+        prefix: '/uploads/',
+        decorateReply: false,
+    });
+
     app.register(cors, {
         origin: env.FRONTEND_URL,
         credentials: true,
@@ -74,6 +90,9 @@ export function buildApp() {
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
     app.register(botsRoutes, { prefix: '/api/v1/bots' });
+    app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
+    app.register(etiquetasRoutes, { prefix: '/api/v1' });
+    app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
 
     // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
     app.put('/connection/update/:id', whatsappController.connectionUpdate);

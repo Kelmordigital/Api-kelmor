@@ -1,0 +1,127 @@
+[WARN] Moving @types/bcryptjs that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @types/jsonwebtoken that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @types/node-cron that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @types/pg that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @types/supertest that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @vitest/coverage-v8 that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving cross-env that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving supertest that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving dotenv-cli that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving vitest that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @fastify/cookie that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @fastify/cors that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @fastify/helmet that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @fastify/multipart that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @fastify/rate-limit that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @fastify/static that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving bcrypt that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving @types/node that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving bcryptjs that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving bullmq that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving cors that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving cookie that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving dotenv that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving drizzle-kit that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving drizzle-orm that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving ioredis that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving helmet that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving fastify that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving jsonwebtoken that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving node-cron that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving pg that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving pino-pretty that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving socket.io that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving typescript that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving postgres that was installed by a different package manager to "node_modules/.ignored"
+[WARN] Moving zod that was installed by a different package manager to "node_modules/.ignored"
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Progress: resolved 29, reused 0, downloaded 20, added 0
+Progress: resolved 34, reused 0, downloaded 28, added 0
+Progress: resolved 35, reused 0, downloaded 30, added 0
+Progress: resolved 69, reused 0, downloaded 37, added 0
+Progress: resolved 132, reused 0, downloaded 108, added 0
+Progress: resolved 194, reused 0, downloaded 148, added 0
+Progress: resolved 285, reused 0, downloaded 219, added 0
+Progress: resolved 362, reused 0, downloaded 261, added 0
+Progress: resolved 372, reused 0, downloaded 287, added 0
+[WARN] Tarball download average speed 10 KiB/s (size 20 KiB) is below 50 KiB/s: https://registry.npmjs.org/thread-stream/-/thread-stream-4.2.0.tgz (GET)
+Progress: resolved 372, reused 0, downloaded 290, added 0
+Progress: resolved 372, reused 0, downloaded 291, added 0
+Progress: resolved 372, reused 0, downloaded 292, added 0
+Progress: resolved 372, reused 0, downloaded 293, added 0
+Progress: resolved 373, reused 0, downloaded 293, added 0
+Progress: resolved 395, reused 0, downloaded 300, added 0
+Progress: resolved 408, reused 0, downloaded 302, added 0
+Progress: resolved 411, reused 0, downloaded 304, added 0
+Progress: resolved 411, reused 0, downloaded 309, added 0
+[WARN] 2 deprecated subdependencies found: @esbuild-kit/core-utils@3.3.2, @esbuild-kit/esm-loader@2.6.5
+Packages: +305
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 411, reused 0, downloaded 309, added 49
+Progress: resolved 411, reused 0, downloaded 309, added 95
+Progress: resolved 411, reused 0, downloaded 309, added 165
+Progress: resolved 411, reused 0, downloaded 310, added 215
+Progress: resolved 411, reused 0, downloaded 310, added 217
+Progress: resolved 411, reused 0, downloaded 310, added 248
+Progress: resolved 411, reused 0, downloaded 310, added 302
+Progress: resolved 411, reused 0, downloaded 310, added 303
+Progress: resolved 411, reused 0, downloaded 310, added 304
+Progress: resolved 411, reused 0, downloaded 310, added 305, done
+
+dependencies:
++ @fastify/cookie 11.0.2
++ @fastify/cors 11.2.0
++ @fastify/helmet 13.0.2
++ @fastify/multipart 10.0.0
++ @fastify/rate-limit 10.3.0 (11.0.0 is available)
++ @fastify/static 9.1.3
++ @types/node 25.9.4 (26.0.1 is available)
++ bcrypt 6.0.0
++ bcryptjs 3.0.3
++ bullmq 5.79.1
++ cookie 1.1.1 (2.0.0 is available)
++ cors 2.8.6
++ dotenv 17.4.2
++ drizzle-kit 0.31.10
++ drizzle-orm 0.45.2
++ fastify 5.8.5
++ helmet 8.2.0
++ ioredis 5.11.1
++ jsonwebtoken 9.0.3
++ node-cron 4.5.0
++ pg 8.22.0
++ pino-pretty 13.1.3
++ postgres 3.4.9
++ socket.io 4.8.3
++ typescript 6.0.3
++ zod 4.4.3
+
+devDependencies:
++ @types/bcryptjs 2.4.6 (3.0.0 is available)
++ @types/jsonwebtoken 9.0.10
++ @types/node-cron 3.0.11
++ @types/pg 8.20.0
++ @types/supertest 7.2.0
++ @vitest/coverage-v8 4.1.9
++ cross-env 10.1.0
++ dotenv-cli 11.0.0
++ supertest 7.2.2
++ vitest 4.1.9
+
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: bcrypt@6.0.0, esbuild@0.18.20, esbuild@0.25.12, esbuild@0.28.1, msgpackr-extract@3.0.4
+
+Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.
+[ERROR] Command failed with exit code 1: "C:\Program Files\nodejs\node.exe" "C:\Users\Filipe\AppData\Roaming\npm\node_modules\pnpm\bin\pnpm.mjs" install
+
+pnpm: Command failed with exit code 1: "C:\Program Files\nodejs\node.exe" "C:\Users\Filipe\AppData\Roaming\npm\node_modules\pnpm\bin\pnpm.mjs" install
+    at getFinalError (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:34291:14)
+    at makeError (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:36598:21)
+    at getSyncResult (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:38442:10)
+    at spawnSubprocessSync (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:38402:14)
+    at execaCoreSync (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:38332:23)
+    at callBoundExeca (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:40860:23)
+    at boundExeca (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:40837:49)
+    at sync (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:40996:10)
+    at runPnpmCli (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:247126:5)
+    at runDepsStatusCheck (file:///C:/Users/Filipe/AppData/Roaming/npm/node_modules/pnpm/dist/pnpm.mjs:248869:7)
+◇ injected env (28) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }

@@ -3,3 +3,5 @@ export * from '../modules/companies/company.db.schema';
 export * from '../modules/auth/auth.schema';
 export * from '../modules/atendimento/atendimento.db.schema';
 export * from '../modules/bots/bots.db.schema';
+export * from '../modules/quick-messages/quick-messages.db.schema';
+export * from '../modules/etiquetas/etiqueta.db.schema';
