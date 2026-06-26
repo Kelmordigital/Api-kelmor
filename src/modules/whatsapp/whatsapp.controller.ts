@@ -204,6 +204,56 @@ export const whatsappController = {
         return reply.send({ ok: true });
     },
 
+    // ── Endpoint interno — chamado pelo proxy messages-api-proxy ───────────
+
+    async sendMessageProxy(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.headers['x-company-id'] as string;
+        if (!companyId) {
+            return reply.status(400).send({ error: 'x-company-id header é obrigatório' });
+        }
+
+        const { recipientNumber, text, senderNumber, mediaUrl } = req.body as {
+            recipientNumber: string;
+            text: string;
+            senderNumber?: string;
+            mediaUrl?: string;
+        };
+
+        if (!recipientNumber || !text) {
+            return reply.status(400).send({ error: 'recipientNumber e text são obrigatórios' });
+        }
+
+        let connectionId: number;
+        try {
+            const [conn] = await db
+                .select({ id: connections.id })
+                .from(connections)
+                .where(eq(connections.company_id, companyId))
+                .orderBy(connections.id)
+                .limit(1);
+            connectionId = conn?.id ?? Number(env.BAYS_SESSION_ID);
+        } catch {
+            connectionId = Number(env.BAYS_SESSION_ID);
+        }
+
+        try {
+            await whatsappService.sendTextToPhone(connectionId, recipientNumber, text);
+
+            return reply.status(200).send({
+                success: true,
+                baileysMessageId: `${Date.now()}-${recipientNumber}`,
+            });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Erro desconhecido';
+            req.log.error({ error }, '[sendMessageProxy] Falha ao enviar mensagem');
+
+            return reply.status(422).send({
+                success: false,
+                error: message,
+            });
+        }
+    },
+
     // ── Health ──────────────────────────────────────────────────────────────
 
     async getHealth(_req: FastifyRequest, reply: FastifyReply) {

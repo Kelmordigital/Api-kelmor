@@ -70,6 +70,7 @@ export const tickets = pgTable('at_tickets', {
     service_not_made: integer('service_not_made').default(0),
     pinned: integer('pinned').default(0),        // 1 = fixado no topo
     is_transfer: integer('is_transfer').default(0), // 1 = foi transferido
+    funil_stage: varchar('funil_stage', { length: 50 }).notNull().default('novos_leads'),
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),
     deleted_at: timestamp('deleted_at'),

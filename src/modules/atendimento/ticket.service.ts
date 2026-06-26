@@ -4,6 +4,17 @@ import { tickets, contacts, historic_tickets, Ticket } from './atendimento.db.sc
 import { users } from '../auth/auth.schema';
 import { emitToCompany } from '../../shared/socket';
 
+export interface FunilCard {
+    id: number;
+    funil_stage: string;
+    contact_id: number;
+    contact_name: string;
+    contact_number: string | null;
+    contact_profile_pic_url: string | null;
+    status_id: number;
+    created_at: Date | null;
+}
+
 // Status IDs
 const OPEN_STATUSES = [1, 2];
 
@@ -392,6 +403,118 @@ export const ticketService = {
 
         if (!updated) throw new Error('Ticket não encontrado');
         emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+        return updated;
+    },
+
+    // ── Funil Kanban de atendimento ───────────────────────────────────────────
+
+    async createFunilLead(companyId: string, payload: {
+        name?: string;
+        phone?: string;
+        email?: string;
+        notes?: string;
+        funil_stage?: string;
+    }): Promise<FunilCard> {
+        const { contactService } = await import('./contact.service');
+
+        let contact;
+        if (payload.phone?.trim()) {
+            contact = await contactService.findOrCreate(companyId, payload.phone.trim(), payload.name?.trim() || undefined);
+            // atualiza nome/email se veio preenchido
+            if (payload.name?.trim() || payload.email?.trim()) {
+                const [updated] = await db.update(contacts)
+                    .set({
+                        ...(payload.name?.trim() && { name: payload.name.trim() }),
+                        ...(payload.email?.trim() && { email: payload.email.trim() }),
+                    })
+                    .where(eq(contacts.id, contact.id))
+                    .returning();
+                contact = updated ?? contact;
+            }
+        } else {
+            const [created] = await db.insert(contacts).values({
+                company_id: companyId,
+                name: payload.name?.trim() || 'Sem nome',
+                email: payload.email?.trim() || null,
+                origin: 'funil_manual',
+            }).returning();
+            contact = created;
+        }
+
+        const stage = payload.funil_stage || 'novos_leads';
+        const [ticket] = await db.insert(tickets).values({
+            company_id: companyId,
+            contact_id: contact.id,
+            status_id: 1,
+            funil_stage: stage,
+            origin: 'funil_manual',
+            ocurrence: payload.notes?.trim() || null,
+        }).returning();
+
+        emitToCompany(companyId, 'ticket:created', { ticket });
+
+        return {
+            id: ticket.id,
+            funil_stage: stage,
+            contact_id: contact.id,
+            contact_name: contact.name,
+            contact_number: contact.number ?? null,
+            contact_profile_pic_url: contact.profile_pic_url ?? null,
+            status_id: 1,
+            created_at: ticket.created_at,
+        };
+    },
+
+    async getFunilCards(companyId: string, search?: string): Promise<FunilCard[]> {
+        const conditions: ReturnType<typeof eq>[] = [
+            eq(tickets.company_id, companyId),
+            inArray(tickets.status_id, [1, 2]) as any,
+            isNull(tickets.deleted_at),
+        ];
+
+        if (search) {
+            const term = search.trim();
+            const matchIds = await db
+                .select({ id: contacts.id })
+                .from(contacts)
+                .where(and(
+                    eq(contacts.company_id, companyId),
+                    or(ilike(contacts.name, `%${term}%`), ilike(contacts.number, `%${term}%`)),
+                ));
+            const ids = matchIds.map((c) => c.id);
+            if (ids.length === 0) return [];
+            conditions.push(inArray(tickets.contact_id, ids) as any);
+        }
+
+        return db
+            .select({
+                id: tickets.id,
+                funil_stage: tickets.funil_stage,
+                contact_id: tickets.contact_id,
+                contact_name: contacts.name,
+                contact_number: contacts.number,
+                contact_profile_pic_url: contacts.profile_pic_url,
+                status_id: tickets.status_id,
+                created_at: tickets.created_at,
+            })
+            .from(tickets)
+            .leftJoin(contacts, eq(tickets.contact_id, contacts.id))
+            .where(and(...conditions))
+            .orderBy(desc(tickets.created_at)) as Promise<FunilCard[]>;
+    },
+
+    async updateFunilStage(ticketId: number, stage: string, companyId: string): Promise<Ticket> {
+        const VALID_STAGES = ['novos_leads', 'primeiro_contato', 'agendado', 'atendimento', 'convertido'];
+        if (!VALID_STAGES.includes(stage)) throw new Error('Etapa inválida');
+
+        const [updated] = await db
+            .update(tickets)
+            .set({ funil_stage: stage, updated_at: new Date() })
+            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+            .returning();
+
+        if (!updated) throw new Error('Ticket não encontrado');
+        emitToCompany(companyId, 'ticket:funil_stage_updated', { ticketId, stage });
         return updated;
     },
 

@@ -49,4 +49,16 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     // CRM reasons CRUD
     app.get('/reasons', auth, atendimentoController.listReasons);
     app.post('/reasons', auth, atendimentoController.createReason);
+
+    // Funil Kanban de atendimento
+    app.get('/funil/cards',               auth, atendimentoController.getFunilCards);
+    app.post('/funil/leads',              auth, atendimentoController.createFunilLead);
+    app.patch('/tickets/:id/funil-stage', auth, atendimentoController.updateFunilStage);
+
+    // Financeiro
+    app.get('/financeiro/kpis',      auth, atendimentoController.financeiroKpis);
+    app.get('/financeiro/evolucao',  auth, atendimentoController.financeiroEvolucao);
+    app.get('/financeiro/origens',   auth, atendimentoController.financeiroOrigens);
+    app.get('/financeiro/historico', auth, atendimentoController.financeiroHistorico);
+    app.get('/financeiro/perdas',    auth, atendimentoController.financeiroPerdas);
 }

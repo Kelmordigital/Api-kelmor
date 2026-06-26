@@ -106,6 +106,33 @@ export const atendimentoController = {
         return reply.send(list);
     },
 
+    async createFunilLead(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const payload = req.body as {
+            name?: string;
+            phone?: string;
+            email?: string;
+            notes?: string;
+            funil_stage?: string;
+        };
+        const card = await ticketService.createFunilLead(companyId, payload);
+        return reply.status(201).send(card);
+    },
+
+    async getFunilCards(req: FastifyRequest, reply: FastifyReply) {
+        const { search } = req.query as { search?: string };
+        const cards = await ticketService.getFunilCards(req.user.company_id!, search);
+        return reply.send(cards);
+    },
+
+    async updateFunilStage(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const { stage } = req.body as { stage: string };
+        if (!stage) return reply.status(400).send({ error: 'stage obrigatório' });
+        const ticket = await ticketService.updateFunilStage(Number(id), stage, req.user.company_id!);
+        return reply.send(ticket);
+    },
+
     async registerSale(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
@@ -289,5 +316,47 @@ export const atendimentoController = {
 
         const attendantId = profile_tag === 'user' ? userId : undefined;
         return reply.send(await dashboardService.getChannelsByPeriod(company_id, period, attendantId));
+    },
+
+    // ────── Financeiro ──────
+
+    async financeiroKpis(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+        const companyId = req.user.company_id!;
+        const start = startDate ? new Date(startDate) : undefined;
+        const end   = endDate   ? new Date(endDate)   : undefined;
+        return reply.send(await dashboardService.getFinanceiroKpis(companyId, start, end));
+    },
+
+    async financeiroEvolucao(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+        const companyId = req.user.company_id!;
+        const start = startDate ? new Date(startDate) : undefined;
+        const end   = endDate   ? new Date(endDate)   : undefined;
+        return reply.send(await dashboardService.getFinanceiroEvolucao(companyId, start, end));
+    },
+
+    async financeiroOrigens(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+        const companyId = req.user.company_id!;
+        const start = startDate ? new Date(startDate) : undefined;
+        const end   = endDate   ? new Date(endDate)   : undefined;
+        return reply.send(await dashboardService.getFinanceiroOrigens(companyId, start, end));
+    },
+
+    async financeiroHistorico(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+        const companyId = req.user.company_id!;
+        const start = startDate ? new Date(startDate) : undefined;
+        const end   = endDate   ? new Date(endDate)   : undefined;
+        return reply.send(await dashboardService.getFinanceiroHistorico(companyId, start, end));
+    },
+
+    async financeiroPerdas(req: FastifyRequest, reply: FastifyReply) {
+        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+        const companyId = req.user.company_id!;
+        const start = startDate ? new Date(startDate) : undefined;
+        const end   = endDate   ? new Date(endDate)   : undefined;
+        return reply.send(await dashboardService.getFinanceiroPerdas(companyId, start, end));
     },
 };

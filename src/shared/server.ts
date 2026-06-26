@@ -7,11 +7,13 @@ import { env } from '../config/env';
 import { getRedisClient } from '../config/redis';
 import { errorHandler } from '../middlewares/error.middleware';
 import { registerRequestLogger } from '../middlewares/logger.middleware';
+import { internalAuthMiddleware } from '../middlewares/internal-auth.middleware';
 import { authRoutes } from '../modules/auth/auth.routes';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
+import { botsRoutes } from '../modules/bots/bots.routes';
 
 export function buildApp() {
     const app = Fastify({
@@ -71,6 +73,7 @@ export function buildApp() {
     app.register(authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
+    app.register(botsRoutes, { prefix: '/api/v1/bots' });
 
     // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
     app.put('/connection/update/:id', whatsappController.connectionUpdate);
@@ -138,6 +141,13 @@ export function buildApp() {
         }
         return reply.send({ ok: true });
     });
+
+    // Endpoint interno — chamado pelo proxy messages-api-proxy para enviar mensagens
+    app.post(
+        '/api/internal/send-message',
+        { preHandler: internalAuthMiddleware },
+        whatsappController.sendMessageProxy
+    );
 
     registerRequestLogger(app);
     app.setErrorHandler(errorHandler);

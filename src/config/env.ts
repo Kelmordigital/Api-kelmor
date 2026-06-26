@@ -39,6 +39,7 @@ const envSchema = z.object({
     ADMIN_SECRET: z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: z.string().url().default('http://localhost:3000'),
+    INTERNAL_API_SECRET: z.string().min(16, 'INTERNAL_API_SECRET deve ter ao menos 16 caracteres').default('kelmor_internal_api_secret_32chars00'),
 });
 
 const parsed = envSchema.safeParse(process.env);

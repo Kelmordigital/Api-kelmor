@@ -416,4 +416,150 @@ export const dashboardService = {
         .orderBy(desc(companies.created_at))
         .limit(5);
     },
+
+    // ────── Financeiro ──────
+
+    _salePriceCast() {
+        return sql<number>`CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))`;
+    },
+
+    async getFinanceiroKpis(companyId: string, start?: Date, end?: Date) {
+        const base = and(
+            eq(tickets.company_id, companyId),
+            eq(tickets.status_id, 3),
+            eq(tickets.service_not_made, 0),
+            isNull(tickets.deleted_at),
+            start ? gte(tickets.updated_at, start) : undefined,
+            end   ? lte(tickets.updated_at, end)   : undefined,
+        );
+
+        const [totalAtend] = await db
+            .select({ total: sql<number>`count(*)::int` })
+            .from(tickets)
+            .where(base);
+
+        const [salesData] = await db
+            .select({
+                total:   sql<number>`count(*)::int`,
+                receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
+            })
+            .from(tickets)
+            .where(and(base, eq(tickets.is_sale, 1)));
+
+        const [perdasData] = await db
+            .select({ total: sql<number>`count(*)::int` })
+            .from(tickets)
+            .where(and(base, eq(tickets.is_sale, 0)));
+
+        const totalVendas   = salesData?.total   ?? 0;
+        const receitaTotal  = Number(salesData?.receita ?? 0);
+        const totalFechados = totalAtend?.total   ?? 0;
+        const perdas        = perdasData?.total   ?? 0;
+
+        return {
+            receitaTotal,
+            totalVendas,
+            ticketMedio:       totalVendas > 0 ? receitaTotal / totalVendas : 0,
+            conversao:         totalFechados > 0 ? totalVendas / totalFechados : 0,
+            perdas,
+            mrrProjetado:      0,
+            arrProjetado:      0,
+            receitaUnica:      receitaTotal,
+            totalAtendimentos: totalFechados,
+        };
+    },
+
+    async getFinanceiroEvolucao(companyId: string, start?: Date, end?: Date) {
+        return db
+            .select({
+                dia:    sql<string>`DATE(${tickets.updated_at})::text`,
+                receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
+                vendas: sql<number>`count(*)::int`,
+            })
+            .from(tickets)
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.status_id, 3),
+                eq(tickets.is_sale, 1),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                start ? gte(tickets.updated_at, start) : undefined,
+                end   ? lte(tickets.updated_at, end)   : undefined,
+            ))
+            .groupBy(sql`DATE(${tickets.updated_at})`)
+            .orderBy(sql`DATE(${tickets.updated_at})`);
+    },
+
+    async getFinanceiroOrigens(companyId: string, start?: Date, end?: Date) {
+        return db
+            .select({
+                origem:  sql<string>`COALESCE(${tickets.origin}, 'Base de contatos')`,
+                receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
+                vendas:  sql<number>`count(*)::int`,
+            })
+            .from(tickets)
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.status_id, 3),
+                eq(tickets.is_sale, 1),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                start ? gte(tickets.updated_at, start) : undefined,
+                end   ? lte(tickets.updated_at, end)   : undefined,
+            ))
+            .groupBy(tickets.origin)
+            .orderBy(sql`SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))) desc`)
+            .limit(10);
+    },
+
+    async getFinanceiroHistorico(companyId: string, start?: Date, end?: Date) {
+        return db
+            .select({
+                id:            tickets.id,
+                contactName:   contacts.name,
+                contactNumber: contacts.number,
+                salePrice:     tickets.sale_price,
+                origin:        tickets.origin,
+                closedAt:      tickets.updated_at,
+            })
+            .from(tickets)
+            .leftJoin(contacts, eq(tickets.contact_id, contacts.id))
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.status_id, 3),
+                eq(tickets.is_sale, 1),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                start ? gte(tickets.updated_at, start) : undefined,
+                end   ? lte(tickets.updated_at, end)   : undefined,
+            ))
+            .orderBy(desc(tickets.updated_at))
+            .limit(200);
+    },
+
+    async getFinanceiroPerdas(companyId: string, start?: Date, end?: Date) {
+        return db
+            .select({
+                id:              tickets.id,
+                contactName:     contacts.name,
+                contactNumber:   contacts.number,
+                reason:          crm_sales_reasons.reason,
+                lossProductName: tickets.loss_product_name,
+                closedAt:        tickets.updated_at,
+            })
+            .from(tickets)
+            .leftJoin(contacts, eq(tickets.contact_id, contacts.id))
+            .leftJoin(crm_sales_reasons, eq(tickets.reasons_id, crm_sales_reasons.id))
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.status_id, 3),
+                eq(tickets.is_sale, 0),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                start ? gte(tickets.updated_at, start) : undefined,
+                end   ? lte(tickets.updated_at, end)   : undefined,
+            ))
+            .orderBy(desc(tickets.updated_at))
+            .limit(200);
+    },
 };

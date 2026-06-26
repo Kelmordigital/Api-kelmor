@@ -507,6 +507,10 @@ export const whatsappService = {
 
         if (body && !fromMe) {
             await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
+            const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
+            chatbotExecutorService.execute(companyId, connectionId, phone, body).catch((err: Error) =>
+                console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
+            );
         }
     },
 
@@ -592,6 +596,15 @@ export const whatsappService = {
         const id = Number(SESSION_ID);
         const phoneNum = phone.replace(/\D/g, '');
         return baysPost(`/message/send/${id}`, {
+            type: 'text',
+            contact: phoneNum,
+            payload: { text },
+        });
+    },
+
+    async sendTextToPhone(connectionId: number, phone: string, text: string): Promise<void> {
+        const phoneNum = phone.replace(/\D/g, '');
+        await baysPost(`/message/send/${connectionId}`, {
             type: 'text',
             contact: phoneNum,
             payload: { text },
