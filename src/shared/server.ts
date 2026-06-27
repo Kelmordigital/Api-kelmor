@@ -16,10 +16,13 @@ import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
-import { botsRoutes } from '../modules/bots/bots.routes';
 import { quickMessagesRoutes } from '../modules/quick-messages/quick-messages.routes';
+import { botsRoutes } from '../modules/bots/bots.routes';
 import { etiquetasRoutes } from '../modules/etiquetas/etiqueta.routes';
 import { filasRoutes } from '../modules/filas/fila.routes';
+import { usuariosRoutes } from '../modules/usuarios/usuario.routes';
+import { pesquisasRoutes } from '../modules/pesquisas/pesquisa.routes';
+import { produtosRoutes } from '../modules/produtos/produto.routes';
 
 export function buildApp() {
     const app = Fastify({
@@ -89,10 +92,13 @@ export function buildApp() {
     app.register(authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
-    app.register(botsRoutes, { prefix: '/api/v1/bots' });
     app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
+    app.register(botsRoutes, { prefix: '/api/v1/bots' });
     app.register(etiquetasRoutes, { prefix: '/api/v1' });
     app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
+    app.register(usuariosRoutes, { prefix: '/api/v1/configuracao/usuarios' });
+    app.register(pesquisasRoutes, { prefix: '/api/v1/configuracao/pesquisas' });
+    app.register(produtosRoutes, { prefix: '/api/v1/configuracao/produtos' });
 
     // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
     app.put('/connection/update/:id', whatsappController.connectionUpdate);

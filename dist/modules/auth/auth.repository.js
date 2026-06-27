@@ -34,6 +34,25 @@ exports.authRepository = {
         const [user] = await client_1.db.select().from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, id));
         return user ?? null;
     },
+    async findByIdWithProfile(id) {
+        const [result] = await client_1.db
+            .select({
+            id: auth_schema_1.users.id,
+            name: auth_schema_1.users.name,
+            email: auth_schema_1.users.email,
+            password_hash: auth_schema_1.users.password_hash,
+            profile_id: auth_schema_1.users.profile_id,
+            profile_tag: profile_db_schema_1.profiles.tag,
+            company_id: auth_schema_1.users.company_id,
+            email_verified: auth_schema_1.users.email_verified,
+            is_approved: auth_schema_1.users.is_approved,
+            finance: auth_schema_1.users.finance,
+        })
+            .from(auth_schema_1.users)
+            .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))
+            .where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, id));
+        return result ?? null;
+    },
     async findCompanyById(companyId) {
         const [company] = await client_1.db
             .select({ id: company_db_schema_1.companies.id, status: company_db_schema_1.companies.status })

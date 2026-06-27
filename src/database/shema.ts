@@ -5,3 +5,5 @@ export * from '../modules/atendimento/atendimento.db.schema';
 export * from '../modules/bots/bots.db.schema';
 export * from '../modules/quick-messages/quick-messages.db.schema';
 export * from '../modules/etiquetas/etiqueta.db.schema';
+export * from '../modules/pesquisas/pesquisa.db.schema';
+export * from '../modules/produtos/produto.db.schema';

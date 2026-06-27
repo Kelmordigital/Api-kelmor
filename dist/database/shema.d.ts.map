@@ -1,1 +1,1 @@
-{"version":3,"file":"shema.d.ts","sourceRoot":"","sources":["../../src/database/shema.ts"],"names":[],"mappings":"AAAA,cAAc,uCAAuC,CAAC;AACtD,cAAc,wCAAwC,CAAC;AACvD,cAAc,6BAA6B,CAAC"}
+{"version":3,"file":"shema.d.ts","sourceRoot":"","sources":["../../src/database/shema.ts"],"names":[],"mappings":"AAAA,cAAc,uCAAuC,CAAC;AACtD,cAAc,wCAAwC,CAAC;AACvD,cAAc,6BAA6B,CAAC;AAC5C,cAAc,8CAA8C,CAAC;AAC7D,cAAc,gCAAgC,CAAC;AAC/C,cAAc,oDAAoD,CAAC;AACnE,cAAc,yCAAyC,CAAC;AACxD,cAAc,yCAAyC,CAAC;AACxD,cAAc,uCAAuC,CAAC"}

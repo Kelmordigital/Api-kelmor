@@ -16,16 +16,21 @@ const envSchema = zod_1.z.object({
     REFRESH_SECRET: zod_1.z.string().min(32, 'REFRESH_SECRET deve ter ao menos 32 caracteres'),
     REFRESH_EXPIRES_IN: zod_1.z.string().default('7d'),
     FRONTEND_URL: zod_1.z.string().url().default('http://localhost:5173'),
-    EVOLUTION_API_URL: zod_1.z.string().url(),
-    EVOLUTION_API_KEY: zod_1.z.string().min(1),
+    EVOLUTION_API_URL: zod_1.z.string().url().optional(),
+    EVOLUTION_API_KEY: zod_1.z.string().optional(),
     EVOLUTION_INSTANCE: zod_1.z.string().optional(),
-    OPENAI_API_KEY: zod_1.z.string().min(1),
+    OPENAI_API_KEY: zod_1.z.string().optional(),
     FILIPE_INSTANCE: zod_1.z.string().optional(),
     FILIPE_PHONE: zod_1.z.string().optional(),
     REDIS_URL: zod_1.z.string().optional(),
+    // Bays (Baileys WhatsApp service)
+    BAYS_URL: zod_1.z.string().url().default('http://localhost:4001'),
+    BAYS_SECRET_KEY: zod_1.z.string().default(''),
+    BAYS_SESSION_ID: zod_1.z.string().default('1'),
     ADMIN_SECRET: zod_1.z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: zod_1.z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: zod_1.z.string().url().default('http://localhost:3000'),
+    INTERNAL_API_SECRET: zod_1.z.string().min(16, 'INTERNAL_API_SECRET deve ter ao menos 16 caracteres').default('kelmor_internal_api_secret_32chars00'),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

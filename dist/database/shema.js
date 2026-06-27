@@ -17,4 +17,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("../modules/profiles/profile.db.schema"), exports);
 __exportStar(require("../modules/companies/company.db.schema"), exports);
 __exportStar(require("../modules/auth/auth.schema"), exports);
+__exportStar(require("../modules/atendimento/atendimento.db.schema"), exports);
+__exportStar(require("../modules/bots/bots.db.schema"), exports);
+__exportStar(require("../modules/quick-messages/quick-messages.db.schema"), exports);
+__exportStar(require("../modules/etiquetas/etiqueta.db.schema"), exports);
+__exportStar(require("../modules/pesquisas/pesquisa.db.schema"), exports);
+__exportStar(require("../modules/produtos/produto.db.schema"), exports);
 //# sourceMappingURL=shema.js.map

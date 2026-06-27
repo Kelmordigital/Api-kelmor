@@ -1,6 +1,6 @@
 import {
     pgTable, bigserial, varchar, text, boolean,
-    integer, bigint, timestamp, uuid,
+    integer, bigint, timestamp, uuid, primaryKey,
 } from 'drizzle-orm/pg-core';
 import { companies } from '../companies/company.db.schema';
 import { users } from '../auth/auth.schema';
@@ -131,3 +131,14 @@ export type AtMessage = typeof atendimento_messages.$inferSelect;
 export type HistoricTicket = typeof historic_tickets.$inferSelect;
 export type ConnectionError = typeof connection_errors_log.$inferSelect;
 export type ConnectionHealth = typeof connection_health.$inferSelect;
+
+// ── Associações usuário ↔ fila / conexão ─────────────────────────────────────
+export const userQueues = pgTable('at_user_queues', {
+    user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    queue_id: bigint('queue_id', { mode: 'number' }).notNull().references(() => queues.id, { onDelete: 'cascade' }),
+}, (t) => ({ pk: primaryKey({ columns: [t.user_id, t.queue_id] }) }));
+
+export const userConnections = pgTable('at_user_connections', {
+    user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    connection_id: bigint('connection_id', { mode: 'number' }).notNull().references(() => connections.id, { onDelete: 'cascade' }),
+}, (t) => ({ pk: primaryKey({ columns: [t.user_id, t.connection_id] }) }));

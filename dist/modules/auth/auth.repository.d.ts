@@ -38,6 +38,7 @@ export declare const authRepository: {
         created_at: Date | null;
         updated_at: Date | null;
     }>;
+    findByIdWithProfile(id: string): Promise<UserWithProfile | null>;
     findCompanyById(companyId: string): Promise<{
         id: string;
         status: boolean;

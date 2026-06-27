@@ -94,7 +94,7 @@ exports.authController = {
         });
     },
     async me(req, reply) {
-        const user = await auth_repository_1.authRepository.findById(req.user.id);
+        const user = await auth_repository_1.authRepository.findByIdWithProfile(req.user.id);
         if (!user) {
             return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
         }
@@ -103,6 +103,7 @@ exports.authController = {
             name: user.name,
             email: user.email,
             profile_id: user.profile_id,
+            profile_tag: user.profile_tag,
             company_id: user.company_id,
             email_verified: user.email_verified,
             is_approved: user.is_approved,
@@ -163,6 +164,12 @@ exports.authController = {
             path: '/api/v1/auth/refresh',
             maxAge: 60 * 60 * 24 * 7,
         });
+        // Recria a sessão no Redis — necessário se o Redis foi reiniciado ou limpo
+        const redis = (0, redis_1.getRedisClient)();
+        if (redis) {
+            const key = redisSessionKey(user.profile_tag, user.company_id, user.id);
+            await redis.set(key, user.id, 'EX', 7 * 24 * 60 * 60);
+        }
         return reply.send({
             access_token: (0, jwt_1.signAccessToken)({
                 sub: user.id,
