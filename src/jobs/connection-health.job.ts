@@ -27,7 +27,7 @@ async function runHealthCheck() {
                 continue;
             }
 
-            const data = await res.json();
+            const data = await res.json() as any;
             const isConnected =
                 data?.status === 'open' || data?.connected === true ||
                 data?.state === 'open'  || data?.connectionStatus === 'open' ||
