@@ -71,6 +71,20 @@
       "when": 1782521121277,
       "tag": "0009_many_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782582880782,
+      "tag": "0010_kind_gladiator",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782583086895,
+      "tag": "0011_striped_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

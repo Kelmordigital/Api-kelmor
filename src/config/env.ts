@@ -40,6 +40,10 @@ const envSchema = z.object({
     WEBHOOK_SECRET: z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: z.string().url().default('http://localhost:3000'),
     INTERNAL_API_SECRET: z.string().min(16, 'INTERNAL_API_SECRET deve ter ao menos 16 caracteres').default('kelmor_internal_api_secret_32chars00'),
+
+    GOOGLE_CLIENT_ID:     z.string().default(''),
+    GOOGLE_CLIENT_SECRET: z.string().default(''),
+    GOOGLE_REDIRECT_URI:  z.string().default('http://localhost:3000/api/v1/integracoes/google/callback'),
 });
 
 const parsed = envSchema.safeParse(process.env);

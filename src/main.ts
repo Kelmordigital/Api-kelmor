@@ -6,6 +6,7 @@ import { runMigrations } from './database/migrate';
 import { initSocket } from './shared/socket';
 import { startConnectionHealthJob } from './jobs/connection-health.job';
 import { startReconnectionWorker } from './jobs/reconnection.queue';
+import { restoreScheduledCampaigns } from './modules/campanhas/campanha.scheduler';
 import type { Worker } from 'bullmq';
 
 process.on('uncaughtException', (err) => {
@@ -42,6 +43,7 @@ async function main() {
         initSocket(app.server);
         healthInterval    = startConnectionHealthJob();
         reconnectWorker   = startReconnectionWorker();
+        restoreScheduledCampaigns().catch(() => {});
         console.log(`Servidor rodando na porta ${env.PORT}`);
     } catch (err) {
         app.log.error(err);
