@@ -8,10 +8,34 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy no servidor Hester
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Copiar dist para o servidor
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 178.156.131.101
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "dist/"
+          target: "/Kelmor/API-04/"
+
+      - name: Deploy no servidor
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 178.156.131.101
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: /Kelmor/deploy.sh api
+          script: cd /Kelmor/API-04 && docker compose up -d --build --force-recreate
