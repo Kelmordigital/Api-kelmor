@@ -39,3 +39,39 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: cd /Kelmor/API-04 && git reset --hard HEAD && git pull origin main && docker compose up -d --build --force-recreate
+
+      - name: Notificar Discord - Sucesso
+        if: success()
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "✅ Deploy concluído — API-04",
+                "color": 3066993,
+                "fields": [
+                  {"name": "Commit", "value": "'"${{ github.event.head_commit.message }}"'", "inline": false},
+                  {"name": "Autor", "value": "'"${{ github.actor }}"'", "inline": true},
+                  {"name": "Branch", "value": "'"${{ github.ref_name }}"'", "inline": true}
+                ],
+                "footer": {"text": "Kelmor Deploy"}
+              }]
+            }'
+
+      - name: Notificar Discord - Falha
+        if: failure()
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "❌ Deploy FALHOU — API-04",
+                "color": 15158332,
+                "fields": [
+                  {"name": "Commit", "value": "'"${{ github.event.head_commit.message }}"'", "inline": false},
+                  {"name": "Autor", "value": "'"${{ github.actor }}"'", "inline": true},
+                  {"name": "Logs", "value": "[Ver aqui]('"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"')", "inline": true}
+                ],
+                "footer": {"text": "Kelmor Deploy"}
+              }]
+            }'
