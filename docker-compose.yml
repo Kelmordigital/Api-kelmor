@@ -1,11 +1,11 @@
-name: Atendimento
+name: atendimento
 
 services:
-  Atendimento:
+  atendimento:
     build: .
     container_name: kelmor-api
     ports:
-      - "3001:3000"
+      - "3003:3000"
     env_file:
       - .env
     depends_on:
@@ -26,7 +26,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:5435:5432"
     volumes:
       - kelmor_postgres_data:/var/lib/postgresql/data
     networks:
@@ -42,7 +42,7 @@ services:
       --appendfsync everysec
       --save 60 1
     ports:
-      - "127.0.0.1:6380:6379"
+      - "127.0.0.1:6381:6379"
     volumes:
       - kelmor_redis_data:/data
     networks:
