@@ -10,3 +10,4 @@ export * from '../modules/campanhas/campanha.db.schema';
 export * from '../modules/produtos/produto.db.schema';
 export * from '../modules/agenda/agenda.db.schema';
 export * from '../modules/integracoes/integracao.db.schema';
+export * from '../modules/configuracao-geral/configuracao-geral.db.schema';

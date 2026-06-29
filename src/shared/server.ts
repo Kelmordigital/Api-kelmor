@@ -26,6 +26,8 @@ import { produtosRoutes } from '../modules/produtos/produto.routes';
 import { campanhasRoutes } from '../modules/campanhas/campanha.routes';
 import { integracoesRoutes } from '../modules/integracoes/integracao.routes';
 import { agendaRoutes } from '../modules/agenda/agenda.routes';
+import { configuracaoGeralRoutes } from '../modules/configuracao-geral/configuracao-geral.routes';
+import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 
 export function buildApp() {
     const app = Fastify({
@@ -105,6 +107,9 @@ export function buildApp() {
     app.register(produtosRoutes, { prefix: '/api/v1/configuracao/produtos' });
     app.register(integracoesRoutes, { prefix: '/api/v1/integracoes' });
     app.register(agendaRoutes, { prefix: '/api/v1/agenda' });
+    app.register(configuracaoGeralRoutes, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    app.register(reportsRoutes,            { prefix: '/api/v1/reports' });
+    app.register(reportTicketsRoutes,      { prefix: '/api/v1/reporttickets' });
 
     // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
     app.put('/connection/update/:id', whatsappController.connectionUpdate);

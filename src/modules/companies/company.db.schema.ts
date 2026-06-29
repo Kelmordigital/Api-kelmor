@@ -5,6 +5,7 @@ import {
     varchar,
     boolean,
     integer,
+    text,
     timestamp,
 } from 'drizzle-orm/pg-core';
 
@@ -20,6 +21,9 @@ export const companies = pgTable('companies', {
     stripe_customer_id: varchar('stripe_customer_id', { length: 200 }),
     cnpj_cpf: varchar('cnpj_cpf', { length: 20 }),
     whatsapp_lib: varchar('whatsapp_lib', { length: 100 }),
+    init_message: text('init_message'),
+    end_message: text('end_message'),
+    transfer_message: text('transfer_message'),
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),
 });
