@@ -38,4 +38,4 @@ jobs:
           host: 178.156.131.101
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd /Kelmor/API-04 && docker compose up -d --build --force-recreate
+          script: cd /Kelmor/API-04 && git reset --hard HEAD && git pull origin main && docker compose up -d --build --force-recreate
