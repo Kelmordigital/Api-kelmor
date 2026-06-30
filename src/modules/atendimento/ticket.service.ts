@@ -366,6 +366,13 @@ export const ticketService = {
             .returning();
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
+
+        // Envia pesquisa de satisfação da fila (fire-and-forget)
+        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+        pesquisaService.sendSurveyAfterClose(updated).catch((err: Error) =>
+            console.error('[Survey] Erro ao enviar pesquisa:', err.message)
+        );
+
         return updated;
     },
 
@@ -516,6 +523,50 @@ export const ticketService = {
         if (!updated) throw new Error('Ticket não encontrado');
         emitToCompany(companyId, 'ticket:funil_stage_updated', { ticketId, stage });
         return updated;
+    },
+
+    // ── Relatório: status por contato ─────────────────────────────────────────
+
+    async statusByContact(
+        companyId: string,
+        params: { dateInit?: string; dateEnd?: string; limit?: number; offset?: number },
+    ): Promise<{ items: any[]; total: number }> {
+        const { dateInit, dateEnd, limit = 50, offset = 0 } = params;
+
+        const conditions: any[] = [
+            eq(tickets.company_id, companyId),
+            isNull(tickets.deleted_at),
+        ];
+        if (dateInit) conditions.push(gte(tickets.created_at, new Date(dateInit)));
+        if (dateEnd)  conditions.push(lte(tickets.created_at, new Date(dateEnd + 'T23:59:59')));
+
+        const where = and(...conditions);
+
+        const [rows, countRows] = await Promise.all([
+            db
+                .select({
+                    contact_id:     tickets.contact_id,
+                    contact_name:   contacts.name,
+                    contact_number: contacts.number,
+                    open:    sql<number>`cast(count(case when ${tickets.status_id} = 1 then 1 end) as int)`,
+                    pending: sql<number>`cast(count(case when ${tickets.status_id} = 2 then 1 end) as int)`,
+                    closed:  sql<number>`cast(count(case when ${tickets.status_id} = 3 then 1 end) as int)`,
+                    total:   sql<number>`cast(count(*) as int)`,
+                })
+                .from(tickets)
+                .innerJoin(contacts, eq(contacts.id, tickets.contact_id))
+                .where(where)
+                .groupBy(tickets.contact_id, contacts.name, contacts.number)
+                .orderBy(desc(sql`count(*)`))
+                .limit(limit)
+                .offset(offset),
+            db
+                .select({ count: sql<number>`cast(count(distinct ${tickets.contact_id}) as int)` })
+                .from(tickets)
+                .where(where),
+        ]);
+
+        return { items: rows, total: countRows[0]?.count ?? 0 };
     },
 
     // ── Atendentes da empresa ─────────────────────────────────────────────────

@@ -1,4 +1,5 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or, ilike, asc, sql } from 'drizzle-orm';
+import ExcelJS from 'exceljs';
 import { db } from '../../database/client';
 import { contacts, Contact } from './atendimento.db.schema';
 
@@ -52,5 +53,90 @@ export const contactService = {
 
     async list(companyId: string): Promise<Contact[]> {
         return db.select().from(contacts).where(eq(contacts.company_id, companyId));
+    },
+
+    async listReport(
+        companyId: string,
+        params: { search?: string; limit?: number; offset?: number }
+    ): Promise<{ contacts: Contact[]; total: number }> {
+        const { search, limit = 50, offset = 0 } = params;
+
+        const where = search
+            ? and(
+                  eq(contacts.company_id, companyId),
+                  or(
+                      ilike(contacts.name,   `%${search}%`),
+                      ilike(contacts.number, `%${search}%`),
+                      ilike(contacts.email,  `%${search}%`)
+                  )
+              )
+            : eq(contacts.company_id, companyId);
+
+        const [list, countRows] = await Promise.all([
+            db
+                .select()
+                .from(contacts)
+                .where(where)
+                .orderBy(asc(contacts.name))
+                .limit(limit)
+                .offset(offset),
+            db
+                .select({ count: sql<number>`cast(count(*) as int)` })
+                .from(contacts)
+                .where(where),
+        ]);
+
+        return { contacts: list, total: countRows[0]?.count ?? 0 };
+    },
+
+    async exportExcel(companyId: string, search?: string): Promise<Buffer> {
+        const where = search
+            ? and(
+                  eq(contacts.company_id, companyId),
+                  or(
+                      ilike(contacts.name,   `%${search}%`),
+                      ilike(contacts.number, `%${search}%`),
+                      ilike(contacts.email,  `%${search}%`)
+                  )
+              )
+            : eq(contacts.company_id, companyId);
+
+        const list = await db
+            .select()
+            .from(contacts)
+            .where(where)
+            .orderBy(asc(contacts.name));
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'Kelmor CRM';
+        const sheet = workbook.addWorksheet('Contatos');
+
+        sheet.columns = [
+            { header: 'ID',            key: 'id',         width: 10 },
+            { header: 'Nome',          key: 'name',        width: 30 },
+            { header: 'Número',        key: 'number',      width: 20 },
+            { header: 'E-mail',        key: 'email',       width: 35 },
+            { header: 'Origem',        key: 'origin',      width: 20 },
+            { header: 'Data Cadastro', key: 'created_at',  width: 22 },
+        ];
+
+        const headerRow = sheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } };
+
+        list.forEach(c => {
+            sheet.addRow({
+                id:         c.id,
+                name:       c.name,
+                number:     c.number  ?? '',
+                email:      c.email   ?? '',
+                origin:     c.origin  ?? '',
+                created_at: c.created_at
+                    ? new Date(c.created_at).toLocaleDateString('pt-BR')
+                    : '',
+            });
+        });
+
+        return Buffer.from(await workbook.xlsx.writeBuffer() as ArrayBuffer);
     },
 };

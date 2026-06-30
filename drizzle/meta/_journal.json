@@ -85,6 +85,13 @@
       "when": 1782583086895,
       "tag": "0011_striped_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782784430473,
+      "tag": "0012_sloppy_the_spike",
+      "breakpoints": true
     }
   ]
 }

@@ -6,8 +6,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const auth = { preHandler: authMiddleware };
 
     // Tickets — listagem e contagem
-    app.get('/tickets',         auth, atendimentoController.listTickets);
-    app.get('/tickets/count',   auth, atendimentoController.countTickets);
+    app.get('/tickets',                   auth, atendimentoController.listTickets);
+    app.get('/tickets/count',             auth, atendimentoController.countTickets);
+    app.get('/tickets/status-by-contact', auth, atendimentoController.ticketStatusByContact);
 
     // Tickets — transições de status
     app.patch('/tickets/:id/assign',  auth, atendimentoController.assignAttendant);
@@ -26,7 +27,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.post('/tickets/:id/messages', auth, atendimentoController.sendMessage);
 
     // Contacts
-    app.get('/contacts', auth, atendimentoController.listContacts);
+    app.get('/contacts/report', auth, atendimentoController.listContactsReport);
+    app.get('/contacts/export', auth, atendimentoController.exportContactsExcel);
+    app.get('/contacts',        auth, atendimentoController.listContacts);
 
     // Atendentes da empresa (para transferência)
     app.get('/attendants', auth, atendimentoController.listAttendants);

@@ -183,10 +183,56 @@ export const atendimentoController = {
         return reply.send(msg);
     },
 
+    async ticketStatusByContact(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const { dateInit, dateEnd, limit, offset } = req.query as {
+            dateInit?: string; dateEnd?: string; limit?: string; offset?: string;
+        };
+        const result = await ticketService.statusByContact(companyId, {
+            dateInit:  dateInit  ?? undefined,
+            dateEnd:   dateEnd   ?? undefined,
+            limit:     limit  ? Number(limit)  : 50,
+            offset:    offset ? Number(offset) : 0,
+        });
+        return reply.send(result);
+    },
+
     async listContacts(req: FastifyRequest, reply: FastifyReply) {
         const companyId = req.user.company_id!;
         const list = await contactService.list(companyId);
         return reply.send(list);
+    },
+
+    async listContactsReport(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const { search, limit, offset } = req.query as {
+            search?: string;
+            limit?:  string;
+            offset?: string;
+        };
+
+        const result = await contactService.listReport(companyId, {
+            search: search  ?? undefined,
+            limit:  limit   ? Number(limit)  : 50,
+            offset: offset  ? Number(offset) : 0,
+        });
+
+        return reply.send(result);
+    },
+
+    async exportContactsExcel(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const { search } = req.query as { search?: string };
+
+        const buffer = await contactService.exportExcel(companyId, search);
+
+        return reply
+            .header(
+                'Content-Type',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            .header('Content-Disposition', 'attachment; filename="contatos.xlsx"')
+            .send(buffer);
     },
 
     // ────── Analytics de vendas ──────

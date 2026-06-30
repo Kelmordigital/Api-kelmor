@@ -506,11 +506,17 @@ export const whatsappService = {
         emitToCompany(companyId, 'contact:upserted', { contact });
 
         if (body && !fromMe) {
-            await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
-            const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
-            chatbotExecutorService.execute(companyId, connectionId, phone, body).catch((err: Error) =>
-                console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
-            );
+            // Tenta capturar resposta de pesquisa antes de salvar mensagem
+            const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+            const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
+
+            if (!wasAnswer) {
+                await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
+                const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
+                chatbotExecutorService.execute(companyId, connectionId, phone, body).catch((err: Error) =>
+                    console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
+                );
+            }
         }
     },
 

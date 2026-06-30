@@ -67,4 +67,35 @@ export const pesquisaController = {
         if (!removed) return reply.status(404).send({ message: 'Pesquisa não encontrada' });
         return reply.send({ ok: true });
     },
+
+    async report(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const { dateInit, dateEnd, userId, limit, offset } = req.query as {
+            dateInit?: string; dateEnd?: string; userId?: string; limit?: string; offset?: string;
+        };
+        const data = await pesquisaService.getReport(companyId, {
+            dateInit: dateInit ?? undefined,
+            dateEnd:  dateEnd  ?? undefined,
+            userId:   userId   ?? undefined,
+            limit:    limit  ? Number(limit)  : undefined,
+            offset:   offset ? Number(offset) : undefined,
+        });
+        return reply.send(data);
+    },
+
+    async reportView(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const { answerId, dateInit, dateEnd, limit, offset } = req.query as {
+            answerId: string; dateInit?: string; dateEnd?: string; limit?: string; offset?: string;
+        };
+        if (!answerId) return reply.status(400).send({ message: 'answerId obrigatório' });
+        const data = await pesquisaService.getReportDrillDown(companyId, {
+            answerId: Number(answerId),
+            dateInit: dateInit ?? undefined,
+            dateEnd:  dateEnd  ?? undefined,
+            limit:    limit  ? Number(limit)  : 50,
+            offset:   offset ? Number(offset) : 0,
+        });
+        return reply.send(data);
+    },
 };
