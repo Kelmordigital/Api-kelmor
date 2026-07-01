@@ -23,6 +23,14 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: Atualizar codigo no servidor
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 178.156.131.101
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: cd /Kelmor/API-04 && git reset --hard HEAD && git pull origin main
+
       - name: Copiar dist para o servidor
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -32,13 +40,13 @@ jobs:
           source: "dist/"
           target: "/Kelmor/API-04/"
 
-      - name: Deploy no servidor
+      - name: Build e deploy no servidor
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 178.156.131.101
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd /Kelmor/API-04 && git reset --hard HEAD && git pull origin main && docker compose up -d --build --force-recreate
+          script: cd /Kelmor/API-04 && docker compose up -d --build --force-recreate
 
       - name: Notificar Discord - Sucesso
         if: success()
