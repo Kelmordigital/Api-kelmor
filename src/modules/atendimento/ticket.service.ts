@@ -362,7 +362,7 @@ export const ticketService = {
                 pinned: 0,
                 updated_at: new Date(),
             })
-            .where(eq(tickets.id, ticketId))
+            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
             .returning();
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
