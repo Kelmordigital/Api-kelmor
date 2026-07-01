@@ -414,15 +414,32 @@ export const whatsappService = {
         const jid = String(key.remoteJid);
         if (jid.endsWith('@g.us')) return;
 
-        let phone: string;
+        // Sistema de usernames do WhatsApp (Meta 2026): quando o contato conversa
+        // via username, o remoteJid é "<lid>@lid" e o número pode NÃO vir. Antes o
+        // sistema descartava essas mensagens — agora o LID é o identificador válido.
+        const lid = jid.endsWith('@lid') ? jid.replace('@lid', '').replace(/\D/g, '') : undefined;
+
+        let phone = '';
         if (jid.endsWith('@lid')) {
+            // Número só existe se a Meta revelar via sender_pn; senão fica vazio (LID-only)
             const senderPn = String(key.sender_pn ?? '');
-            if (!senderPn) return;
-            phone = senderPn.replace('@s.whatsapp.net', '');
+            phone = senderPn ? senderPn.replace('@s.whatsapp.net', '').replace(/\D/g, '') : '';
         } else {
-            phone = jid.replace('@s.whatsapp.net', '');
+            phone = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
         }
-        const nome = String(msg.pushName ?? phone);
+
+        // Username público (@apelido). A Meta ainda não o expõe no payload Baileys;
+        // lido defensivamente para já funcionar quando passar a vir.
+        const waUsername =
+            (typeof (msg as Record<string, unknown>).contactUsername === 'string'
+                ? String((msg as Record<string, unknown>).contactUsername)
+                : '') ||
+            (typeof (key as Record<string, unknown>).senderUsername === 'string'
+                ? String((key as Record<string, unknown>).senderUsername)
+                : '') ||
+            '';
+
+        const nome = String(msg.pushName ?? (phone || (waUsername ? `@${waUsername}` : lid) || ''));
         const fromMe = Boolean(key.fromMe);
 
         const rawMsg = (msg.message as Record<string, unknown> | undefined) ?? {};
@@ -461,10 +478,12 @@ export const whatsappService = {
         }
 
         const companyId = conn.company_id;
-        const lid = jid.endsWith('@lid') ? jid.replace('@lid', '') : undefined;
         const profileImgUrl = String((msg as Record<string, unknown>).profileImgUrl ?? '');
 
-        let contact = await contactService.findOrCreate(companyId, phone, nome, lid);
+        // Identificador de envio: número quando existe, senão o LID (contato username-only)
+        const sendTarget = phone || (lid ? `lid:${lid}` : '');
+
+        let contact = await contactService.findOrCreate(companyId, phone, nome, lid, waUsername || undefined);
 
         if (profileImgUrl && profileImgUrl.startsWith('http') && contact.profile_pic_url !== profileImgUrl) {
             const { contacts: contactsTable } = await import('../atendimento/atendimento.db.schema');
@@ -478,7 +497,7 @@ export const whatsappService = {
             if (updated) contact = updated;
         }
 
-        if (!contact.profile_pic_url) {
+        if (!contact.profile_pic_url && phone) {
             try {
                 const picData = await baysPost(`/contact/imgurl/${connectionId}`, { contact: phone });
                 const fetchedUrl = picData?.imgUrl;
@@ -512,10 +531,12 @@ export const whatsappService = {
 
             if (!wasAnswer) {
                 await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
-                const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
-                chatbotExecutorService.execute(companyId, connectionId, phone, body).catch((err: Error) =>
-                    console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
-                );
+                if (sendTarget) {
+                    const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
+                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body).catch((err: Error) =>
+                        console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
+                    );
+                }
             }
         }
     },
@@ -608,8 +629,29 @@ export const whatsappService = {
         });
     },
 
-    async sendTextToPhone(connectionId: number, phone: string, text: string): Promise<void> {
-        const phoneNum = phone.replace(/\D/g, '');
+    /** Envia texto para um contato username-only (sem número), roteando pelo LID. */
+    async sendMessageViaLid(lid: string, text: string, connectionId?: number): Promise<any> {
+        const id = Number(connectionId ?? SESSION_ID);
+        const lidNum = lid.replace(/\D/g, '');
+        return baysPost(`/message/send/${id}`, {
+            type: 'text',
+            lid: lidNum,
+            priority: 'lid',
+            payload: { text },
+        });
+    },
+
+    /**
+     * Envia texto para um destino que pode ser um número ou um LID.
+     * Se `target` vier no formato "lid:<id>", roteia pelo LID (contato username-only);
+     * caso contrário trata como número normal. Não quebra chamadores que passam número puro.
+     */
+    async sendTextToPhone(connectionId: number, target: string, text: string): Promise<void> {
+        if (target.startsWith('lid:')) {
+            await this.sendMessageViaLid(target.slice(4), text, connectionId);
+            return;
+        }
+        const phoneNum = target.replace(/\D/g, '');
         await baysPost(`/message/send/${connectionId}`, {
             type: 'text',
             contact: phoneNum,

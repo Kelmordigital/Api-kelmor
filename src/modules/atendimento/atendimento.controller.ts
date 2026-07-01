@@ -169,13 +169,19 @@ export const atendimentoController = {
             const ticket = await ticketService.get(Number(id), companyId);
             if (ticket) {
                 const contact = await contactService.findById(ticket.contact_id);
+                const { whatsappService } = await import('../whatsapp/whatsapp.service');
+                const connId = ticket.connection_id ?? undefined;
                 if (contact?.number) {
-                    const { whatsappService } = await import('../whatsapp/whatsapp.service');
                     whatsappService.sendMessage(contact.number, body).catch((err: Error) => {
                         console.error('[sendMessage] bays error:', err.message);
                     });
+                } else if (contact?.lid) {
+                    // Contato username-only (sem número): responde roteando pelo LID
+                    whatsappService.sendMessageViaLid(contact.lid, body, connId).catch((err: Error) => {
+                        console.error('[sendMessage] bays error (lid):', err.message);
+                    });
                 } else {
-                    console.warn('[sendMessage] Contato sem número, não foi enviado via WhatsApp');
+                    console.warn('[sendMessage] Contato sem número nem LID, não foi enviado via WhatsApp');
                 }
             }
         }

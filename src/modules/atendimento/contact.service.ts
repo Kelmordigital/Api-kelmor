@@ -1,49 +1,198 @@
-import { eq, and, or, ilike, asc, sql } from 'drizzle-orm';
+import { eq, and, or, ne, ilike, asc, desc, inArray, isNull, sql } from 'drizzle-orm';
 import ExcelJS from 'exceljs';
 import { db } from '../../database/client';
-import { contacts, Contact } from './atendimento.db.schema';
+import { contacts, tickets, atendimento_messages, Contact } from './atendimento.db.schema';
+import { researchHistorics } from '../pesquisas/pesquisa.db.schema';
+import { emitToCompany } from '../../shared/socket';
+
+// Status IDs de ticket considerados "abertos" (pendente/em atendimento)
+const OPEN_STATUSES = [1, 2];
 
 export const contactService = {
-    // lid = o ID numérico do @lid (ex: "205939420483821") para corrigir contatos criados antes do fix
-    async findOrCreate(companyId: string, number: string, name?: string, lid?: string): Promise<Contact> {
-        const clean = number.replace(/\D/g, '');
+    /**
+     * Resolve (ou cria) o contato canônico a partir de qualquer combinação de
+     * número, LID e username do WhatsApp.
+     *
+     * Sistema de usernames do WhatsApp (Meta 2026): um contato pode chegar SEM
+     * número, identificado apenas pelo LID (`<id>@lid`). Estados possíveis:
+     *   - number preenchido, lid null            → contato clássico
+     *   - number null, lid preenchido            → LID-only (username, sem número)
+     *   - number + lid preenchidos               → contato completo/vinculado
+     *
+     * @param number      Número (só dígitos, opcional — pode faltar em contato username)
+     * @param name        Nome de exibição (pushName)
+     * @param lid         ID numérico do @lid (ex: "205939420483821")
+     * @param waUsername  Username público (@apelido) quando a Meta expõe no payload
+     */
+    async findOrCreate(
+        companyId: string,
+        number?: string | null,
+        name?: string,
+        lid?: string | null,
+        waUsername?: string | null,
+    ): Promise<Contact> {
+        const clean = number ? number.replace(/\D/g, '') : '';
+        const lidClean = lid ? lid.replace(/\D/g, '') : '';
+        const username = waUsername?.trim() || null;
 
-        // 1. Busca pelo número real
-        const [byNumber] = await db
-            .select()
-            .from(contacts)
-            .where(and(eq(contacts.company_id, companyId), eq(contacts.number, clean)))
-            .limit(1);
-
-        if (byNumber) return byNumber;
-
-        // 2. Se veio de @lid, busca pelo número @lid armazenado errado e corrige
-        if (lid) {
-            const lidClean = lid.replace(/\D/g, '');
-            const [byLid] = await db
+        // 1. Busca pelo número real (quando informado)
+        if (clean) {
+            const [byNumber] = await db
                 .select()
                 .from(contacts)
-                .where(and(eq(contacts.company_id, companyId), eq(contacts.number, lidClean)))
+                .where(and(eq(contacts.company_id, companyId), eq(contacts.number, clean)))
                 .limit(1);
 
-            if (byLid) {
-                const [fixed] = await db
-                    .update(contacts)
-                    .set({ number: clean, lid: lidClean, name: name ?? byLid.name })
-                    .where(eq(contacts.id, byLid.id))
-                    .returning();
-                console.log(`[contact] Número corrigido: ${lidClean} → ${clean} (id=${fixed.id})`);
-                return fixed;
+            if (byNumber) {
+                const resolved = await this._enrich(byNumber, { lidClean, username });
+                // Se veio LID, funde eventuais duplicados LID-only nesse canônico
+                if (lidClean) await this.mergeLidDuplicates(companyId, resolved.id, lidClean);
+                return resolved;
             }
         }
 
-        // 3. Cria novo contato
+        // 2. Busca por LID — na coluna lid OU no legado (lid gravado errado em number)
+        if (lidClean) {
+            const [existing] = await db
+                .select()
+                .from(contacts)
+                .where(and(
+                    eq(contacts.company_id, companyId),
+                    or(eq(contacts.lid, lidClean), eq(contacts.number, lidClean)),
+                ))
+                .orderBy(asc(contacts.id))
+                .limit(1);
+
+            if (existing) {
+                const patch: Partial<typeof contacts.$inferInsert> = {};
+                // Upgrade: chegou o número real de um contato que só tinha LID
+                if (clean && existing.number !== clean) patch.number = clean;
+                if (!existing.lid) patch.lid = lidClean;
+                if (username && existing.wa_username !== username) patch.wa_username = username;
+
+                let resolved = existing;
+                if (Object.keys(patch).length) {
+                    const [updated] = await db
+                        .update(contacts)
+                        .set(patch)
+                        .where(eq(contacts.id, existing.id))
+                        .returning();
+                    resolved = updated ?? existing;
+                    if (patch.number) {
+                        console.log(`[contact] LID ${lidClean} revelou número ${clean} (id=${resolved.id})`);
+                    }
+                }
+                // Consolida duplicados LID-only remanescentes no canônico
+                await this.mergeLidDuplicates(companyId, resolved.id, lidClean);
+                return resolved;
+            }
+        }
+
+        // 3. Cria novo contato — pode ser LID-only (number null)
+        const fallbackName =
+            name?.trim() ||
+            clean ||
+            (username ? `@${username}` : '') ||
+            (lidClean ? `LID ${lidClean}` : '') ||
+            'Sem nome';
+
         const [created] = await db
             .insert(contacts)
-            .values({ company_id: companyId, name: name ?? clean, number: clean, lid: lid ? lid.replace(/\D/g, '') : null })
+            .values({
+                company_id: companyId,
+                name: fallbackName,
+                number: clean || null,
+                lid: lidClean || null,
+                wa_username: username,
+            })
             .returning();
 
         return created;
+    },
+
+    /** Preenche lid/username num contato existente sem sobrescrever dados já presentes. */
+    async _enrich(
+        contact: Contact,
+        data: { lidClean?: string; username?: string | null },
+    ): Promise<Contact> {
+        const patch: Partial<typeof contacts.$inferInsert> = {};
+        if (data.lidClean && !contact.lid) patch.lid = data.lidClean;
+        if (data.username && contact.wa_username !== data.username) patch.wa_username = data.username;
+
+        if (!Object.keys(patch).length) return contact;
+
+        const [updated] = await db
+            .update(contacts)
+            .set(patch)
+            .where(eq(contacts.id, contact.id))
+            .returning();
+        return updated ?? contact;
+    },
+
+    /**
+     * Funde contatos LID-only duplicados no contato canônico.
+     *
+     * Cenário: um contato conversou primeiro via username (criando um registro
+     * LID-only) e depois revelou o número (criando/atualizando o canônico). Move
+     * tickets, mensagens e históricos de pesquisa dos duplicados para o canônico
+     * e remove os duplicados. Só funde registros realmente LID-only (sem número
+     * real), nunca contatos com número próprio.
+     */
+    async mergeLidDuplicates(companyId: string, canonicalId: number, lidClean: string): Promise<void> {
+        if (!lidClean) return;
+
+        const dups = await db
+            .select()
+            .from(contacts)
+            .where(and(
+                eq(contacts.company_id, companyId),
+                ne(contacts.id, canonicalId),
+                or(eq(contacts.lid, lidClean), eq(contacts.number, lidClean)),
+            ));
+
+        const lidOnly = dups.filter((d) => {
+            const n = (d.number ?? '').replace(/\D/g, '');
+            return n === '' || n === lidClean;
+        });
+        if (!lidOnly.length) return;
+
+        for (const dup of lidOnly) {
+            await db.update(tickets).set({ contact_id: canonicalId }).where(eq(tickets.contact_id, dup.id));
+            await db.update(atendimento_messages).set({ contact_id: canonicalId }).where(eq(atendimento_messages.contact_id, dup.id));
+            await db.update(researchHistorics).set({ contact_id: canonicalId }).where(eq(researchHistorics.contact_id, dup.id));
+            await db.delete(contacts).where(eq(contacts.id, dup.id));
+            console.log(`[contact] LID ${lidClean}: duplicado #${dup.id} fundido em #${canonicalId}`);
+        }
+
+        await this.consolidateOpenTickets(companyId, canonicalId);
+    },
+
+    /**
+     * Após uma fusão, o canônico pode ficar com múltiplos tickets abertos.
+     * Mantém o mais recente, migra as mensagens dos demais para ele e fecha os
+     * excedentes (status 3), emitindo eventos para o front atualizar a lista.
+     */
+    async consolidateOpenTickets(companyId: string, contactId: number): Promise<void> {
+        const open = await db
+            .select()
+            .from(tickets)
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.contact_id, contactId),
+                inArray(tickets.status_id, OPEN_STATUSES),
+                isNull(tickets.deleted_at),
+            ))
+            .orderBy(desc(tickets.updated_at));
+
+        if (open.length <= 1) return;
+
+        const [primary, ...rest] = open;
+        for (const t of rest) {
+            await db.update(atendimento_messages).set({ ticket_id: primary.id }).where(eq(atendimento_messages.ticket_id, t.id));
+            await db.update(tickets).set({ status_id: 3, updated_at: new Date() }).where(eq(tickets.id, t.id));
+            emitToCompany(companyId, 'ticket:closed', { ticketId: t.id });
+        }
+        emitToCompany(companyId, 'ticket:updated', { ticket: primary });
     },
 
     async findById(id: number): Promise<Contact | null> {

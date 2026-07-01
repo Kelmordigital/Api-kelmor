@@ -39,6 +39,7 @@ export const contacts = pgTable('at_contacts', {
     email: varchar('email', { length: 255 }),
     origin: varchar('origin', { length: 255 }),
     lid: varchar('lid', { length: 255 }),
+    wa_username: varchar('wa_username', { length: 255 }),
     profile_pic_url: text('profile_pic_url'),
     created_at: timestamp('created_at').defaultNow(),
 });
