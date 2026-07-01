@@ -1,8 +1,42 @@
-import { eq, and, inArray, isNull, desc, or, sql, gte, lte, ilike } from 'drizzle-orm';
+import { eq, and, ne, inArray, isNull, desc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
 import { db } from '../../database/client';
-import { tickets, contacts, historic_tickets, Ticket } from './atendimento.db.schema';
+import { tickets, contacts, historic_tickets, userQueues, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { emitToCompany } from '../../shared/socket';
+import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+
+/**
+ * Constrói a condição de visibilidade de tickets para um "viewer".
+ * - admin/superAdmin ou empresa com show_all_tickets → sem restrição (undefined).
+ * - demais: vê ticket cuja fila ele pertence, OU sem fila, OU atribuído a ele.
+ *   Se not_show_pending_ticket_without_queue: oculta pendentes (status 1) sem fila.
+ */
+export async function ticketVisibilityCondition(
+    companyId: string,
+    userId: string,
+    profileTag: string,
+): Promise<SQL | undefined> {
+    const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
+    if (isAdmin) return undefined;
+
+    const perms = await getCompanyPermissions(companyId);
+    if (perms.show_all_tickets) return undefined;
+
+    const myQueues = await db
+        .select({ queue_id: userQueues.queue_id })
+        .from(userQueues)
+        .where(eq(userQueues.user_id, userId));
+    const queueIds = myQueues.map((q) => q.queue_id);
+
+    const ors: SQL[] = [eq(tickets.attendant_user_id, userId)];
+    if (queueIds.length) ors.push(inArray(tickets.queue_id, queueIds));
+    ors.push(
+        perms.not_show_pending_ticket_without_queue
+            ? (and(isNull(tickets.queue_id), ne(tickets.status_id, 1)) as SQL)
+            : isNull(tickets.queue_id),
+    );
+    return or(...ors);
+}
 
 export interface FunilCard {
     id: number;
@@ -80,11 +114,18 @@ export const ticketService = {
         dateEnd?: string;
         limit?: number;
         offset?: number;
+        /** Quando presente, aplica visibilidade por fila para não-admins. */
+        viewer?: { userId: string; profileTag: string };
     } = {}): Promise<Ticket[]> {
         const conditions: ReturnType<typeof eq>[] = [
             eq(tickets.company_id, companyId),
             isNull(tickets.deleted_at),
         ];
+
+        if (filters.viewer) {
+            const vis = await ticketVisibilityCondition(companyId, filters.viewer.userId, filters.viewer.profileTag);
+            if (vis) conditions.push(vis as any);
+        }
 
         if (filters.statusIds?.length)  conditions.push(inArray(tickets.status_id, filters.statusIds) as any);
         if (filters.attendantId)        conditions.push(eq(tickets.attendant_user_id, filters.attendantId) as any);
@@ -135,7 +176,7 @@ export const ticketService = {
     async count(companyId: string, userId: string, profileTag: string): Promise<{
         pending: number; open: number; closed: number;
     }> {
-        const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
+        const vis = await ticketVisibilityCondition(companyId, userId, profileTag);
 
         const rows = await db
             .select({
@@ -146,10 +187,7 @@ export const ticketService = {
             .where(and(
                 eq(tickets.company_id, companyId),
                 isNull(tickets.deleted_at),
-                isAdmin ? undefined : or(
-                    eq(tickets.status_id, 1),
-                    eq(tickets.attendant_user_id, userId),
-                ) as any,
+                vis,
             ))
             .groupBy(tickets.status_id);
 
@@ -196,6 +234,46 @@ export const ticketService = {
         } finally {
             releaseLock(lockKey);
         }
+    },
+
+    /**
+     * Roteia um ticket para uma fila (usado pelo chatbot). Seta `queue_id` e, se a
+     * fila tiver distribuição automática e houver atendente elegível/online, atribui
+     * (status 1 → 2). Sem atendente elegível, o ticket fica pendente na fila.
+     */
+    async routeToQueue(ticketId: number, companyId: string, queueId: number): Promise<Ticket | null> {
+        const [current] = await db.select().from(tickets)
+            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+            .limit(1);
+        if (!current) return null;
+
+        // Já atribuído a um atendente → não mexe (não rouba ticket em atendimento)
+        if (current.status_id === 2 && current.attendant_user_id) return current;
+
+        const { distributeTicket } = await import('../filas/queue-distribution.service');
+        const chosen = await distributeTicket(companyId, queueId, current.connection_id);
+
+        if (chosen) {
+            await db.insert(historic_tickets).values({
+                ticket_id: ticketId,
+                user_id: chosen,
+                status_id_init: current.status_id,
+                status_id_end: 2,
+            });
+        }
+
+        const [updated] = await db
+            .update(tickets)
+            .set({
+                queue_id: queueId,
+                ...(chosen ? { status_id: 2, attendant_user_id: chosen } : {}),
+                updated_at: new Date(),
+            })
+            .where(eq(tickets.id, ticketId))
+            .returning();
+
+        emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+        return updated;
     },
 
     /** Devolve o ticket para a fila (2 → 1). Zera o atendente. */

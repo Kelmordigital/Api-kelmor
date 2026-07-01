@@ -30,6 +30,24 @@ function stripHtml(html: string | null | undefined): string {
     return html.replace(/<[^>]+>/g, '').trim();
 }
 
+/**
+ * Retorna a linha de permissões da empresa, criando-a com os defaults do schema
+ * se ainda não existir. Reutilizado por visibilidade de tickets, distribuição de
+ * filas e listagem de atendentes elegíveis.
+ */
+export async function getCompanyPermissions(companyId: string) {
+    const perms = await db.select().from(companyPermissions)
+        .where(eq(companyPermissions.company_id, companyId))
+        .then(rows => rows[0] ?? null);
+
+    if (perms) return perms;
+
+    const [created] = await db.insert(companyPermissions)
+        .values({ company_id: companyId })
+        .returning();
+    return created;
+}
+
 export const configuracaoGeralService = {
 
     async get(companyId: string) {
@@ -39,16 +57,7 @@ export const configuracaoGeralService = {
             transfer_message: companies.transfer_message,
         }).from(companies).where(eq(companies.id, companyId));
 
-        let perms = await db.select().from(companyPermissions)
-            .where(eq(companyPermissions.company_id, companyId))
-            .then(rows => rows[0] ?? null);
-
-        if (!perms) {
-            const [created] = await db.insert(companyPermissions)
-                .values({ company_id: companyId })
-                .returning();
-            perms = created;
-        }
+        const perms = await getCompanyPermissions(companyId);
 
         return { ...company, ...perms };
     },

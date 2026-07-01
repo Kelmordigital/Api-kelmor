@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
@@ -11,6 +11,7 @@ import { getRedisClient } from '../config/redis';
 import { errorHandler } from '../middlewares/error.middleware';
 import { registerRequestLogger } from '../middlewares/logger.middleware';
 import { internalAuthMiddleware } from '../middlewares/internal-auth.middleware';
+import { authMiddleware, requireAdmin } from '../middlewares/auth.middleware';
 import { authRoutes } from '../modules/auth/auth.routes';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
@@ -29,6 +30,19 @@ import { agendaRoutes } from '../modules/agenda/agenda.routes';
 import { configuracaoGeralRoutes } from '../modules/configuracao-geral/configuracao-geral.routes';
 import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
+
+/**
+ * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
+ * Aplica authMiddleware (popula req.user) e requireAdmin (403 se não-admin)
+ * como hooks de instância, antes dos preHandlers das próprias rotas.
+ */
+function adminOnly(routes: (app: FastifyInstance) => Promise<void>) {
+    return async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+        await routes(app);
+    };
+}
 
 export function buildApp() {
     const app = Fastify({
@@ -95,23 +109,28 @@ export function buildApp() {
         env: env.NODE_ENV,
     }));
 
+    // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
     app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
-    app.register(botsRoutes, { prefix: '/api/v1/bots' });
     app.register(etiquetasRoutes, { prefix: '/api/v1' });
     app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
-    app.register(usuariosRoutes, { prefix: '/api/v1/configuracao/usuarios' });
-    app.register(pesquisasRoutes, { prefix: '/api/v1/configuracao/pesquisas' });
-    app.register(campanhasRoutes, { prefix: '/api/v1/configuracao/mensagens-agendadas' });
-    app.register(produtosRoutes, { prefix: '/api/v1/configuracao/produtos' });
+
+    // ── Restritos a admin/superAdmin ─────────────────────────────────────────
+    app.register(adminOnly(botsRoutes), { prefix: '/api/v1/bots' });
+    app.register(adminOnly(usuariosRoutes), { prefix: '/api/v1/configuracao/usuarios' });
+    app.register(adminOnly(pesquisasRoutes), { prefix: '/api/v1/configuracao/pesquisas' });
+    app.register(adminOnly(campanhasRoutes), { prefix: '/api/v1/configuracao/mensagens-agendadas' });
+    app.register(adminOnly(produtosRoutes), { prefix: '/api/v1/configuracao/produtos' });
+    // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
+    // O gating admin é feito por-rota dentro de integracao.routes.ts.
     app.register(integracoesRoutes, { prefix: '/api/v1/integracoes' });
-    app.register(agendaRoutes, { prefix: '/api/v1/agenda' });
-    app.register(configuracaoGeralRoutes, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
-    app.register(reportsRoutes,            { prefix: '/api/v1/reports' });
-    app.register(reportTicketsRoutes,      { prefix: '/api/v1/reporttickets' });
-    app.register(crmReportsRoutes,         { prefix: '/api/v1/crm-reports' });
+    app.register(adminOnly(agendaRoutes), { prefix: '/api/v1/agenda' });
+    app.register(adminOnly(configuracaoGeralRoutes), { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    app.register(adminOnly(reportsRoutes),       { prefix: '/api/v1/reports' });
+    app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
+    app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
 
     // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
     app.put('/connection/update/:id', whatsappController.connectionUpdate);

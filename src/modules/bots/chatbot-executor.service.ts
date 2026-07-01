@@ -69,6 +69,8 @@ async function sendUntilInteractive(
     nodeMap: Map<string, BotNode>,
     bot: Bot,
     conversationId: number,
+    companyId: string,
+    ticketId: number | undefined,
 ): Promise<{ finalNodeId: string; ended: boolean }> {
     let currentId = startNodeId;
     let ended = false;
@@ -82,6 +84,13 @@ async function sendUntilInteractive(
         if (node.type === 'menu' || node.type === 'question') break;
 
         if (node.type === 'transfer' || node.type === 'end') {
+            // Nó de transferência com fila-alvo: roteia o ticket para a fila e
+            // dispara a distribuição automática (se configurada na fila).
+            if (node.type === 'transfer' && node.queue_id && ticketId) {
+                const { ticketService } = await import('../atendimento/ticket.service');
+                await ticketService.routeToQueue(ticketId, companyId, node.queue_id)
+                    .catch((err: Error) => console.error('[ChatbotExecutor] Falha ao rotear para fila:', err.message));
+            }
             if (node.type === 'end' && bot.send_exit_message && bot.exit_message) {
                 await whatsappService.sendTextToPhone(connectionId, phone, bot.exit_message);
             }
@@ -100,6 +109,7 @@ async function sendUntilInteractive(
 export const chatbotExecutorService = {
     async execute(
         companyId: string, connectionId: number, phone: string, userMessage: string,
+        ticketId?: number,
     ): Promise<void> {
         try {
             const bot = await botsRepository.findDefaultActive(companyId);
@@ -135,7 +145,7 @@ export const chatbotExecutorService = {
                 });
 
                 const { ended } = await sendUntilInteractive(
-                    connectionId, phone, startNode.id, nodeMap, bot, conversation.id,
+                    connectionId, phone, startNode.id, nodeMap, bot, conversation.id, companyId, ticketId,
                 );
                 if (ended) await botsRepository.updateConversation(conversation.id, { status: 'ended' });
                 return;
@@ -164,7 +174,7 @@ export const chatbotExecutorService = {
             if (!nextNodeId) return;
 
             const { ended } = await sendUntilInteractive(
-                connectionId, phone, nextNodeId, nodeMap, bot, conversation.id,
+                connectionId, phone, nextNodeId, nodeMap, bot, conversation.id, companyId, ticketId,
             );
             if (ended) await botsRepository.updateConversation(conversation.id, { status: 'ended' });
 

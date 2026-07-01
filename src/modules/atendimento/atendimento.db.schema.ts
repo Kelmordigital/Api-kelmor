@@ -29,6 +29,9 @@ export const queues = pgTable('at_queues', {
     color: varchar('color', { length: 50 }),
     enabled: boolean('enabled').default(true),
     greeting_message: text('greeting_message'),
+    // Modo de distribuição automática: none | less_attendances | time | attendant
+    distribution: varchar('distribution', { length: 30 }).default('none').notNull(),
+    deleted_at: timestamp('deleted_at'),
 });
 
 export const contacts = pgTable('at_contacts', {

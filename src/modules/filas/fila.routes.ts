@@ -1,10 +1,20 @@
 import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
 import { filaController } from './fila.controller';
 
 export async function filasRoutes(app: FastifyInstance) {
-    app.get('/',       { preHandler: authMiddleware }, filaController.list);
-    app.post('/',      { preHandler: authMiddleware }, filaController.create);
-    app.put('/:id',    { preHandler: authMiddleware }, filaController.update);
-    app.delete('/:id', { preHandler: authMiddleware }, filaController.remove);
+    const auth = { preHandler: authMiddleware };
+    const adminAuth = { preHandler: [authMiddleware, requireAdmin] };
+
+    // Rotas estáticas antes das paramétricas
+    app.get('/',            auth, filaController.list);
+    app.get('/all',         auth, filaController.listAll);
+    app.get('/userqueue',   auth, filaController.listUserQueues);
+    app.get('/activequeue', auth, filaController.listActive);
+    app.get('/:id/:connectionId/users', auth, filaController.eligibleUsers);
+    app.get('/:id',         auth, filaController.findById);
+
+    app.post('/',      adminAuth, filaController.create);
+    app.put('/:id',    adminAuth, filaController.update);
+    app.delete('/:id', adminAuth, filaController.remove);
 }

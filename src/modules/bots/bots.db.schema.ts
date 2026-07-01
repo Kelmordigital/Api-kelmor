@@ -44,6 +44,8 @@ export const bot_nodes = pgTable('at_bot_nodes', {
     x:            integer('x').default(0).notNull(),
     y:            integer('y').default(0).notNull(),
     node_data:    text('node_data'), // JSON serializado
+    // Fila-alvo quando type === 'transfer' (roteamento + distribuição automática)
+    queue_id:     bigint('queue_id', { mode: 'number' }),
     created_at:   timestamp('created_at').defaultNow(),
 });
 

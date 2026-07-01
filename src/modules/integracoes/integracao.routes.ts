@@ -1,10 +1,12 @@
 import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
 import { integracaoController } from './integracao.controller';
 
 export async function integracoesRoutes(app: FastifyInstance) {
-    app.get('/google/auth-url',  { preHandler: authMiddleware }, integracaoController.getAuthUrl);
-    app.get('/google/status',    { preHandler: authMiddleware }, integracaoController.getStatus);
-    app.delete('/google',        { preHandler: authMiddleware }, integracaoController.disconnect);
+    const adminAuth = { preHandler: [authMiddleware, requireAdmin] };
+    app.get('/google/auth-url',  adminAuth, integracaoController.getAuthUrl);
+    app.get('/google/status',    adminAuth, integracaoController.getStatus);
+    app.delete('/google',        adminAuth, integracaoController.disconnect);
+    // Público: redirect de OAuth do Google (sem bearer token)
     app.get('/google/callback',  integracaoController.callback);
 }

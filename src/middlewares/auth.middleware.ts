@@ -67,3 +67,9 @@ export async function requireFinance(req: FastifyRequest, reply: FastifyReply) {
         return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Acesso negado! Apenas usuários financeiros podem alterar configurações de módulos.' });
     }
 }
+
+export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {
+    if (req.user.profile_tag !== 'admin' && req.user.profile_tag !== 'superAdmin') {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Acesso exclusivo para administradores.' });
+    }
+}

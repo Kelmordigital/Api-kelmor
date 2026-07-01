@@ -533,7 +533,7 @@ export const whatsappService = {
                 await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
                 if (sendTarget) {
                     const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
-                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body).catch((err: Error) =>
+                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id).catch((err: Error) =>
                         console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
                     );
                 }

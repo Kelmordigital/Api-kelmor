@@ -21,15 +21,11 @@ export const atendimentoController = {
 
         const statusIds = status === 'open' ? [1, 2] : status === 'closed' ? [3] : undefined;
 
-        // Atendentes só veem os próprios tickets em status 2/3
-        const isAdmin = req.user.profile_tag === 'admin' || req.user.profile_tag === 'superAdmin';
-        const attendantId = (!isAdmin && statusIds && !statusIds.includes(1))
-            ? req.user.id
-            : undefined;
-
+        // Visibilidade por fila: não-admins só veem tickets das suas filas
+        // (+ sem fila + os atribuídos a si). Admin/superAdmin veem tudo.
         const list = await ticketService.list(companyId, {
             statusIds,
-            attendantId,
+            viewer:        { userId: req.user.id, profileTag: req.user.profile_tag },
             connectionId:  connectionId ? Number(connectionId) : undefined,
             search:        search ?? undefined,
             dateInit:      dateInit ?? undefined,

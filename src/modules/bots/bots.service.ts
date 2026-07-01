@@ -12,6 +12,7 @@ interface NodeInput {
     x: number;
     y: number;
     node_data?: Record<string, unknown> | null;
+    queue_id?: number | null;
 }
 
 export const botsService = {
@@ -98,6 +99,7 @@ export const botsService = {
             x:            n.x,
             y:            n.y,
             node_data:    n.node_data ? JSON.stringify(n.node_data) : null,
+            queue_id:     n.queue_id ?? null,
         })));
     },
 };
