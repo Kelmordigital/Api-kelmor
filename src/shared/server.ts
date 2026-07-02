@@ -10,7 +10,7 @@ import { env } from '../config/env';
 import { getRedisClient } from '../config/redis';
 import { errorHandler } from '../middlewares/error.middleware';
 import { registerRequestLogger } from '../middlewares/logger.middleware';
-import { internalAuthMiddleware } from '../middlewares/internal-auth.middleware';
+import { internalAuthMiddleware, baysWebhookMiddleware } from '../middlewares/internal-auth.middleware';
 import { authMiddleware, requireAdmin } from '../middlewares/auth.middleware';
 import { authRoutes } from '../modules/auth/auth.routes';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
@@ -132,21 +132,22 @@ export function buildApp() {
     app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
 
-    // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
-    app.put('/connection/update/:id', whatsappController.connectionUpdate);
+    // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
+    const baysAuth = { preHandler: baysWebhookMiddleware };
+    app.put('/connection/update/:id', baysAuth, whatsappController.connectionUpdate);
     // Bays chama tanto /connection/messages-webhook quanto /connection/messages-webhook/:id
-    app.post('/connection/messages-webhook', whatsappController.messagesWebhook);
-    app.post('/connection/messages-webhook/:id', whatsappController.messagesWebhook);
+    app.post('/connection/messages-webhook', baysAuth, whatsappController.messagesWebhook);
+    app.post('/connection/messages-webhook/:id', baysAuth, whatsappController.messagesWebhook);
     // Erros de conexão reportados pelo bays — persiste no banco para diagnóstico
-    app.post('/connection/errors/:id', async (req, reply) => {
+    app.post('/connection/errors/:id', baysAuth, async (req, reply) => {
         const { id } = req.params as { id: string };
         whatsappService.handleConnectionError(Number(id), req.body).catch(() => {});
         return reply.send({ ok: true });
     });
     app.post('/connection/stealth/:id', async (_req, reply) => reply.send({ ok: true }));
     app.get('/connection/stealth/:id', async (_req, reply) => reply.send({ config: null }));
-    // ACK de entrega de mensagem reportado pelo bays
-    app.post('/connection/message-ack/:id', async (_req, reply) => reply.send({ ok: true }));
+    // ACK de entrega de mensagem reportado pelo bays (handler dedicado — fase ACK)
+    app.post('/connection/message-ack/:id', baysAuth, async (_req, reply) => reply.send({ ok: true }));
 
     // Bays startup handshake
     app.post('/container', async (_req, reply) =>

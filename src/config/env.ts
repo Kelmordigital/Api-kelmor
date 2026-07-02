@@ -44,6 +44,14 @@ const envSchema = z.object({
     GOOGLE_CLIENT_ID:     z.string().default(''),
     GOOGLE_CLIENT_SECRET: z.string().default(''),
     GOOGLE_REDIRECT_URI:  z.string().default('http://localhost:3000/api/v1/integracoes/google/callback'),
+
+    // RabbitMQ (barramento de eventos com o bays). Desligado por padrão →
+    // recebimento por HTTP webhook (fallback garantido).
+    USE_RABBITMQ:   z.string().default('false').transform((v) => v === 'true'),
+    RABBITMQ_URL:   z.string().default('kelmor-rabbitmq'),
+    RABBITMQ_PORT1: z.string().default('5672').transform(Number),
+    RABBITMQ_USER:  z.string().default('kelmor'),
+    RABBITMQ_PASS:  z.string().default('kelmor123'),
 });
 
 const parsed = envSchema.safeParse(process.env);

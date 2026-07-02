@@ -7,6 +7,7 @@ import { initSocket } from './shared/socket';
 import { startConnectionHealthJob } from './jobs/connection-health.job';
 import { startReconnectionWorker } from './jobs/reconnection.queue';
 import { restoreScheduledCampaigns } from './modules/campanhas/campanha.scheduler';
+import { startRabbitConsumer, stopRabbitConsumer } from './shared/rabbitmq';
 import type { Worker } from 'bullmq';
 
 process.on('uncaughtException', (err) => {
@@ -30,6 +31,7 @@ async function main() {
         console.log(`[shutdown] Sinal ${signal} recebido — encerrando graciosamente...`);
         if (healthInterval) clearInterval(healthInterval);
         if (reconnectWorker) await reconnectWorker.close().catch(() => {});
+        await stopRabbitConsumer().catch(() => {});
         await app.close().catch(() => {});
         console.log('[shutdown] Servidor encerrado.');
         process.exit(0);
@@ -44,6 +46,7 @@ async function main() {
         healthInterval    = startConnectionHealthJob();
         reconnectWorker   = startReconnectionWorker();
         restoreScheduledCampaigns().catch(() => {});
+        startRabbitConsumer().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
         console.log(`Servidor rodando na porta ${env.PORT}`);
     } catch (err) {
         app.log.error(err);

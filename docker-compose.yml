@@ -11,6 +11,7 @@ services:
     depends_on:
       - kelmor-postgres
       - kelmor-redis
+      - kelmor-rabbitmq
     networks:
       - kelmor-network
     restart: unless-stopped
@@ -48,9 +49,26 @@ services:
     networks:
       - kelmor-network
 
+  kelmor-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: kelmor-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-kelmor}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-kelmor123}
+    ports:
+      # Somente local: amqp (5672) e painel de gestão (15672)
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - kelmor_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - kelmor-network
+
 volumes:
   kelmor_postgres_data:
   kelmor_redis_data:
+  kelmor_rabbitmq_data:
   kelmor_uploads:
 
 networks:
