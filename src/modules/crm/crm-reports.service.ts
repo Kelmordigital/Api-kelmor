@@ -43,6 +43,7 @@ export const crmReportsService = {
                     id:              tickets.id,
                     origin:          tickets.origin,
                     sale_price:      tickets.sale_price,
+                    created_at:      tickets.created_at,
                     updated_at:      tickets.updated_at,
                     contact_name:    contacts.name,
                     contact_number:  contacts.number,
@@ -80,6 +81,7 @@ export const crmReportsService = {
                 id:          r.id,
                 origin:      r.origin,
                 sale_price:  r.sale_price,
+                createdAt:   r.created_at,
                 updatedAt:   r.updated_at,
                 contact:     { name: r.contact_name,   number: r.contact_number },
                 attendant_user: r.attendant_name ? { name: r.attendant_name } : null,
@@ -123,6 +125,7 @@ export const crmReportsService = {
                 .select({
                     id:             tickets.id,
                     origin:         tickets.origin,
+                    created_at:     tickets.created_at,
                     updated_at:     tickets.updated_at,
                     contact_name:   contacts.name,
                     contact_number: contacts.number,
@@ -151,6 +154,7 @@ export const crmReportsService = {
             salesMade: rows.map(r => ({
                 id:         r.id,
                 origin:     r.origin,
+                createdAt:  r.created_at,
                 updatedAt:  r.updated_at,
                 contact:    { name: r.contact_name, number: r.contact_number },
                 attendant_user: r.attendant_name ? { name: r.attendant_name } : null,

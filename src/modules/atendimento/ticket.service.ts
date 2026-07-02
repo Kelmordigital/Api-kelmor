@@ -2,6 +2,7 @@ import { eq, and, ne, inArray, isNull, desc, or, sql, gte, lte, ilike, type SQL 
 import { db } from '../../database/client';
 import { tickets, contacts, historic_tickets, userQueues, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
+import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 
@@ -49,8 +50,9 @@ export interface FunilCard {
     created_at: Date | null;
 }
 
-// Status IDs
-const OPEN_STATUSES = [1, 2];
+// Status IDs considerados "ativos" — nova mensagem entra no ticket existente
+// 1=Pendente 2=Em Atendimento 7=Pesquisa de Satisfação 9=Bot/Resolvido
+const OPEN_STATUSES = [1, 2, 7, 9];
 
 // In-memory lock simples para evitar race condition no "assumir ticket"
 const _locks = new Map<string, boolean>();
@@ -73,12 +75,18 @@ export const ticketService = {
         serializedId?: string,
         origin = 'Base de contatos',
     ): Promise<{ ticket: Ticket; created: boolean }> {
+        // Filtra pela mesma conexão: um contato pode ter tickets em conexões distintas
+        const connCondition = connectionId
+            ? eq(tickets.connection_id, connectionId)
+            : isNull(tickets.connection_id);
+
         const [existing] = await db
             .select()
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
                 eq(tickets.contact_id, contactId),
+                connCondition,
                 inArray(tickets.status_id, OPEN_STATUSES),
                 isNull(tickets.deleted_at),
             ))
@@ -216,6 +224,22 @@ export const ticketService = {
                 throw new Error('Ticket já está em atendimento');
             }
 
+            // Verifica limite de atendimentos simultâneos por atendente
+            const perms = await getCompanyPermissions(companyId);
+            if (perms.limit_services_users) {
+                const [{ cnt }] = await db
+                    .select({ cnt: sql<number>`count(*)::int` })
+                    .from(tickets)
+                    .where(and(
+                        eq(tickets.attendant_user_id, userId),
+                        eq(tickets.status_id, 2),
+                        isNull(tickets.deleted_at),
+                    ));
+                if (cnt >= (perms.number_limit_services_users ?? 5)) {
+                    throw new Error('Limite de atendimentos simultâneos atingido');
+                }
+            }
+
             await db.insert(historic_tickets).values({
                 ticket_id: ticketId,
                 user_id: userId,
@@ -230,9 +254,61 @@ export const ticketService = {
                 .returning();
 
             emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+
+            // Mensagens automáticas de saudação e protocolo (fire-and-forget)
+            this._sendOpeningMessages(updated, userId, companyId, perms).catch(() => {});
+
             return updated;
         } finally {
             releaseLock(lockKey);
+        }
+    },
+
+    async _sendOpeningMessages(
+        ticket: Ticket,
+        userId: string,
+        companyId: string,
+        perms: Awaited<ReturnType<typeof getCompanyPermissions>>,
+    ): Promise<void> {
+        if (!ticket.connection_id || !ticket.contact_id) return;
+
+        const [contactRow] = await db
+            .select({ number: contacts.number, lid: contacts.lid })
+            .from(contacts)
+            .where(eq(contacts.id, ticket.contact_id))
+            .limit(1);
+
+        const target = contactRow?.number || (contactRow?.lid ? `lid:${contactRow.lid}` : null);
+        if (!target) return;
+
+        const [companyRow] = await db
+            .select({ init_message: companies.init_message })
+            .from(companies)
+            .where(eq(companies.id, companyId))
+            .limit(1);
+
+        const { whatsappService } = await import('../whatsapp/whatsapp.service');
+
+        if (perms.show_ticket_name_message && companyRow?.init_message) {
+            const [attendant] = await db
+                .select({ name: users.name })
+                .from(users)
+                .where(eq(users.id, userId))
+                .limit(1);
+
+            const msg = companyRow.init_message.replace(
+                /\{atendente\}/gi,
+                attendant?.name ?? 'nosso atendente',
+            );
+            await whatsappService.sendTextToPhone(ticket.connection_id, target, msg);
+        }
+
+        if (perms.send_ticket_protocol) {
+            await whatsappService.sendTextToPhone(
+                ticket.connection_id,
+                target,
+                `O número do protocolo de atendimento é *#${ticket.id}*.`,
+            );
         }
     },
 
@@ -388,7 +464,47 @@ export const ticketService = {
         });
 
         emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+
+        // Mensagem de transferência para o cliente (fire-and-forget)
+        this._sendTransferMessage(updated, companyId, fromUser?.name, toUser.name).catch(() => {});
+
         return updated;
+    },
+
+    async _sendTransferMessage(
+        ticket: Ticket,
+        companyId: string,
+        fromName: string | undefined,
+        toName: string,
+    ): Promise<void> {
+        if (!ticket.connection_id || !ticket.contact_id) return;
+
+        const perms = await getCompanyPermissions(companyId);
+        if (!perms.send_ticket_transfer_msg) return;
+
+        const [companyRow] = await db
+            .select({ transfer_message: companies.transfer_message })
+            .from(companies)
+            .where(eq(companies.id, companyId))
+            .limit(1);
+
+        if (!companyRow?.transfer_message) return;
+
+        const [contactRow] = await db
+            .select({ number: contacts.number, lid: contacts.lid })
+            .from(contacts)
+            .where(eq(contacts.id, ticket.contact_id))
+            .limit(1);
+
+        const target = contactRow?.number || (contactRow?.lid ? `lid:${contactRow.lid}` : null);
+        if (!target) return;
+
+        const msg = companyRow.transfer_message
+            .replace(/\{atendente_anterior\}/gi, fromName ?? 'atendente anterior')
+            .replace(/\{atendente\}/gi, toName);
+
+        const { whatsappService } = await import('../whatsapp/whatsapp.service');
+        await whatsappService.sendTextToPhone(ticket.connection_id, target, msg);
     },
 
     /** Alterna fixação do ticket no topo da lista. */
@@ -445,13 +561,43 @@ export const ticketService = {
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
 
-        // Envia pesquisa de satisfação da fila (fire-and-forget)
+        // Mensagem de despedida (fire-and-forget)
+        this._sendClosingMessage(updated, companyId).catch(() => {});
+
+        // Pesquisa de satisfação (fire-and-forget)
         const { pesquisaService } = await import('../pesquisas/pesquisa.service');
         pesquisaService.sendSurveyAfterClose(updated).catch((err: Error) =>
             console.error('[Survey] Erro ao enviar pesquisa:', err.message)
         );
 
         return updated;
+    },
+
+    async _sendClosingMessage(ticket: Ticket, companyId: string): Promise<void> {
+        if (!ticket.connection_id || !ticket.contact_id) return;
+
+        const perms = await getCompanyPermissions(companyId);
+        if (!perms.send_ticket_goodbye_msg) return;
+
+        const [companyRow] = await db
+            .select({ end_message: companies.end_message })
+            .from(companies)
+            .where(eq(companies.id, companyId))
+            .limit(1);
+
+        if (!companyRow?.end_message) return;
+
+        const [contactRow] = await db
+            .select({ number: contacts.number, lid: contacts.lid })
+            .from(contacts)
+            .where(eq(contacts.id, ticket.contact_id))
+            .limit(1);
+
+        const target = contactRow?.number || (contactRow?.lid ? `lid:${contactRow.lid}` : null);
+        if (!target) return;
+
+        const { whatsappService } = await import('../whatsapp/whatsapp.service');
+        await whatsappService.sendTextToPhone(ticket.connection_id, target, companyRow.end_message);
     },
 
     async registerSale(
