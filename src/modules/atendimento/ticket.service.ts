@@ -1,4 +1,4 @@
-import { eq, and, ne, inArray, isNull, desc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
+import { eq, and, ne, inArray, isNull, desc, asc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { tickets, contacts, historic_tickets, userQueues, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
@@ -117,6 +117,10 @@ export const ticketService = {
         statusIds?: number[];
         attendantId?: string;
         connectionId?: number;
+        queueId?: number;
+        /** Restringe a "meus": tickets onde sou atendente OU quem fechou. */
+        mineUserId?: string;
+        orderBy?: 'ASC' | 'DESC';
         search?: string;
         dateInit?: string;
         dateEnd?: string;
@@ -138,6 +142,11 @@ export const ticketService = {
         if (filters.statusIds?.length)  conditions.push(inArray(tickets.status_id, filters.statusIds) as any);
         if (filters.attendantId)        conditions.push(eq(tickets.attendant_user_id, filters.attendantId) as any);
         if (filters.connectionId)       conditions.push(eq(tickets.connection_id, filters.connectionId) as any);
+        if (filters.queueId)            conditions.push(eq(tickets.queue_id, filters.queueId) as any);
+        if (filters.mineUserId)         conditions.push(or(
+            eq(tickets.attendant_user_id, filters.mineUserId),
+            eq(tickets.closed_by_user_id, filters.mineUserId),
+        ) as any);
         if (filters.dateInit)           conditions.push(gte(tickets.updated_at, new Date(filters.dateInit)) as any);
         if (filters.dateEnd)            conditions.push(lte(tickets.updated_at, new Date(filters.dateEnd)) as any);
 
@@ -174,7 +183,10 @@ export const ticketService = {
             .select()
             .from(tickets)
             .where(and(...conditions))
-            .orderBy(desc(sql`${tickets.pinned}`), desc(tickets.updated_at))
+            .orderBy(
+                desc(sql`${tickets.pinned}`),
+                filters.orderBy === 'ASC' ? asc(tickets.updated_at) : desc(tickets.updated_at),
+            )
             .limit(limit)
             .offset(offset);
     },

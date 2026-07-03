@@ -8,7 +8,8 @@ export const atendimentoController = {
 
     async listTickets(req: FastifyRequest, reply: FastifyReply) {
         const companyId = req.user.company_id!;
-        const { status, search, connectionId, dateInit, dateEnd, limit, offset } =
+        const { status, search, connectionId, dateInit, dateEnd, limit, offset,
+                queueId, userId, showAll, orderBy } =
             req.query as {
                 status?: string;
                 search?: string;
@@ -17,6 +18,10 @@ export const atendimentoController = {
                 dateEnd?: string;
                 limit?: string;
                 offset?: string;
+                queueId?: string;
+                userId?: string;
+                showAll?: string;
+                orderBy?: string;
             };
 
         const statusIds = status === 'open' ? [1, 2] : status === 'closed' ? [3] : undefined;
@@ -27,6 +32,10 @@ export const atendimentoController = {
             statusIds,
             viewer:        { userId: req.user.id, profileTag: req.user.profile_tag },
             connectionId:  connectionId ? Number(connectionId) : undefined,
+            queueId:       queueId ? Number(queueId) : undefined,
+            attendantId:   userId || undefined,
+            mineUserId:    showAll === 'false' ? req.user.id : undefined,
+            orderBy:       orderBy === 'ASC' ? 'ASC' : 'DESC',
             search:        search ?? undefined,
             dateInit:      dateInit ?? undefined,
             dateEnd:       dateEnd ?? undefined,
