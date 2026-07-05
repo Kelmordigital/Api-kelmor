@@ -9,6 +9,7 @@ export type UserWithProfile = {
     email_verified: boolean;
     is_approved: boolean;
     finance: boolean;
+    totp_enabled: boolean;
 };
 export declare const authRepository: {
     findByEmailWithProfile(email: string): Promise<UserWithProfile | null>;
@@ -22,6 +23,9 @@ export declare const authRepository: {
         email_verified: boolean;
         is_approved: boolean;
         finance: boolean;
+        totp_secret: string | null;
+        totp_enabled: boolean;
+        totp_recovery_codes: unknown;
         created_at: Date | null;
         updated_at: Date | null;
     }>;
@@ -35,6 +39,9 @@ export declare const authRepository: {
         email_verified: boolean;
         is_approved: boolean;
         finance: boolean;
+        totp_secret: string | null;
+        totp_enabled: boolean;
+        totp_recovery_codes: unknown;
         created_at: Date | null;
         updated_at: Date | null;
     }>;
@@ -61,6 +68,9 @@ export declare const authRepository: {
         email_verified: boolean;
         is_approved: boolean;
         finance: boolean;
+        totp_secret: string | null;
+        totp_enabled: boolean;
+        totp_recovery_codes: unknown;
     }>;
     approveUser(userId: string): Promise<{
         id: string;

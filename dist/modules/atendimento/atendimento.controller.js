@@ -41,17 +41,18 @@ const dashboard_service_1 = require("./dashboard.service");
 exports.atendimentoController = {
     async listTickets(req, reply) {
         const companyId = req.user.company_id;
-        const { status, search, connectionId, dateInit, dateEnd, limit, offset } = req.query;
+        const { status, search, connectionId, dateInit, dateEnd, limit, offset, queueId, userId, showAll, orderBy } = req.query;
         const statusIds = status === 'open' ? [1, 2] : status === 'closed' ? [3] : undefined;
-        // Atendentes só veem os próprios tickets em status 2/3
-        const isAdmin = req.user.profile_tag === 'admin' || req.user.profile_tag === 'superAdmin';
-        const attendantId = (!isAdmin && statusIds && !statusIds.includes(1))
-            ? req.user.id
-            : undefined;
+        // Visibilidade por fila: não-admins só veem tickets das suas filas
+        // (+ sem fila + os atribuídos a si). Admin/superAdmin veem tudo.
         const list = await ticket_service_1.ticketService.list(companyId, {
             statusIds,
-            attendantId,
+            viewer: { userId: req.user.id, profileTag: req.user.profile_tag },
             connectionId: connectionId ? Number(connectionId) : undefined,
+            queueId: queueId ? Number(queueId) : undefined,
+            attendantId: userId || undefined,
+            mineUserId: showAll === 'false' ? req.user.id : undefined,
+            orderBy: orderBy === 'ASC' ? 'ASC' : 'DESC',
             search: search ?? undefined,
             dateInit: dateInit ?? undefined,
             dateEnd: dateEnd ?? undefined,
@@ -160,23 +161,60 @@ exports.atendimentoController = {
             const ticket = await ticket_service_1.ticketService.get(Number(id), companyId);
             if (ticket) {
                 const contact = await contact_service_1.contactService.findById(ticket.contact_id);
+                const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp/whatsapp.service')));
+                const connId = ticket.connection_id ?? undefined;
                 if (contact?.number) {
-                    const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp/whatsapp.service')));
                     whatsappService.sendMessage(contact.number, body).catch((err) => {
                         console.error('[sendMessage] bays error:', err.message);
                     });
                 }
+                else if (contact?.lid) {
+                    // Contato username-only (sem número): responde roteando pelo LID
+                    whatsappService.sendMessageViaLid(contact.lid, body, connId).catch((err) => {
+                        console.error('[sendMessage] bays error (lid):', err.message);
+                    });
+                }
                 else {
-                    console.warn('[sendMessage] Contato sem número, não foi enviado via WhatsApp');
+                    console.warn('[sendMessage] Contato sem número nem LID, não foi enviado via WhatsApp');
                 }
             }
         }
         return reply.send(msg);
     },
+    async ticketStatusByContact(req, reply) {
+        const companyId = req.user.company_id;
+        const { dateInit, dateEnd, limit, offset } = req.query;
+        const result = await ticket_service_1.ticketService.statusByContact(companyId, {
+            dateInit: dateInit ?? undefined,
+            dateEnd: dateEnd ?? undefined,
+            limit: limit ? Number(limit) : 50,
+            offset: offset ? Number(offset) : 0,
+        });
+        return reply.send(result);
+    },
     async listContacts(req, reply) {
         const companyId = req.user.company_id;
         const list = await contact_service_1.contactService.list(companyId);
         return reply.send(list);
+    },
+    async listContactsReport(req, reply) {
+        const companyId = req.user.company_id;
+        const { search, limit, offset } = req.query;
+        const result = await contact_service_1.contactService.listReport(companyId, {
+            search: search ?? undefined,
+            limit: limit ? Number(limit) : 50,
+            offset: offset ? Number(offset) : 0,
+        });
+        return reply.send(result);
+    },
+    async exportContactsExcel(req, reply) {
+        const companyId = req.user.company_id;
+        const { search } = req.query;
+        const buffer = await contact_service_1.contactService.exportExcel(companyId, search);
+        return reply
+            .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            .header('Content-Disposition', 'attachment; filename="contatos.xlsx"')
+            .send(buffer);
     },
     // ────── Analytics de vendas ──────
     async dashboardNotSalesByConnection(req, reply) {

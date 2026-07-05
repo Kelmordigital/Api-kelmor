@@ -16,6 +16,7 @@ const envSchema = zod_1.z.object({
     REFRESH_SECRET: zod_1.z.string().min(32, 'REFRESH_SECRET deve ter ao menos 32 caracteres'),
     REFRESH_EXPIRES_IN: zod_1.z.string().default('7d'),
     FRONTEND_URL: zod_1.z.string().url().default('http://localhost:5173'),
+    SUPERADMIN_URL: zod_1.z.string().url().default('http://localhost:8081'),
     EVOLUTION_API_URL: zod_1.z.string().url().optional(),
     EVOLUTION_API_KEY: zod_1.z.string().optional(),
     EVOLUTION_INSTANCE: zod_1.z.string().optional(),
@@ -31,6 +32,16 @@ const envSchema = zod_1.z.object({
     WEBHOOK_SECRET: zod_1.z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: zod_1.z.string().url().default('http://localhost:3000'),
     INTERNAL_API_SECRET: zod_1.z.string().min(16, 'INTERNAL_API_SECRET deve ter ao menos 16 caracteres').default('kelmor_internal_api_secret_32chars00'),
+    GOOGLE_CLIENT_ID: zod_1.z.string().default(''),
+    GOOGLE_CLIENT_SECRET: zod_1.z.string().default(''),
+    GOOGLE_REDIRECT_URI: zod_1.z.string().default('http://localhost:3000/api/v1/integracoes/google/callback'),
+    // RabbitMQ (barramento de eventos com o bays). Desligado por padrão →
+    // recebimento por HTTP webhook (fallback garantido).
+    USE_RABBITMQ: zod_1.z.string().default('false').transform((v) => v === 'true'),
+    RABBITMQ_URL: zod_1.z.string().default('kelmor-rabbitmq'),
+    RABBITMQ_PORT1: zod_1.z.string().default('5672').transform(Number),
+    RABBITMQ_USER: zod_1.z.string().default('kelmor'),
+    RABBITMQ_PASS: zod_1.z.string().default('kelmor123'),
 });
 const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {

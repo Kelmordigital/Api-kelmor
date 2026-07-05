@@ -10,6 +10,7 @@ interface NodeInput {
     x: number;
     y: number;
     node_data?: Record<string, unknown> | null;
+    queue_id?: number | null;
 }
 export declare const botsService: {
     list(companyId: string): Promise<Bot[]>;
@@ -25,16 +26,17 @@ export declare const botsService: {
         node_data: any;
         type: string;
         message: string | null;
+        y: number;
         id: string;
         created_at: Date | null;
         company_id: string;
+        queue_id: number | null;
         bot_id: number;
         label: string;
         order_index: number;
         next_node_id: string | null;
         delay_seconds: number;
         x: number;
-        y: number;
     }[]>;
     syncNodes(botId: number, companyId: string, nodes: NodeInput[]): Promise<void>;
 };

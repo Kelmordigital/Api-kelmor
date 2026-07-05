@@ -77,6 +77,7 @@ exports.botsService = {
             x: n.x,
             y: n.y,
             node_data: n.node_data ? JSON.stringify(n.node_data) : null,
+            queue_id: n.queue_id ?? null,
         })));
     },
 };

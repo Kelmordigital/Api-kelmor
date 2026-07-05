@@ -7,6 +7,7 @@ export declare const env: {
     REFRESH_SECRET: string;
     REFRESH_EXPIRES_IN: string;
     FRONTEND_URL: string;
+    SUPERADMIN_URL: string;
     BAYS_URL: string;
     BAYS_SECRET_KEY: string;
     BAYS_SESSION_ID: string;
@@ -14,6 +15,14 @@ export declare const env: {
     WEBHOOK_SECRET: string;
     API_URL: string;
     INTERNAL_API_SECRET: string;
+    GOOGLE_CLIENT_ID: string;
+    GOOGLE_CLIENT_SECRET: string;
+    GOOGLE_REDIRECT_URI: string;
+    USE_RABBITMQ: boolean;
+    RABBITMQ_URL: string;
+    RABBITMQ_PORT1: number;
+    RABBITMQ_USER: string;
+    RABBITMQ_PASS: string;
     TEST_DATABASE_URL?: string | undefined;
     EVOLUTION_API_URL?: string | undefined;
     EVOLUTION_API_KEY?: string | undefined;

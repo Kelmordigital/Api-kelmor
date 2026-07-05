@@ -8,6 +8,7 @@ async function atendimentoRoutes(app) {
     // Tickets — listagem e contagem
     app.get('/tickets', auth, atendimento_controller_1.atendimentoController.listTickets);
     app.get('/tickets/count', auth, atendimento_controller_1.atendimentoController.countTickets);
+    app.get('/tickets/status-by-contact', auth, atendimento_controller_1.atendimentoController.ticketStatusByContact);
     // Tickets — transições de status
     app.patch('/tickets/:id/assign', auth, atendimento_controller_1.atendimentoController.assignAttendant);
     app.put('/tickets/:id/return', auth, atendimento_controller_1.atendimentoController.returnToQueue);
@@ -22,6 +23,8 @@ async function atendimentoRoutes(app) {
     app.get('/tickets/:id/messages', auth, atendimento_controller_1.atendimentoController.listMessages);
     app.post('/tickets/:id/messages', auth, atendimento_controller_1.atendimentoController.sendMessage);
     // Contacts
+    app.get('/contacts/report', auth, atendimento_controller_1.atendimentoController.listContactsReport);
+    app.get('/contacts/export', auth, atendimento_controller_1.atendimentoController.exportContactsExcel);
     app.get('/contacts', auth, atendimento_controller_1.atendimentoController.listContacts);
     // Atendentes da empresa (para transferência)
     app.get('/attendants', auth, atendimento_controller_1.atendimentoController.listAttendants);

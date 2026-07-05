@@ -17,7 +17,14 @@ export declare const whatsappService: {
     getChats(page?: number, limit?: number): Promise<any[]>;
     getMessages(phone: string, page?: number, limit?: number): Promise<any[]>;
     sendMessage(phone: string, text: string): Promise<any>;
-    sendTextToPhone(connectionId: number, phone: string, text: string): Promise<void>;
+    /** Envia texto para um contato username-only (sem número), roteando pelo LID. */
+    sendMessageViaLid(lid: string, text: string, connectionId?: number): Promise<any>;
+    /**
+     * Envia texto para um destino que pode ser um número ou um LID.
+     * Se `target` vier no formato "lid:<id>", roteia pelo LID (contato username-only);
+     * caso contrário trata como número normal. Não quebra chamadores que passam número puro.
+     */
+    sendTextToPhone(connectionId: number, target: string, text: string): Promise<void>;
     getConversas(): Promise<any[]>;
     ensureConversa(phone: string, nome: string | null): Promise<void>;
     updateConversaStatus(phone: string, status: string): Promise<void>;

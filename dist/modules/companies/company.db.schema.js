@@ -13,6 +13,9 @@ exports.companies = (0, pg_core_1.pgTable)('companies', {
     stripe_customer_id: (0, pg_core_1.varchar)('stripe_customer_id', { length: 200 }),
     cnpj_cpf: (0, pg_core_1.varchar)('cnpj_cpf', { length: 20 }),
     whatsapp_lib: (0, pg_core_1.varchar)('whatsapp_lib', { length: 100 }),
+    init_message: (0, pg_core_1.text)('init_message'),
+    end_message: (0, pg_core_1.text)('end_message'),
+    transfer_message: (0, pg_core_1.text)('transfer_message'),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
 });

@@ -37,6 +37,7 @@ exports.authMiddleware = authMiddleware;
 exports.adminMiddleware = adminMiddleware;
 exports.requireSuperAdmin = requireSuperAdmin;
 exports.requireFinance = requireFinance;
+exports.requireAdmin = requireAdmin;
 const jwt_1 = require("../config/jwt");
 const redis_1 = require("../config/redis");
 function sessionKey(profileTag, companyId, userId) {
@@ -84,6 +85,11 @@ async function requireSuperAdmin(req, reply) {
 async function requireFinance(req, reply) {
     if (req.user.profile_tag !== 'superAdmin' && !req.user.finance) {
         return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Acesso negado! Apenas usuários financeiros podem alterar configurações de módulos.' });
+    }
+}
+async function requireAdmin(req, reply) {
+    if (req.user.profile_tag !== 'admin' && req.user.profile_tag !== 'superAdmin') {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Acesso exclusivo para administradores.' });
     }
 }
 //# sourceMappingURL=auth.middleware.js.map

@@ -17,6 +17,7 @@ const redis_1 = require("../config/redis");
 const error_middleware_1 = require("../middlewares/error.middleware");
 const logger_middleware_1 = require("../middlewares/logger.middleware");
 const internal_auth_middleware_1 = require("../middlewares/internal-auth.middleware");
+const auth_middleware_1 = require("../middlewares/auth.middleware");
 const auth_routes_1 = require("../modules/auth/auth.routes");
 const whatsapp_routes_1 = require("../modules/whatsapp/whatsapp.routes");
 const whatsapp_controller_1 = require("../modules/whatsapp/whatsapp.controller");
@@ -28,6 +29,26 @@ const etiqueta_routes_1 = require("../modules/etiquetas/etiqueta.routes");
 const fila_routes_1 = require("../modules/filas/fila.routes");
 const usuario_routes_1 = require("../modules/usuarios/usuario.routes");
 const pesquisa_routes_1 = require("../modules/pesquisas/pesquisa.routes");
+const produto_routes_1 = require("../modules/produtos/produto.routes");
+const campanha_routes_1 = require("../modules/campanhas/campanha.routes");
+const integracao_routes_1 = require("../modules/integracoes/integracao.routes");
+const agenda_routes_1 = require("../modules/agenda/agenda.routes");
+const configuracao_geral_routes_1 = require("../modules/configuracao-geral/configuracao-geral.routes");
+const reports_routes_1 = require("../modules/reports/reports.routes");
+const crm_reports_routes_1 = require("../modules/crm/crm-reports.routes");
+const superadmin_routes_1 = require("../modules/superadmin/superadmin.routes");
+/**
+ * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
+ * Aplica authMiddleware (popula req.user) e requireAdmin (403 se não-admin)
+ * como hooks de instância, antes dos preHandlers das próprias rotas.
+ */
+function adminOnly(routes) {
+    return async (app) => {
+        app.addHook('preHandler', auth_middleware_1.authMiddleware);
+        app.addHook('preHandler', auth_middleware_1.requireAdmin);
+        await routes(app);
+    };
+}
 function buildApp() {
     const app = (0, fastify_1.default)({
         disableRequestLogging: true,
@@ -83,7 +104,7 @@ function buildApp() {
         decorateReply: false,
     });
     app.register(cors_1.default, {
-        origin: env_1.env.FRONTEND_URL,
+        origin: [env_1.env.FRONTEND_URL, env_1.env.SUPERADMIN_URL],
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     });
@@ -92,30 +113,44 @@ function buildApp() {
         timestamp: new Date().toISOString(),
         env: env_1.env.NODE_ENV,
     }));
+    // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(auth_routes_1.authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsapp_routes_1.whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(atendimento_routes_1.atendimentoRoutes, { prefix: '/api/v1/atendimento' });
     app.register(quick_messages_routes_1.quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
-    app.register(bots_routes_1.botsRoutes, { prefix: '/api/v1/bots' });
     app.register(etiqueta_routes_1.etiquetasRoutes, { prefix: '/api/v1' });
     app.register(fila_routes_1.filasRoutes, { prefix: '/api/v1/configuracao/filas' });
-    app.register(usuario_routes_1.usuariosRoutes, { prefix: '/api/v1/configuracao/usuarios' });
-    app.register(pesquisa_routes_1.pesquisasRoutes, { prefix: '/api/v1/configuracao/pesquisas' });
-    // Endpoints chamados pelo serviço bays na inicialização (sem prefixo /api/v1)
-    app.put('/connection/update/:id', whatsapp_controller_1.whatsappController.connectionUpdate);
+    // ── Restritos a admin/superAdmin ─────────────────────────────────────────
+    app.register(adminOnly(bots_routes_1.botsRoutes), { prefix: '/api/v1/bots' });
+    app.register(adminOnly(usuario_routes_1.usuariosRoutes), { prefix: '/api/v1/configuracao/usuarios' });
+    app.register(adminOnly(pesquisa_routes_1.pesquisasRoutes), { prefix: '/api/v1/configuracao/pesquisas' });
+    app.register(adminOnly(campanha_routes_1.campanhasRoutes), { prefix: '/api/v1/configuracao/mensagens-agendadas' });
+    app.register(adminOnly(produto_routes_1.produtosRoutes), { prefix: '/api/v1/configuracao/produtos' });
+    // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
+    // O gating admin é feito por-rota dentro de integracao.routes.ts.
+    app.register(integracao_routes_1.integracoesRoutes, { prefix: '/api/v1/integracoes' });
+    app.register(adminOnly(agenda_routes_1.agendaRoutes), { prefix: '/api/v1/agenda' });
+    app.register(adminOnly(configuracao_geral_routes_1.configuracaoGeralRoutes), { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    app.register(adminOnly(reports_routes_1.reportsRoutes), { prefix: '/api/v1/reports' });
+    app.register(adminOnly(reports_routes_1.reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
+    app.register(adminOnly(crm_reports_routes_1.crmReportsRoutes), { prefix: '/api/v1/crm-reports' });
+    app.register(superadmin_routes_1.superadminRoutes, { prefix: '/api/v1/superadmin' });
+    // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
+    const baysAuth = { preHandler: internal_auth_middleware_1.baysWebhookMiddleware };
+    app.put('/connection/update/:id', baysAuth, whatsapp_controller_1.whatsappController.connectionUpdate);
     // Bays chama tanto /connection/messages-webhook quanto /connection/messages-webhook/:id
-    app.post('/connection/messages-webhook', whatsapp_controller_1.whatsappController.messagesWebhook);
-    app.post('/connection/messages-webhook/:id', whatsapp_controller_1.whatsappController.messagesWebhook);
+    app.post('/connection/messages-webhook', baysAuth, whatsapp_controller_1.whatsappController.messagesWebhook);
+    app.post('/connection/messages-webhook/:id', baysAuth, whatsapp_controller_1.whatsappController.messagesWebhook);
     // Erros de conexão reportados pelo bays — persiste no banco para diagnóstico
-    app.post('/connection/errors/:id', async (req, reply) => {
+    app.post('/connection/errors/:id', baysAuth, async (req, reply) => {
         const { id } = req.params;
         whatsapp_service_1.whatsappService.handleConnectionError(Number(id), req.body).catch(() => { });
         return reply.send({ ok: true });
     });
     app.post('/connection/stealth/:id', async (_req, reply) => reply.send({ ok: true }));
     app.get('/connection/stealth/:id', async (_req, reply) => reply.send({ config: null }));
-    // ACK de entrega de mensagem reportado pelo bays
-    app.post('/connection/message-ack/:id', async (_req, reply) => reply.send({ ok: true }));
+    // ACK de entrega de mensagem reportado pelo bays (handler dedicado — fase ACK)
+    app.post('/connection/message-ack/:id', baysAuth, async (_req, reply) => reply.send({ ok: true }));
     // Bays startup handshake
     app.post('/container', async (_req, reply) => reply.send({ id: 1, name: 'kelmor-main', exists: true }));
     // Retorna todas as conexões cadastradas para o bays reconectar no boot

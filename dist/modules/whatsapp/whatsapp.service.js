@@ -416,17 +416,29 @@ exports.whatsappService = {
         const jid = String(key.remoteJid);
         if (jid.endsWith('@g.us'))
             return;
-        let phone;
+        // Sistema de usernames do WhatsApp (Meta 2026): quando o contato conversa
+        // via username, o remoteJid é "<lid>@lid" e o número pode NÃO vir. Antes o
+        // sistema descartava essas mensagens — agora o LID é o identificador válido.
+        const lid = jid.endsWith('@lid') ? jid.replace('@lid', '').replace(/\D/g, '') : undefined;
+        let phone = '';
         if (jid.endsWith('@lid')) {
+            // Número só existe se a Meta revelar via sender_pn; senão fica vazio (LID-only)
             const senderPn = String(key.sender_pn ?? '');
-            if (!senderPn)
-                return;
-            phone = senderPn.replace('@s.whatsapp.net', '');
+            phone = senderPn ? senderPn.replace('@s.whatsapp.net', '').replace(/\D/g, '') : '';
         }
         else {
-            phone = jid.replace('@s.whatsapp.net', '');
+            phone = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
         }
-        const nome = String(msg.pushName ?? phone);
+        // Username público (@apelido). A Meta ainda não o expõe no payload Baileys;
+        // lido defensivamente para já funcionar quando passar a vir.
+        const waUsername = (typeof msg.contactUsername === 'string'
+            ? String(msg.contactUsername)
+            : '') ||
+            (typeof key.senderUsername === 'string'
+                ? String(key.senderUsername)
+                : '') ||
+            '';
+        const nome = String(msg.pushName ?? (phone || (waUsername ? `@${waUsername}` : lid) || ''));
         const fromMe = Boolean(key.fromMe);
         const rawMsg = msg.message ?? {};
         const imgCaption = String(rawMsg.imageMessage?.caption ?? '');
@@ -458,9 +470,10 @@ exports.whatsappService = {
             return;
         }
         const companyId = conn.company_id;
-        const lid = jid.endsWith('@lid') ? jid.replace('@lid', '') : undefined;
         const profileImgUrl = String(msg.profileImgUrl ?? '');
-        let contact = await contactService.findOrCreate(companyId, phone, nome, lid);
+        // Identificador de envio: número quando existe, senão o LID (contato username-only)
+        const sendTarget = phone || (lid ? `lid:${lid}` : '');
+        let contact = await contactService.findOrCreate(companyId, phone, nome, lid, waUsername || undefined);
         if (profileImgUrl && profileImgUrl.startsWith('http') && contact.profile_pic_url !== profileImgUrl) {
             const { contacts: contactsTable } = await Promise.resolve().then(() => __importStar(require('../atendimento/atendimento.db.schema')));
             const { db: _db } = await Promise.resolve().then(() => __importStar(require('../../database/client')));
@@ -473,7 +486,7 @@ exports.whatsappService = {
             if (updated)
                 contact = updated;
         }
-        if (!contact.profile_pic_url) {
+        if (!contact.profile_pic_url && phone) {
             try {
                 const picData = await baysPost(`/contact/imgurl/${connectionId}`, { contact: phone });
                 const fetchedUrl = picData?.imgUrl;
@@ -495,9 +508,16 @@ exports.whatsappService = {
         const { ticket } = await ticketService.findOrCreateOpen(companyId, contact.id, conn.id, jid);
         (0, socket_1.emitToCompany)(companyId, 'contact:upserted', { contact });
         if (body && !fromMe) {
-            await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
-            const { chatbotExecutorService } = await Promise.resolve().then(() => __importStar(require('../bots/chatbot-executor.service')));
-            chatbotExecutorService.execute(companyId, connectionId, phone, body).catch((err) => console.error('[ChatbotExecutor] Falha silenciosa:', err.message));
+            // Tenta capturar resposta de pesquisa antes de salvar mensagem
+            const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
+            const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
+            if (!wasAnswer) {
+                await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
+                if (sendTarget) {
+                    const { chatbotExecutorService } = await Promise.resolve().then(() => __importStar(require('../bots/chatbot-executor.service')));
+                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id).catch((err) => console.error('[ChatbotExecutor] Falha silenciosa:', err.message));
+                }
+            }
         }
     },
     // ── Chats ───────────────────────────────────────────────────────────────
@@ -586,8 +606,28 @@ exports.whatsappService = {
             payload: { text },
         });
     },
-    async sendTextToPhone(connectionId, phone, text) {
-        const phoneNum = phone.replace(/\D/g, '');
+    /** Envia texto para um contato username-only (sem número), roteando pelo LID. */
+    async sendMessageViaLid(lid, text, connectionId) {
+        const id = Number(connectionId ?? SESSION_ID);
+        const lidNum = lid.replace(/\D/g, '');
+        return baysPost(`/message/send/${id}`, {
+            type: 'text',
+            lid: lidNum,
+            priority: 'lid',
+            payload: { text },
+        });
+    },
+    /**
+     * Envia texto para um destino que pode ser um número ou um LID.
+     * Se `target` vier no formato "lid:<id>", roteia pelo LID (contato username-only);
+     * caso contrário trata como número normal. Não quebra chamadores que passam número puro.
+     */
+    async sendTextToPhone(connectionId, target, text) {
+        if (target.startsWith('lid:')) {
+            await this.sendMessageViaLid(target.slice(4), text, connectionId);
+            return;
+        }
+        const phoneNum = target.replace(/\D/g, '');
         await baysPost(`/message/send/${connectionId}`, {
             type: 'text',
             contact: phoneNum,

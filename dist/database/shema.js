@@ -22,5 +22,9 @@ __exportStar(require("../modules/bots/bots.db.schema"), exports);
 __exportStar(require("../modules/quick-messages/quick-messages.db.schema"), exports);
 __exportStar(require("../modules/etiquetas/etiqueta.db.schema"), exports);
 __exportStar(require("../modules/pesquisas/pesquisa.db.schema"), exports);
+__exportStar(require("../modules/campanhas/campanha.db.schema"), exports);
 __exportStar(require("../modules/produtos/produto.db.schema"), exports);
+__exportStar(require("../modules/agenda/agenda.db.schema"), exports);
+__exportStar(require("../modules/integracoes/integracao.db.schema"), exports);
+__exportStar(require("../modules/configuracao-geral/configuracao-geral.db.schema"), exports);
 //# sourceMappingURL=shema.js.map

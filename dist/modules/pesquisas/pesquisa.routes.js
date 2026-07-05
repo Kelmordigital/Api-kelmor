@@ -10,5 +10,8 @@ async function pesquisasRoutes(app) {
     app.post('/', pesquisa_controller_1.pesquisaController.create);
     app.put('/:id', pesquisa_controller_1.pesquisaController.update);
     app.delete('/:id', pesquisa_controller_1.pesquisaController.remove);
+    // Relatório
+    app.get('/report', pesquisa_controller_1.pesquisaController.report);
+    app.get('/report/view', pesquisa_controller_1.pesquisaController.reportView);
 }
 //# sourceMappingURL=pesquisa.routes.js.map

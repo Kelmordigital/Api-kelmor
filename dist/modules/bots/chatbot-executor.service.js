@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.chatbotExecutorService = void 0;
 const bots_repository_1 = require("./bots.repository");
@@ -50,7 +83,7 @@ async function sendNodeMessage(connectionId, phone, node) {
     }
     await whatsapp_service_1.whatsappService.sendTextToPhone(connectionId, phone, text);
 }
-async function sendUntilInteractive(connectionId, phone, startNodeId, nodeMap, bot, conversationId) {
+async function sendUntilInteractive(connectionId, phone, startNodeId, nodeMap, bot, conversationId, companyId, ticketId) {
     let currentId = startNodeId;
     let ended = false;
     while (true) {
@@ -61,6 +94,13 @@ async function sendUntilInteractive(connectionId, phone, startNodeId, nodeMap, b
         if (node.type === 'menu' || node.type === 'question')
             break;
         if (node.type === 'transfer' || node.type === 'end') {
+            // Nó de transferência com fila-alvo: roteia o ticket para a fila e
+            // dispara a distribuição automática (se configurada na fila).
+            if (node.type === 'transfer' && node.queue_id && ticketId) {
+                const { ticketService } = await Promise.resolve().then(() => __importStar(require('../atendimento/ticket.service')));
+                await ticketService.routeToQueue(ticketId, companyId, node.queue_id)
+                    .catch((err) => console.error('[ChatbotExecutor] Falha ao rotear para fila:', err.message));
+            }
             if (node.type === 'end' && bot.send_exit_message && bot.exit_message) {
                 await whatsapp_service_1.whatsappService.sendTextToPhone(connectionId, phone, bot.exit_message);
             }
@@ -75,7 +115,7 @@ async function sendUntilInteractive(connectionId, phone, startNodeId, nodeMap, b
     return { finalNodeId: currentId, ended };
 }
 exports.chatbotExecutorService = {
-    async execute(companyId, connectionId, phone, userMessage) {
+    async execute(companyId, connectionId, phone, userMessage, ticketId) {
         try {
             const bot = await bots_repository_1.botsRepository.findDefaultActive(companyId);
             if (!bot)
@@ -104,7 +144,7 @@ exports.chatbotExecutorService = {
                     current_node_id: startNode.id,
                     status: 'active',
                 });
-                const { ended } = await sendUntilInteractive(connectionId, phone, startNode.id, nodeMap, bot, conversation.id);
+                const { ended } = await sendUntilInteractive(connectionId, phone, startNode.id, nodeMap, bot, conversation.id, companyId, ticketId);
                 if (ended)
                     await bots_repository_1.botsRepository.updateConversation(conversation.id, { status: 'ended' });
                 return;
@@ -127,7 +167,7 @@ exports.chatbotExecutorService = {
             }
             if (!nextNodeId)
                 return;
-            const { ended } = await sendUntilInteractive(connectionId, phone, nextNodeId, nodeMap, bot, conversation.id);
+            const { ended } = await sendUntilInteractive(connectionId, phone, nextNodeId, nodeMap, bot, conversation.id, companyId, ticketId);
             if (ended)
                 await bots_repository_1.botsRepository.updateConversation(conversation.id, { status: 'ended' });
         }

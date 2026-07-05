@@ -26,6 +26,9 @@ exports.queues = (0, pg_core_1.pgTable)('at_queues', {
     color: (0, pg_core_1.varchar)('color', { length: 50 }),
     enabled: (0, pg_core_1.boolean)('enabled').default(true),
     greeting_message: (0, pg_core_1.text)('greeting_message'),
+    // Modo de distribuição automática: none | less_attendances | time | attendant
+    distribution: (0, pg_core_1.varchar)('distribution', { length: 30 }).default('none').notNull(),
+    deleted_at: (0, pg_core_1.timestamp)('deleted_at'),
 });
 exports.contacts = (0, pg_core_1.pgTable)('at_contacts', {
     id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
@@ -35,6 +38,7 @@ exports.contacts = (0, pg_core_1.pgTable)('at_contacts', {
     email: (0, pg_core_1.varchar)('email', { length: 255 }),
     origin: (0, pg_core_1.varchar)('origin', { length: 255 }),
     lid: (0, pg_core_1.varchar)('lid', { length: 255 }),
+    wa_username: (0, pg_core_1.varchar)('wa_username', { length: 255 }),
     profile_pic_url: (0, pg_core_1.text)('profile_pic_url'),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });

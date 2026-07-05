@@ -47,5 +47,31 @@ exports.pesquisaController = {
             return reply.status(404).send({ message: 'Pesquisa não encontrada' });
         return reply.send({ ok: true });
     },
+    async report(req, reply) {
+        const companyId = req.user.company_id;
+        const { dateInit, dateEnd, userId, limit, offset } = req.query;
+        const data = await pesquisa_service_1.pesquisaService.getReport(companyId, {
+            dateInit: dateInit ?? undefined,
+            dateEnd: dateEnd ?? undefined,
+            userId: userId ?? undefined,
+            limit: limit ? Number(limit) : undefined,
+            offset: offset ? Number(offset) : undefined,
+        });
+        return reply.send(data);
+    },
+    async reportView(req, reply) {
+        const companyId = req.user.company_id;
+        const { answerId, dateInit, dateEnd, limit, offset } = req.query;
+        if (!answerId)
+            return reply.status(400).send({ message: 'answerId obrigatório' });
+        const data = await pesquisa_service_1.pesquisaService.getReportDrillDown(companyId, {
+            answerId: Number(answerId),
+            dateInit: dateInit ?? undefined,
+            dateEnd: dateEnd ?? undefined,
+            limit: limit ? Number(limit) : 50,
+            offset: offset ? Number(offset) : 0,
+        });
+        return reply.send(data);
+    },
 };
 //# sourceMappingURL=pesquisa.controller.js.map

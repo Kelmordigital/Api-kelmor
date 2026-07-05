@@ -42,6 +42,8 @@ exports.bot_nodes = (0, pg_core_1.pgTable)('at_bot_nodes', {
     x: (0, pg_core_1.integer)('x').default(0).notNull(),
     y: (0, pg_core_1.integer)('y').default(0).notNull(),
     node_data: (0, pg_core_1.text)('node_data'), // JSON serializado
+    // Fila-alvo quando type === 'transfer' (roteamento + distribuição automática)
+    queue_id: (0, pg_core_1.bigint)('queue_id', { mode: 'number' }),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 exports.bot_conversations = (0, pg_core_1.pgTable)('at_bot_conversations', {

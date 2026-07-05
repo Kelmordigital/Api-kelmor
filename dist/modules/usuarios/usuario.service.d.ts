@@ -32,6 +32,9 @@ export declare const usuarioService: {
         email_verified: boolean;
         is_approved: boolean;
         finance: boolean;
+        totp_secret: string | null;
+        totp_enabled: boolean;
+        totp_recovery_codes: unknown;
     }>;
     update(id: string, companyId: string, payload: {
         name?: string;

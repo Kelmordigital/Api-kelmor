@@ -7,6 +7,8 @@ exports.signAccessToken = signAccessToken;
 exports.signRefreshToken = signRefreshToken;
 exports.verifyAccessToken = verifyAccessToken;
 exports.verifyRefreshToken = verifyRefreshToken;
+exports.signTotpTicket = signTotpTicket;
+exports.verifyTotpTicket = verifyTotpTicket;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = require("crypto");
 const env_1 = require("./env");
@@ -21,7 +23,11 @@ function signRefreshToken(userId) {
 }
 function verifyAccessToken(token) {
     try {
-        return jsonwebtoken_1.default.verify(token, env_1.env.JWT_SECRET);
+        const payload = jsonwebtoken_1.default.verify(token, env_1.env.JWT_SECRET);
+        // Tokens de propósito específico (ex.: ticket do 2FA) NUNCA valem como access token
+        if (payload.purpose)
+            return null;
+        return payload;
     }
     catch {
         return null;
@@ -30,6 +36,20 @@ function verifyAccessToken(token) {
 function verifyRefreshToken(token) {
     try {
         return jsonwebtoken_1.default.verify(token, env_1.env.REFRESH_SECRET);
+    }
+    catch {
+        return null;
+    }
+}
+function signTotpTicket(userId) {
+    return jsonwebtoken_1.default.sign({ sub: userId, purpose: 'totp', jti: (0, crypto_1.randomUUID)() }, env_1.env.JWT_SECRET, { expiresIn: '5m' });
+}
+function verifyTotpTicket(token) {
+    try {
+        const p = jsonwebtoken_1.default.verify(token, env_1.env.JWT_SECRET);
+        if (p.purpose !== 'totp' || !p.jti)
+            return null;
+        return { sub: p.sub, jti: p.jti };
     }
     catch {
         return null;

@@ -14,6 +14,9 @@ exports.users = (0, pg_core_1.pgTable)('users', {
     email_verified: (0, pg_core_1.boolean)('email_verified').notNull().default(true),
     is_approved: (0, pg_core_1.boolean)('is_approved').notNull().default(false),
     finance: (0, pg_core_1.boolean)('finance').notNull().default(false),
+    totp_secret: (0, pg_core_1.varchar)('totp_secret', { length: 64 }),
+    totp_enabled: (0, pg_core_1.boolean)('totp_enabled').notNull().default(false),
+    totp_recovery_codes: (0, pg_core_1.jsonb)('totp_recovery_codes'),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
 });

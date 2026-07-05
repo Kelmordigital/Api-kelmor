@@ -16,7 +16,10 @@ export declare const atendimentoController: {
     registerSale(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     listMessages(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     sendMessage(req: FastifyRequest, reply: FastifyReply): Promise<never>;
+    ticketStatusByContact(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     listContacts(req: FastifyRequest, reply: FastifyReply): Promise<never>;
+    listContactsReport(req: FastifyRequest, reply: FastifyReply): Promise<never>;
+    exportContactsExcel(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     dashboardNotSalesByConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     dashboardNotSalesByChannel(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     dashboardSalesByConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;

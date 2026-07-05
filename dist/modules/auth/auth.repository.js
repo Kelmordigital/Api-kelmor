@@ -20,6 +20,7 @@ exports.authRepository = {
             email_verified: auth_schema_1.users.email_verified,
             is_approved: auth_schema_1.users.is_approved,
             finance: auth_schema_1.users.finance,
+            totp_enabled: auth_schema_1.users.totp_enabled,
         })
             .from(auth_schema_1.users)
             .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))
@@ -47,6 +48,7 @@ exports.authRepository = {
             email_verified: auth_schema_1.users.email_verified,
             is_approved: auth_schema_1.users.is_approved,
             finance: auth_schema_1.users.finance,
+            totp_enabled: auth_schema_1.users.totp_enabled,
         })
             .from(auth_schema_1.users)
             .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))

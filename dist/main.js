@@ -7,6 +7,8 @@ const migrate_1 = require("./database/migrate");
 const socket_1 = require("./shared/socket");
 const connection_health_job_1 = require("./jobs/connection-health.job");
 const reconnection_queue_1 = require("./jobs/reconnection.queue");
+const campanha_scheduler_1 = require("./modules/campanhas/campanha.scheduler");
+const rabbitmq_1 = require("./shared/rabbitmq");
 process.on('uncaughtException', (err) => {
     console.error('[uncaughtException] Erro não capturado — processo continuando:', err);
 });
@@ -25,6 +27,7 @@ async function main() {
             clearInterval(healthInterval);
         if (reconnectWorker)
             await reconnectWorker.close().catch(() => { });
+        await (0, rabbitmq_1.stopRabbitConsumer)().catch(() => { });
         await app.close().catch(() => { });
         console.log('[shutdown] Servidor encerrado.');
         process.exit(0);
@@ -36,6 +39,8 @@ async function main() {
         (0, socket_1.initSocket)(app.server);
         healthInterval = (0, connection_health_job_1.startConnectionHealthJob)();
         reconnectWorker = (0, reconnection_queue_1.startReconnectionWorker)();
+        (0, campanha_scheduler_1.restoreScheduledCampaigns)().catch(() => { });
+        (0, rabbitmq_1.startRabbitConsumer)().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
         console.log(`Servidor rodando na porta ${env_1.env.PORT}`);
     }
     catch (err) {
