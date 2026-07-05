@@ -21,6 +21,7 @@ const envSchema = z.object({
 
 
     FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+    SUPERADMIN_URL: z.string().url().default('http://localhost:8081'),
 
     EVOLUTION_API_URL: z.string().url().optional(),
     EVOLUTION_API_KEY: z.string().optional(),

@@ -23,7 +23,10 @@ export function signRefreshToken(userId: string): string {
 
 export function verifyAccessToken(token: string): JwtPayload | null {
     try {
-        return jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+        const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload & { purpose?: string };
+        // Tokens de propósito específico (ex.: ticket do 2FA) NUNCA valem como access token
+        if (payload.purpose) return null;
+        return payload;
     } catch {
         return null;
     }
@@ -32,6 +35,20 @@ export function verifyAccessToken(token: string): JwtPayload | null {
 export function verifyRefreshToken(token: string): { sub: string } | null {
     try {
         return jwt.verify(token, env.REFRESH_SECRET) as { sub: string };
+    } catch {
+        return null;
+    }
+}
+
+export function signTotpTicket(userId: string): string {
+    return jwt.sign({ sub: userId, purpose: 'totp', jti: randomUUID() }, env.JWT_SECRET, { expiresIn: '5m' });
+}
+
+export function verifyTotpTicket(token: string): { sub: string; jti: string } | null {
+    try {
+        const p = jwt.verify(token, env.JWT_SECRET) as { sub: string; purpose?: string; jti?: string };
+        if (p.purpose !== 'totp' || !p.jti) return null;
+        return { sub: p.sub, jti: p.jti };
     } catch {
         return null;
     }

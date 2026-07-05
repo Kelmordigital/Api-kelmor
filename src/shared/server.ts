@@ -30,6 +30,8 @@ import { agendaRoutes } from '../modules/agenda/agenda.routes';
 import { configuracaoGeralRoutes } from '../modules/configuracao-geral/configuracao-geral.routes';
 import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
+import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
+import { superadminRoutes } from '../modules/superadmin/superadmin.routes';
 
 /**
  * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
@@ -98,7 +100,7 @@ export function buildApp() {
     });
 
     app.register(cors, {
-        origin: env.FRONTEND_URL,
+        origin: [env.FRONTEND_URL, env.SUPERADMIN_URL],
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     });
@@ -131,6 +133,8 @@ export function buildApp() {
     app.register(adminOnly(reportsRoutes),       { prefix: '/api/v1/reports' });
     app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
+    app.register(crmConfigRoutes, { prefix: '/api/v1/crm' });
+    app.register(superadminRoutes, { prefix: '/api/v1/superadmin' });
 
     // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
     const baysAuth = { preHandler: baysWebhookMiddleware };

@@ -32,7 +32,6 @@ describe('Auth — POST /api/v1/auth/login', () => {
 
         const adminId = await getProfileId('admin');
         const userId = await getProfileId('user');
-        const superAdminId = await getProfileId('superAdmin');
 
         const [co] = await db.insert(companies)
             .values({ name: 'Empresa Teste', status: true })
@@ -77,13 +76,6 @@ describe('Auth — POST /api/v1/auth/login', () => {
                 name: 'Empresa Inativa User', email: 'inactive@test.com',
                 password_hash: hashSync('senha123', 10),
                 profile_id: userId, company_id: inactiveCo.id,
-                email_verified: true, is_approved: true,
-            },
-            // superAdmin sem empresa
-            {
-                name: 'Super Admin', email: 'super@test.com',
-                password_hash: hashSync('senha123', 10),
-                profile_id: superAdminId, company_id: null,
                 email_verified: true, is_approved: true,
             },
         ]);
@@ -146,7 +138,7 @@ describe('Auth — POST /api/v1/auth/login', () => {
     it('200 para superAdmin sem empresa', async () => {
         const res = await app.inject({
             method: 'POST', url: '/api/v1/auth/login',
-            payload: { email: 'super@test.com', password: 'senha123' },
+            payload: { email: 'filipe@kelmor.com', password: 'kelmor123' },
         });
         expect(res.statusCode).toBe(200);
         const body = JSON.parse(res.body);
@@ -237,7 +229,7 @@ describe('Auth — PATCH /api/v1/auth/approve/:id', () => {
     beforeAll(async () => {
         const loginRes = await app.inject({
             method: 'POST', url: '/api/v1/auth/login',
-            payload: { email: 'super@test.com', password: 'senha123' },
+            payload: { email: 'filipe@kelmor.com', password: 'kelmor123' },
         });
         superAdminToken = JSON.parse(loginRes.body).access_token;
 

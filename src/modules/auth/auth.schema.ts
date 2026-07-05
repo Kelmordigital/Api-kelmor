@@ -6,6 +6,7 @@ import {
     integer,
     timestamp,
     text,
+    jsonb,
 } from 'drizzle-orm/pg-core';
 import { profiles } from '../profiles/profile.db.schema';
 import { companies } from '../companies/company.db.schema';
@@ -20,6 +21,9 @@ export const users = pgTable('users', {
     email_verified: boolean('email_verified').notNull().default(true),
     is_approved: boolean('is_approved').notNull().default(false),
     finance: boolean('finance').notNull().default(false),
+    totp_secret: varchar('totp_secret', { length: 64 }),
+    totp_enabled: boolean('totp_enabled').notNull().default(false),
+    totp_recovery_codes: jsonb('totp_recovery_codes'),
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),
 });

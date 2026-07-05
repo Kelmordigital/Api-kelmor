@@ -15,6 +15,7 @@ export type UserWithProfile = {
     email_verified: boolean;
     is_approved: boolean;
     finance: boolean;
+    totp_enabled: boolean;
 };
 
 export const authRepository = {
@@ -31,6 +32,7 @@ export const authRepository = {
                 email_verified: users.email_verified,
                 is_approved: users.is_approved,
                 finance: users.finance,
+                totp_enabled: users.totp_enabled,
             })
             .from(users)
             .innerJoin(profiles, eq(users.profile_id, profiles.id))
@@ -61,6 +63,7 @@ export const authRepository = {
                 email_verified: users.email_verified,
                 is_approved: users.is_approved,
                 finance: users.finance,
+                totp_enabled: users.totp_enabled,
             })
             .from(users)
             .innerJoin(profiles, eq(users.profile_id, profiles.id))
