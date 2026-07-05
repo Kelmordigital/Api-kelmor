@@ -515,12 +515,24 @@ export const whatsappService = {
             } catch { }
         }
 
-        const { ticket } = await ticketService.findOrCreateOpen(
+        const { ticket, created: ticketCreated } = await ticketService.findOrCreateOpen(
             companyId,
             contact.id,
             conn.id,
             jid,
         );
+
+        // Se ticket novo e mensagem do cliente: tenta identificar origem por palavra-chave
+        if (ticketCreated && body && !fromMe) {
+            import('../crm/crm-config.service').then(async ({ matchKeywordOrigin }) => {
+                const origin = await matchKeywordOrigin(companyId, body);
+                if (origin) {
+                    const { tickets: ticketsTable } = await import('./../../modules/atendimento/atendimento.db.schema');
+                    const { eq: _eq } = await import('drizzle-orm');
+                    await db.update(ticketsTable).set({ origin }).where(_eq(ticketsTable.id, ticket.id));
+                }
+            }).catch(() => {});
+        }
 
         emitToCompany(companyId, 'contact:upserted', { contact });
 

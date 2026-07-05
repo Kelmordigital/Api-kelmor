@@ -54,6 +54,14 @@ export const crm_sales_reasons = pgTable('at_crm_sales_reasons', {
     color: varchar('color', { length: 50 }),
 });
 
+export const crm_keywords = pgTable('at_crm_keywords', {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    keyword: varchar('keyword', { length: 255 }).notNull(),
+    origin: varchar('origin', { length: 255 }).notNull(),
+    created_at: timestamp('created_at').defaultNow(),
+});
+
 export const tickets = pgTable('at_tickets', {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -130,6 +138,7 @@ export type Connection = typeof connections.$inferSelect;
 export type Queue = typeof queues.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
 export type CrmSalesReason = typeof crm_sales_reasons.$inferSelect;
+export type CrmKeyword = typeof crm_keywords.$inferSelect;
 export type Ticket = typeof tickets.$inferSelect;
 export type AtMessage = typeof atendimento_messages.$inferSelect;
 export type HistoricTicket = typeof historic_tickets.$inferSelect;
