@@ -29,7 +29,7 @@ jobs:
           host: 178.156.131.101
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd /Kelmor/API-04 && git reset --hard HEAD && git pull origin main
+          script: cd /Kelmor/API-04 && git fetch origin main && git clean -fd dist && git reset --hard origin/main
 
       - name: Copiar dist para o servidor
         uses: appleboy/scp-action@v0.1.7
