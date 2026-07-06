@@ -99,7 +99,10 @@ export const configuracaoGeralService = {
     },
 
     async update(companyId: string, payload: ConfiguracaoGeralPayload) {
-        const { init_message, end_message, transfer_message, ...permPayload } = payload;
+        const { init_message, end_message, transfer_message, ...rest } = payload;
+
+        // Remove campos não-editáveis que o frontend pode reenviar acidentalmente
+        const { id: _id, company_id: _cid, created_at: _ca, updated_at: _ua, ...permPayload } = rest as any;
 
         // Atualiza mensagens na tabela companies (null se vazio)
         await db.update(companies).set({

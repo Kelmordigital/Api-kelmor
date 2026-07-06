@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userConnections = exports.userQueues = exports.connection_errors_log = exports.connection_health = exports.historic_tickets = exports.atendimento_messages = exports.tickets = exports.crm_sales_reasons = exports.contacts = exports.queues = exports.connections = exports.statuses = void 0;
+exports.userConnections = exports.userQueues = exports.connection_errors_log = exports.connection_health = exports.historic_tickets = exports.atendimento_messages = exports.tickets = exports.crm_keywords = exports.crm_sales_reasons = exports.contacts = exports.queues = exports.connections = exports.statuses = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const auth_schema_1 = require("../auth/auth.schema");
@@ -47,6 +47,13 @@ exports.crm_sales_reasons = (0, pg_core_1.pgTable)('at_crm_sales_reasons', {
     company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
     reason: (0, pg_core_1.text)('reason').notNull(),
     color: (0, pg_core_1.varchar)('color', { length: 50 }),
+});
+exports.crm_keywords = (0, pg_core_1.pgTable)('at_crm_keywords', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    keyword: (0, pg_core_1.varchar)('keyword', { length: 255 }).notNull(),
+    origin: (0, pg_core_1.varchar)('origin', { length: 255 }).notNull(),
+    created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 exports.tickets = (0, pg_core_1.pgTable)('at_tickets', {
     id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),

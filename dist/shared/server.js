@@ -36,6 +36,7 @@ const agenda_routes_1 = require("../modules/agenda/agenda.routes");
 const configuracao_geral_routes_1 = require("../modules/configuracao-geral/configuracao-geral.routes");
 const reports_routes_1 = require("../modules/reports/reports.routes");
 const crm_reports_routes_1 = require("../modules/crm/crm-reports.routes");
+const crm_config_routes_1 = require("../modules/crm/crm-config.routes");
 const superadmin_routes_1 = require("../modules/superadmin/superadmin.routes");
 /**
  * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
@@ -51,6 +52,9 @@ function adminOnly(routes) {
 }
 function buildApp() {
     const app = (0, fastify_1.default)({
+        // Atrás do Nginx/Docker o socket vê sempre o IP interno; trustProxy faz
+        // req.ip usar o X-Forwarded-For (IP real do usuário) — essencial p/ rate limit
+        trustProxy: true,
         disableRequestLogging: true,
         logger: env_1.env.NODE_ENV !== 'test'
             ? {
@@ -81,13 +85,21 @@ function buildApp() {
         }
     });
     app.register(helmet_1.default);
+    // CORS ANTES do rate limit: respostas 429 precisam sair com os cabeçalhos
+    // de CORS, senão o navegador reporta "Network Error" em vez da mensagem.
+    app.register(cors_1.default, {
+        origin: [env_1.env.FRONTEND_URL, env_1.env.SUPERADMIN_URL],
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    });
     const redis = (0, redis_1.getRedisClient)();
     app.register(rate_limit_1.default, {
         global: true,
         max: 200,
         timeWindow: '1 minute',
         ...(redis ? { redis } : {}),
-        keyGenerator: (request) => request.ip,
+        // IP real do usuário mesmo atrás do proxy (fallback: IP do socket)
+        keyGenerator: (request) => request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip,
         errorResponseBuilder: (_request, context) => ({
             statusCode: 429,
             error: 'Too Many Requests',
@@ -102,11 +114,6 @@ function buildApp() {
         root: path_1.default.join(process.cwd(), 'uploads'),
         prefix: '/uploads/',
         decorateReply: false,
-    });
-    app.register(cors_1.default, {
-        origin: [env_1.env.FRONTEND_URL, env_1.env.SUPERADMIN_URL],
-        credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     });
     app.get('/health', async () => ({
         status: 'ok',
@@ -134,6 +141,7 @@ function buildApp() {
     app.register(adminOnly(reports_routes_1.reportsRoutes), { prefix: '/api/v1/reports' });
     app.register(adminOnly(reports_routes_1.reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crm_reports_routes_1.crmReportsRoutes), { prefix: '/api/v1/crm-reports' });
+    app.register(crm_config_routes_1.crmConfigRoutes, { prefix: '/api/v1/crm' });
     app.register(superadmin_routes_1.superadminRoutes, { prefix: '/api/v1/superadmin' });
     // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
     const baysAuth = { preHandler: internal_auth_middleware_1.baysWebhookMiddleware };

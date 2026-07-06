@@ -505,7 +505,18 @@ exports.whatsappService = {
             }
             catch { }
         }
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contact.id, conn.id, jid);
+        const { ticket, created: ticketCreated } = await ticketService.findOrCreateOpen(companyId, contact.id, conn.id, jid);
+        // Se ticket novo e mensagem do cliente: tenta identificar origem por palavra-chave
+        if (ticketCreated && body && !fromMe) {
+            Promise.resolve().then(() => __importStar(require('../crm/crm-config.service'))).then(async ({ matchKeywordOrigin }) => {
+                const origin = await matchKeywordOrigin(companyId, body);
+                if (origin) {
+                    const { tickets: ticketsTable } = await Promise.resolve().then(() => __importStar(require('./../../modules/atendimento/atendimento.db.schema')));
+                    const { eq: _eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
+                    await client_1.db.update(ticketsTable).set({ origin }).where(_eq(ticketsTable.id, ticket.id));
+                }
+            }).catch(() => { });
+        }
         (0, socket_1.emitToCompany)(companyId, 'contact:upserted', { contact });
         if (body && !fromMe) {
             // Tenta capturar resposta de pesquisa antes de salvar mensagem

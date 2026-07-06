@@ -48,6 +48,9 @@ function adminOnly(routes: (app: FastifyInstance) => Promise<void>) {
 
 export function buildApp() {
     const app = Fastify({
+        // Atrás do Nginx/Docker o socket vê sempre o IP interno; trustProxy faz
+        // req.ip usar o X-Forwarded-For (IP real do usuário) — essencial p/ rate limit
+        trustProxy: true,
         disableRequestLogging: true,
         logger: env.NODE_ENV !== 'test'
             ? {
@@ -73,13 +76,23 @@ export function buildApp() {
 
     app.register(helmet);
 
+    // CORS ANTES do rate limit: respostas 429 precisam sair com os cabeçalhos
+    // de CORS, senão o navegador reporta "Network Error" em vez da mensagem.
+    app.register(cors, {
+        origin: [env.FRONTEND_URL, env.SUPERADMIN_URL],
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    });
+
     const redis = getRedisClient();
     app.register(rateLimit, {
         global: true,
         max: 200,
         timeWindow: '1 minute',
         ...(redis ? { redis } : {}),
-        keyGenerator: (request) => request.ip,
+        // IP real do usuário mesmo atrás do proxy (fallback: IP do socket)
+        keyGenerator: (request) =>
+            (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || request.ip,
         errorResponseBuilder: (_request, context) => ({
             statusCode: 429,
             error: 'Too Many Requests',
@@ -97,12 +110,6 @@ export function buildApp() {
         root: path.join(process.cwd(), 'uploads'),
         prefix: '/uploads/',
         decorateReply: false,
-    });
-
-    app.register(cors, {
-        origin: [env.FRONTEND_URL, env.SUPERADMIN_URL],
-        credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     });
 
     app.get('/health', async () => ({

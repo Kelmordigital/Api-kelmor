@@ -626,6 +626,102 @@ export declare const crm_sales_reasons: import("drizzle-orm/pg-core").PgTableWit
     };
     dialect: "pg";
 }>;
+export declare const crm_keywords: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "at_crm_keywords";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "at_crm_keywords";
+            dataType: "number";
+            columnType: "PgBigSerial53";
+            data: number;
+            driverParam: number;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        company_id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "company_id";
+            tableName: "at_crm_keywords";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        keyword: import("drizzle-orm/pg-core").PgColumn<{
+            name: "keyword";
+            tableName: "at_crm_keywords";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: 255;
+        }>;
+        origin: import("drizzle-orm/pg-core").PgColumn<{
+            name: "origin";
+            tableName: "at_crm_keywords";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: 255;
+        }>;
+        created_at: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "at_crm_keywords";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
 export declare const tickets: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "at_tickets";
     schema: undefined;
@@ -1587,6 +1683,7 @@ export type Connection = typeof connections.$inferSelect;
 export type Queue = typeof queues.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
 export type CrmSalesReason = typeof crm_sales_reasons.$inferSelect;
+export type CrmKeyword = typeof crm_keywords.$inferSelect;
 export type Ticket = typeof tickets.$inferSelect;
 export type AtMessage = typeof atendimento_messages.$inferSelect;
 export type HistoricTicket = typeof historic_tickets.$inferSelect;
