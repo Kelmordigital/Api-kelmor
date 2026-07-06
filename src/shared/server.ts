@@ -27,6 +27,7 @@ import { produtosRoutes } from '../modules/produtos/produto.routes';
 import { campanhasRoutes } from '../modules/campanhas/campanha.routes';
 import { integracoesRoutes } from '../modules/integracoes/integracao.routes';
 import { agendaRoutes } from '../modules/agenda/agenda.routes';
+import { tarefasRoutes } from '../modules/tarefas/tarefas.routes';
 import { configuracaoGeralRoutes } from '../modules/configuracao-geral/configuracao-geral.routes';
 import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
@@ -125,6 +126,7 @@ export function buildApp() {
     app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiquetasRoutes, { prefix: '/api/v1' });
     app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
+    app.register(tarefasRoutes, { prefix: '/api/v1/tarefas' });
 
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
     app.register(adminOnly(botsRoutes), { prefix: '/api/v1/bots' });

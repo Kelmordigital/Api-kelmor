@@ -33,6 +33,7 @@ const produto_routes_1 = require("../modules/produtos/produto.routes");
 const campanha_routes_1 = require("../modules/campanhas/campanha.routes");
 const integracao_routes_1 = require("../modules/integracoes/integracao.routes");
 const agenda_routes_1 = require("../modules/agenda/agenda.routes");
+const tarefas_routes_1 = require("../modules/tarefas/tarefas.routes");
 const configuracao_geral_routes_1 = require("../modules/configuracao-geral/configuracao-geral.routes");
 const reports_routes_1 = require("../modules/reports/reports.routes");
 const crm_reports_routes_1 = require("../modules/crm/crm-reports.routes");
@@ -127,6 +128,7 @@ function buildApp() {
     app.register(quick_messages_routes_1.quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiqueta_routes_1.etiquetasRoutes, { prefix: '/api/v1' });
     app.register(fila_routes_1.filasRoutes, { prefix: '/api/v1/configuracao/filas' });
+    app.register(tarefas_routes_1.tarefasRoutes, { prefix: '/api/v1/tarefas' });
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
     app.register(adminOnly(bots_routes_1.botsRoutes), { prefix: '/api/v1/bots' });
     app.register(adminOnly(usuario_routes_1.usuariosRoutes), { prefix: '/api/v1/configuracao/usuarios' });

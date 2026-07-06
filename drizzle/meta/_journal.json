@@ -120,6 +120,13 @@
       "when": 1783184430473,
       "tag": "0016_totp_superadmin",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783284430473,
+      "tag": "0017_tarefas",
+      "breakpoints": true
     }
   ]
 }
