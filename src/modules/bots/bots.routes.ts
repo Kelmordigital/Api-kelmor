@@ -13,4 +13,6 @@ export async function botsRoutes(app: FastifyInstance) {
     app.patch('/:id/set-default',    auth, botsController.setDefault);
     app.get('/:id/nodes',            auth, botsController.getNodes);
     app.post('/:id/nodes/sync',      auth, botsController.syncNodes);
+    app.post('/upload',              auth, botsController.uploadMedia);
+    app.get('/:id/nodes/:nodeId/rotate-report', auth, botsController.rotateReport);
 }

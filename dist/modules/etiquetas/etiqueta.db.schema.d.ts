@@ -174,7 +174,7 @@ export declare const contactEtiquetas: import("drizzle-orm/pg-core").PgTableWith
             name: "contact_id";
             tableName: "at_contact_etiquetas";
             dataType: "string";
-            columnType: "PgUUID";
+            columnType: "PgVarchar";
             data: string;
             driverParam: string;
             notNull: true;
@@ -182,11 +182,13 @@ export declare const contactEtiquetas: import("drizzle-orm/pg-core").PgTableWith
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;
-            enumValues: undefined;
+            enumValues: [string, ...string[]];
             baseColumn: never;
             identity: undefined;
             generated: undefined;
-        }, {}, {}>;
+        }, {}, {
+            length: 64;
+        }>;
         etiqueta_id: import("drizzle-orm/pg-core").PgColumn<{
             name: "etiqueta_id";
             tableName: "at_contact_etiquetas";

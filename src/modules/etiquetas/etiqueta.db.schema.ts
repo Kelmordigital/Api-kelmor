@@ -13,8 +13,10 @@ export const etiquetas = pgTable('at_etiquetas', {
     updated_at:      timestamp('updated_at').defaultNow(),
 });
 
+// contact_id é varchar para aceitar tanto UUIDs de leads (uso original)
+// quanto ids numéricos de at_contacts (nó "Adicionar Tag" do bot).
 export const contactEtiquetas = pgTable('at_contact_etiquetas', {
-    contact_id:  uuid('contact_id').notNull(),
+    contact_id:  varchar('contact_id', { length: 64 }).notNull(),
     etiqueta_id: uuid('etiqueta_id').notNull().references(() => etiquetas.id, { onDelete: 'cascade' }),
     created_at:  timestamp('created_at').defaultNow(),
 }, (t) => ({

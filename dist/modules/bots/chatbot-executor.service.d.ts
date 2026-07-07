@@ -1,4 +1,4 @@
 export declare const chatbotExecutorService: {
-    execute(companyId: string, connectionId: number, phone: string, userMessage: string, ticketId?: number): Promise<void>;
+    execute(companyId: string, connectionId: number, phone: string, userMessage: string, ticketId?: number, contactId?: number, contactName?: string): Promise<void>;
 };
 //# sourceMappingURL=chatbot-executor.service.d.ts.map

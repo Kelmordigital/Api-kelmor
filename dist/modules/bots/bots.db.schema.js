@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.bot_conversations = exports.bot_nodes = exports.bots = void 0;
+exports.bot_rotate_log = exports.bot_conversations = exports.bot_nodes = exports.bots = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const company_db_schema_1 = require("../companies/company.db.schema");
 exports.bots = (0, pg_core_1.pgTable)('at_bots', {
@@ -53,7 +53,21 @@ exports.bot_conversations = (0, pg_core_1.pgTable)('at_bot_conversations', {
     contact_phone: (0, pg_core_1.varchar)('contact_phone', { length: 30 }).notNull(),
     current_node_id: (0, pg_core_1.varchar)('current_node_id', { length: 36 }),
     status: (0, pg_core_1.varchar)('status', { length: 20 }).default('active').notNull(), // active|ended
+    context: (0, pg_core_1.text)('context'), // JSON: variáveis capturadas no fluxo ({{nome}}, etc.)
     started_at: (0, pg_core_1.timestamp)('started_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
+});
+// Log do nó "Rotacionar Contato": cada lead distribuído gera uma linha.
+// A posição do rodízio deriva da contagem; o relatório agrega por contato.
+exports.bot_rotate_log = (0, pg_core_1.pgTable)('at_bot_rotate_log', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    bot_id: (0, pg_core_1.bigint)('bot_id', { mode: 'number' }).notNull().references(() => exports.bots.id, { onDelete: 'cascade' }),
+    node_id: (0, pg_core_1.varchar)('node_id', { length: 36 }).notNull(),
+    contact_name: (0, pg_core_1.varchar)('contact_name', { length: 255 }),
+    contact_phone: (0, pg_core_1.varchar)('contact_phone', { length: 30 }).notNull(),
+    lead_phone: (0, pg_core_1.varchar)('lead_phone', { length: 30 }),
+    lead_name: (0, pg_core_1.varchar)('lead_name', { length: 255 }),
+    created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 //# sourceMappingURL=bots.db.schema.js.map

@@ -439,8 +439,13 @@ export const whatsappService = {
                 : '') ||
             '';
 
-        const nome = String(msg.pushName ?? (phone || (waUsername ? `@${waUsername}` : lid) || ''));
         const fromMe = Boolean(key.fromMe);
+        // pushName é o nome do AUTOR da mensagem: em fromMe é o nome do dono da
+        // conexão, nunca do contato. Nesse caso não passa nome — o findOrCreate
+        // usa o fallback (número/@username/LID) e o pushName real assume quando
+        // o contato responder (refreshNameFromPushName).
+        const pushName = typeof msg.pushName === 'string' ? msg.pushName.trim() : '';
+        const nome = !fromMe && pushName ? pushName : undefined;
 
         const rawMsg = (msg.message as Record<string, unknown> | undefined) ?? {};
         const imgCaption  = String((rawMsg.imageMessage    as Record<string, unknown> | undefined)?.caption ?? '');
@@ -484,6 +489,7 @@ export const whatsappService = {
         const sendTarget = phone || (lid ? `lid:${lid}` : '');
 
         let contact = await contactService.findOrCreate(companyId, phone, nome, lid, waUsername || undefined);
+        contact = await contactService.refreshNameFromPushName(contact, pushName, fromMe);
 
         if (profileImgUrl && profileImgUrl.startsWith('http') && contact.profile_pic_url !== profileImgUrl) {
             const { contacts: contactsTable } = await import('../atendimento/atendimento.db.schema');
@@ -545,7 +551,7 @@ export const whatsappService = {
                 await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
                 if (sendTarget) {
                     const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
-                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id).catch((err: Error) =>
+                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id, contact.id, contact.name).catch((err: Error) =>
                         console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
                     );
                 }
@@ -668,6 +674,69 @@ export const whatsappService = {
             type: 'text',
             contact: phoneNum,
             payload: { text },
+        });
+    },
+
+    /** Campos de destino (número ou LID) no formato aceito pelo bays. */
+    _sendTargetFields(target: string): { contact?: string; lid?: string; priority?: string } {
+        if (target.startsWith('lid:')) {
+            return { lid: target.slice(4).replace(/\D/g, ''), priority: 'lid' };
+        }
+        return { contact: target.replace(/\D/g, '') };
+    },
+
+    /**
+     * Envia mídia (imagem/vídeo/documento/áudio) por URL pública.
+     * `sticker: true` envia a imagem como figurinha (bays converte p/ webp).
+     */
+    async sendMediaToPhone(
+        connectionId: number,
+        target: string,
+        media: { path: string; mimetype: string; originalname: string; sticker?: boolean },
+        caption?: string,
+    ): Promise<void> {
+        await baysPost(`/message/send/${connectionId}`, {
+            type: 'media',
+            ...this._sendTargetFields(target),
+            payload: { text: caption || undefined, media },
+        });
+    },
+
+    /** Envia um cartão de contato (vCard). */
+    async sendContactCardToPhone(
+        connectionId: number,
+        target: string,
+        name: string,
+        phone: string,
+    ): Promise<void> {
+        const digits = phone.replace(/\D/g, '');
+        const vcard = [
+            'BEGIN:VCARD',
+            'VERSION:3.0',
+            `N:;${name};;;`,
+            `FN:${name}`,
+            `TEL;type=CELL;type=VOICE;waid=${digits}:+${digits}`,
+            'END:VCARD',
+        ].join('\n');
+
+        await baysPost(`/message/send/${connectionId}`, {
+            type: 'contact',
+            ...this._sendTargetFields(target),
+            payload: { contacts: { displayName: name, contacts: [{ vcard, name }] } },
+        });
+    },
+
+    /** Envia enquete nativa do WhatsApp (1 voto por pessoa). */
+    async sendPollToPhone(
+        connectionId: number,
+        target: string,
+        question: string,
+        options: string[],
+    ): Promise<void> {
+        await baysPost(`/message/send/${connectionId}`, {
+            type: 'poll',
+            ...this._sendTargetFields(target),
+            payload: { pollMessage: { name: question, options, selectableCount: 1 } },
         });
     },
 

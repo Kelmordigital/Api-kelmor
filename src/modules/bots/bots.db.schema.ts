@@ -56,8 +56,23 @@ export const bot_conversations = pgTable('at_bot_conversations', {
     contact_phone:   varchar('contact_phone', { length: 30 }).notNull(),
     current_node_id: varchar('current_node_id', { length: 36 }),
     status:          varchar('status', { length: 20 }).default('active').notNull(), // active|ended
+    context:         text('context'), // JSON: variáveis capturadas no fluxo ({{nome}}, etc.)
     started_at:      timestamp('started_at').defaultNow(),
     updated_at:      timestamp('updated_at').defaultNow(),
+});
+
+// Log do nó "Rotacionar Contato": cada lead distribuído gera uma linha.
+// A posição do rodízio deriva da contagem; o relatório agrega por contato.
+export const bot_rotate_log = pgTable('at_bot_rotate_log', {
+    id:            bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id:    uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    bot_id:        bigint('bot_id', { mode: 'number' }).notNull().references(() => bots.id, { onDelete: 'cascade' }),
+    node_id:       varchar('node_id', { length: 36 }).notNull(),
+    contact_name:  varchar('contact_name', { length: 255 }),
+    contact_phone: varchar('contact_phone', { length: 30 }).notNull(),
+    lead_phone:    varchar('lead_phone', { length: 30 }),
+    lead_name:     varchar('lead_name', { length: 255 }),
+    created_at:    timestamp('created_at').defaultNow(),
 });
 
 export type Bot             = typeof bots.$inferSelect;
@@ -65,3 +80,4 @@ export type NewBot          = typeof bots.$inferInsert;
 export type BotNode         = typeof bot_nodes.$inferSelect;
 export type NewBotNode      = typeof bot_nodes.$inferInsert;
 export type BotConversation = typeof bot_conversations.$inferSelect;
+export type BotRotateLog    = typeof bot_rotate_log.$inferSelect;

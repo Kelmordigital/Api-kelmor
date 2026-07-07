@@ -25,6 +25,26 @@ export declare const whatsappService: {
      * caso contrário trata como número normal. Não quebra chamadores que passam número puro.
      */
     sendTextToPhone(connectionId: number, target: string, text: string): Promise<void>;
+    /** Campos de destino (número ou LID) no formato aceito pelo bays. */
+    _sendTargetFields(target: string): {
+        contact?: string;
+        lid?: string;
+        priority?: string;
+    };
+    /**
+     * Envia mídia (imagem/vídeo/documento/áudio) por URL pública.
+     * `sticker: true` envia a imagem como figurinha (bays converte p/ webp).
+     */
+    sendMediaToPhone(connectionId: number, target: string, media: {
+        path: string;
+        mimetype: string;
+        originalname: string;
+        sticker?: boolean;
+    }, caption?: string): Promise<void>;
+    /** Envia um cartão de contato (vCard). */
+    sendContactCardToPhone(connectionId: number, target: string, name: string, phone: string): Promise<void>;
+    /** Envia enquete nativa do WhatsApp (1 voto por pessoa). */
+    sendPollToPhone(connectionId: number, target: string, question: string, options: string[]): Promise<void>;
     getConversas(): Promise<any[]>;
     ensureConversa(phone: string, nome: string | null): Promise<void>;
     updateConversaStatus(phone: string, status: string): Promise<void>;

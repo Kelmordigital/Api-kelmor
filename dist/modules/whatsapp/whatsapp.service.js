@@ -526,7 +526,7 @@ exports.whatsappService = {
                 await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
                 if (sendTarget) {
                     const { chatbotExecutorService } = await Promise.resolve().then(() => __importStar(require('../bots/chatbot-executor.service')));
-                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id).catch((err) => console.error('[ChatbotExecutor] Falha silenciosa:', err.message));
+                    chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id, contact.id, contact.name).catch((err) => console.error('[ChatbotExecutor] Falha silenciosa:', err.message));
                 }
             }
         }
@@ -643,6 +643,49 @@ exports.whatsappService = {
             type: 'text',
             contact: phoneNum,
             payload: { text },
+        });
+    },
+    /** Campos de destino (número ou LID) no formato aceito pelo bays. */
+    _sendTargetFields(target) {
+        if (target.startsWith('lid:')) {
+            return { lid: target.slice(4).replace(/\D/g, ''), priority: 'lid' };
+        }
+        return { contact: target.replace(/\D/g, '') };
+    },
+    /**
+     * Envia mídia (imagem/vídeo/documento/áudio) por URL pública.
+     * `sticker: true` envia a imagem como figurinha (bays converte p/ webp).
+     */
+    async sendMediaToPhone(connectionId, target, media, caption) {
+        await baysPost(`/message/send/${connectionId}`, {
+            type: 'media',
+            ...this._sendTargetFields(target),
+            payload: { text: caption || undefined, media },
+        });
+    },
+    /** Envia um cartão de contato (vCard). */
+    async sendContactCardToPhone(connectionId, target, name, phone) {
+        const digits = phone.replace(/\D/g, '');
+        const vcard = [
+            'BEGIN:VCARD',
+            'VERSION:3.0',
+            `N:;${name};;;`,
+            `FN:${name}`,
+            `TEL;type=CELL;type=VOICE;waid=${digits}:+${digits}`,
+            'END:VCARD',
+        ].join('\n');
+        await baysPost(`/message/send/${connectionId}`, {
+            type: 'contact',
+            ...this._sendTargetFields(target),
+            payload: { contacts: { displayName: name, contacts: [{ vcard, name }] } },
+        });
+    },
+    /** Envia enquete nativa do WhatsApp (1 voto por pessoa). */
+    async sendPollToPhone(connectionId, target, question, options) {
+        await baysPost(`/message/send/${connectionId}`, {
+            type: 'poll',
+            ...this._sendTargetFields(target),
+            payload: { pollMessage: { name: question, options, selectableCount: 1 } },
         });
     },
     // ── Conversas (Redis) ────────────────────────────────────────────────────

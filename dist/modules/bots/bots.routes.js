@@ -13,5 +13,7 @@ async function botsRoutes(app) {
     app.patch('/:id/set-default', auth, bots_controller_1.botsController.setDefault);
     app.get('/:id/nodes', auth, bots_controller_1.botsController.getNodes);
     app.post('/:id/nodes/sync', auth, bots_controller_1.botsController.syncNodes);
+    app.post('/upload', auth, bots_controller_1.botsController.uploadMedia);
+    app.get('/:id/nodes/:nodeId/rotate-report', auth, bots_controller_1.botsController.rotateReport);
 }
 //# sourceMappingURL=bots.routes.js.map

@@ -110,6 +110,51 @@ export const contactService = {
         return created;
     },
 
+    /**
+     * Mantém o nome de exibição coerente com o pushName da mensagem recebida.
+     *
+     * - Mensagem do contato (!fromMe): se o nome atual é placeholder (número,
+     *   LID, @username, 'Sem nome'), assume o pushName real. Nomes "de verdade"
+     *   (editados no CRM ou de pushName anterior) nunca são sobrescritos.
+     * - Mensagem do dono (fromMe): pushName é o nome do DONO da conexão; se o
+     *   contato ficou gravado com esse nome (bug antigo que criava vários
+     *   contatos com o nome do dono), reseta para o placeholder — o pushName
+     *   real assume quando o contato responder.
+     */
+    async refreshNameFromPushName(contact: Contact, pushName: string, fromMe: boolean): Promise<Contact> {
+        const name = pushName?.trim();
+        if (!name) return contact;
+
+        let newName: string | null = null;
+        if (!fromMe && name !== contact.name && this._isPlaceholderName(contact)) {
+            newName = name;
+        } else if (fromMe && contact.name === name) {
+            newName =
+                contact.number ||
+                (contact.wa_username ? `@${contact.wa_username}` : '') ||
+                (contact.lid ? `LID ${contact.lid}` : '') ||
+                'Sem nome';
+        }
+        if (!newName || newName === contact.name) return contact;
+
+        const [updated] = await db
+            .update(contacts)
+            .set({ name: newName })
+            .where(eq(contacts.id, contact.id))
+            .returning();
+        return updated ?? contact;
+    },
+
+    /** Nome é placeholder gerado pelo sistema (número, LID, @username, 'Sem nome')? */
+    _isPlaceholderName(contact: Contact): boolean {
+        const n = (contact.name ?? '').trim();
+        if (!n || n === 'Sem nome') return true;
+        if (contact.number && n === contact.number) return true;
+        if (contact.lid && (n === contact.lid || n === `LID ${contact.lid}`)) return true;
+        if (contact.wa_username && n === `@${contact.wa_username}`) return true;
+        return false;
+    },
+
     /** Preenche lid/username num contato existente sem sobrescrever dados já presentes. */
     async _enrich(
         contact: Contact,
