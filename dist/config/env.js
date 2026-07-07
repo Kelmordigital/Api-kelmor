@@ -32,6 +32,10 @@ const envSchema = zod_1.z.object({
     ALERT_WEBHOOK_TOKEN: zod_1.z.string().min(16, 'ALERT_WEBHOOK_TOKEN deve ter ao menos 16 caracteres').optional(),
     ALERT_CONNECTION_ID: zod_1.z.string().optional(),
     ALERT_PHONE: zod_1.z.string().optional(),
+    // Grafana Cloud (leitura de métricas para o painel Super Admin)
+    GRAFANA_PROM_URL: zod_1.z.string().url().optional(),
+    GRAFANA_PROM_USER: zod_1.z.string().optional(),
+    GRAFANA_PROM_TOKEN: zod_1.z.string().optional(),
     ADMIN_SECRET: zod_1.z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: zod_1.z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: zod_1.z.string().url().default('http://localhost:3000'),

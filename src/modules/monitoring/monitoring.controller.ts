@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { env } from '../../config/env';
 import { formatAlertMessage, GrafanaWebhookBody } from './monitoring.service';
 import { whatsappService } from '../whatsapp/whatsapp.service';
+import { fetchMetricHistory, METRICS, RANGES, MetricKey, RangeKey } from './grafana-prom.client';
 
 export const monitoringController = {
     /**
@@ -23,6 +24,27 @@ export const monitoringController = {
                 .sendTextToPhone(Number(env.ALERT_CONNECTION_ID), env.ALERT_PHONE, text)
                 .catch((err: any) =>
                     console.error('[monitoring] Falha ao enviar alerta no WhatsApp:', err?.message));
+        }
+    },
+
+    /** Proxy autenticado (superAdmin) para o histórico de métricas do Grafana Cloud. */
+    async metricsHistory(req: FastifyRequest, reply: FastifyReply) {
+        const { metric, range } = req.query as { metric?: string; range?: string };
+        if (!metric || !(metric in METRICS)) {
+            return reply.status(400).send({ error: 'metric deve ser: cpu, ram, sessions ou http' });
+        }
+        if (!range || !(range in RANGES)) {
+            return reply.status(400).send({ error: 'range deve ser: 1h, 24h ou 7d' });
+        }
+        if (!env.GRAFANA_PROM_URL || !env.GRAFANA_PROM_USER || !env.GRAFANA_PROM_TOKEN) {
+            return reply.status(503).send({ error: 'Monitoramento ainda não configurado no servidor' });
+        }
+        try {
+            const data = await fetchMetricHistory(metric as MetricKey, range as RangeKey);
+            return reply.send(data);
+        } catch (err: any) {
+            console.error('[monitoring] Erro ao consultar Grafana Cloud:', err?.message);
+            return reply.status(502).send({ error: 'Falha ao consultar métricas' });
         }
     },
 };

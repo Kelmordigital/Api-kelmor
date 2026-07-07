@@ -42,6 +42,11 @@ const envSchema = z.object({
     ALERT_CONNECTION_ID: z.string().optional(),
     ALERT_PHONE:         z.string().optional(),
 
+    // Grafana Cloud (leitura de métricas para o painel Super Admin)
+    GRAFANA_PROM_URL:   z.string().url().optional(),
+    GRAFANA_PROM_USER:  z.string().optional(),
+    GRAFANA_PROM_TOKEN: z.string().optional(),
+
     ADMIN_SECRET: z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: z.string().url().default('http://localhost:3000'),

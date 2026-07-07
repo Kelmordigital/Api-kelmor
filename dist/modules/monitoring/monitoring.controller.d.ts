@@ -6,5 +6,7 @@ export declare const monitoringController: {
      * se falhar, apenas loga (o e-mail fatal é o fallback garantido).
      */
     handleGrafanaAlert(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
+    /** Proxy autenticado (superAdmin) para o histórico de métricas do Grafana Cloud. */
+    metricsHistory(req: FastifyRequest, reply: FastifyReply): Promise<never>;
 };
 //# sourceMappingURL=monitoring.controller.d.ts.map

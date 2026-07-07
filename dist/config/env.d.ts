@@ -34,5 +34,8 @@ export declare const env: {
     ALERT_WEBHOOK_TOKEN?: string | undefined;
     ALERT_CONNECTION_ID?: string | undefined;
     ALERT_PHONE?: string | undefined;
+    GRAFANA_PROM_URL?: string | undefined;
+    GRAFANA_PROM_USER?: string | undefined;
+    GRAFANA_PROM_TOKEN?: string | undefined;
 };
 //# sourceMappingURL=env.d.ts.map

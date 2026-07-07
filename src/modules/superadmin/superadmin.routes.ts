@@ -1,11 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { authMiddleware, requireSuperAdmin } from '../../middlewares/auth.middleware';
 import { superadminController } from './superadmin.controller';
+import { monitoringController } from '../monitoring/monitoring.controller';
 
 export async function superadminRoutes(app: FastifyInstance) {
     const guard = { preHandler: [authMiddleware, requireSuperAdmin] };
 
     app.get('/stats',     guard, superadminController.stats);
+    app.get('/metrics/history', guard, monitoringController.metricsHistory);
     app.get('/companies', guard, superadminController.listCompanies);
     app.post('/companies',              guard, superadminController.createCompany);
     app.patch('/companies/:id',         guard, superadminController.updateCompany);
