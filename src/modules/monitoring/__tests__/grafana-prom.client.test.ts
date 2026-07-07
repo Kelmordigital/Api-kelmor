@@ -35,6 +35,11 @@ describe('fetchMetricHistory', () => {
         const calledUrl = String(fetchMock.mock.calls[0][0]);
         expect(calledUrl).toContain('/api/v1/query_range');
         expect(calledUrl).toContain('step=60');
+
+        const calledOpts = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+        expect(calledOpts.headers.Authorization).toBe(
+            `Basic ${Buffer.from('123456:glc_token_de_teste').toString('base64')}`,
+        );
     });
 
     it('usa cache na segunda chamada dentro do TTL', async () => {
