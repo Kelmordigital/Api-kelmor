@@ -37,6 +37,13 @@ const envSchema = z.object({
     BAYS_SECRET_KEY: z.string().default(''),
     BAYS_SESSION_ID: z.string().default('1'),
 
+    // API Oficial do WhatsApp (Cloud API / Meta)
+    META_GRAPH_API_VERSION: z.string().default('v21.0'),
+    WAB_APP_ID: z.string().default(''),                  // app da Meta (Embedded Signup / OAuth)
+    WAB_APP_SECRET: z.string().default(''),              // secret do app (troca do code OAuth)
+    WAB_USER_TOKEN: z.string().default(''),              // token do System User → wab_token das conexões
+    WAB_WEBHOOK_VERIFY_TOKEN: z.string().default('kelmor'), // hub.verify_token do webhook
+
     ADMIN_SECRET: z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: z.string().url().default('http://localhost:3000'),
