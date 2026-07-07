@@ -438,8 +438,13 @@ exports.whatsappService = {
                 ? String(key.senderUsername)
                 : '') ||
             '';
-        const nome = String(msg.pushName ?? (phone || (waUsername ? `@${waUsername}` : lid) || ''));
         const fromMe = Boolean(key.fromMe);
+        // pushName é o nome do AUTOR da mensagem: em fromMe é o nome do dono da
+        // conexão, nunca do contato. Nesse caso não passa nome — o findOrCreate
+        // usa o fallback (número/@username/LID) e o pushName real assume quando
+        // o contato responder (refreshNameFromPushName).
+        const pushName = typeof msg.pushName === 'string' ? msg.pushName.trim() : '';
+        const nome = !fromMe && pushName ? pushName : undefined;
         const rawMsg = msg.message ?? {};
         const imgCaption = String(rawMsg.imageMessage?.caption ?? '');
         const vidCaption = String(rawMsg.videoMessage?.caption ?? '');
@@ -474,6 +479,7 @@ exports.whatsappService = {
         // Identificador de envio: número quando existe, senão o LID (contato username-only)
         const sendTarget = phone || (lid ? `lid:${lid}` : '');
         let contact = await contactService.findOrCreate(companyId, phone, nome, lid, waUsername || undefined);
+        contact = await contactService.refreshNameFromPushName(contact, pushName, fromMe);
         if (profileImgUrl && profileImgUrl.startsWith('http') && contact.profile_pic_url !== profileImgUrl) {
             const { contacts: contactsTable } = await Promise.resolve().then(() => __importStar(require('../atendimento/atendimento.db.schema')));
             const { db: _db } = await Promise.resolve().then(() => __importStar(require('../../database/client')));

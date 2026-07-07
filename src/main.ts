@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { env } from './config/env';
 import { runMigrations } from './database/migrate';
 import { initSocket } from './shared/socket';
-import { startConnectionHealthJob } from './jobs/connection-health.job';
+import { startConnectionHealthJob, initSessionsGauge } from './jobs/connection-health.job';
 import { startReconnectionWorker } from './jobs/reconnection.queue';
 import { restoreScheduledCampaigns } from './modules/campanhas/campanha.scheduler';
 import { startRabbitConsumer, stopRabbitConsumer } from './shared/rabbitmq';
@@ -44,6 +44,7 @@ async function main() {
         await app.listen({ port: env.PORT, host: '0.0.0.0' });
         initSocket(app.server);
         healthInterval    = startConnectionHealthJob();
+        initSessionsGauge().catch(() => {});
         reconnectWorker   = startReconnectionWorker();
         restoreScheduledCampaigns().catch(() => {});
         startRabbitConsumer().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));

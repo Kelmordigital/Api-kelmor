@@ -33,6 +33,8 @@ import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.r
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
 import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
 import { superadminRoutes } from '../modules/superadmin/superadmin.routes';
+import { recordHttpRequest } from '../modules/monitoring/monitoring.metrics';
+import { monitoringRoutes } from '../modules/monitoring/monitoring.routes';
 
 /**
  * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
@@ -118,6 +120,15 @@ export function buildApp() {
         timestamp: new Date().toISOString(),
         env: env.NODE_ENV,
     }));
+
+    // Instrumentação HTTP para Prometheus (usa a rota registrada, não a URL
+    // crua, para não explodir a cardinalidade com IDs)
+    app.addHook('onResponse', (req, reply, done) => {
+        recordHttpRequest(req.method, req.routeOptions?.url ?? 'unmatched', reply.statusCode, reply.elapsedTime);
+        done();
+    });
+
+    app.register(monitoringRoutes);
 
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(authRoutes, { prefix: '/api/v1/auth' });

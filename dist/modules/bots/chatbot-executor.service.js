@@ -377,6 +377,9 @@ function triggerMatches(startNode, userMessage) {
 exports.chatbotExecutorService = {
     async execute(companyId, connectionId, phone, userMessage, ticketId, contactId, contactName) {
         try {
+            // Bots NUNCA respondem grupos — guarda extra além do descarte no webhook
+            if (phone.includes('@g.us'))
+                return;
             const bot = await bots_repository_1.botsRepository.findDefaultActive(companyId);
             if (!bot)
                 return;

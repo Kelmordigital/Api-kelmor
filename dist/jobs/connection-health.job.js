@@ -1,17 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startConnectionHealthJob = startConnectionHealthJob;
+exports.initSessionsGauge = initSessionsGauge;
 const client_1 = require("../database/client");
 const atendimento_db_schema_1 = require("../modules/atendimento/atendimento.db.schema");
 const drizzle_orm_1 = require("drizzle-orm");
 const whatsapp_service_1 = require("../modules/whatsapp/whatsapp.service");
 const env_1 = require("../config/env");
+const monitoring_metrics_1 = require("../modules/monitoring/monitoring.metrics");
 const INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 async function runHealthCheck() {
     const rows = await client_1.db
         .select({ id: atendimento_db_schema_1.connections.id, name: atendimento_db_schema_1.connections.name })
         .from(atendimento_db_schema_1.connections)
         .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.status, 'connected'));
+    monitoring_metrics_1.whatsappSessionsConnected.set(rows.length);
     if (rows.length === 0)
         return;
     for (const conn of rows) {
@@ -49,5 +52,13 @@ function startConnectionHealthJob() {
     }, INTERVAL_MS);
     console.log('[health] Health check iniciado (intervalo: 5min)');
     return interval;
+}
+/** Inicializa o gauge no boot com a contagem atual do banco (sem pingar o bays). */
+async function initSessionsGauge() {
+    const rows = await client_1.db
+        .select({ id: atendimento_db_schema_1.connections.id })
+        .from(atendimento_db_schema_1.connections)
+        .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.status, 'connected'));
+    monitoring_metrics_1.whatsappSessionsConnected.set(rows.length);
 }
 //# sourceMappingURL=connection-health.job.js.map

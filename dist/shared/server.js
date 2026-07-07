@@ -39,6 +39,8 @@ const reports_routes_1 = require("../modules/reports/reports.routes");
 const crm_reports_routes_1 = require("../modules/crm/crm-reports.routes");
 const crm_config_routes_1 = require("../modules/crm/crm-config.routes");
 const superadmin_routes_1 = require("../modules/superadmin/superadmin.routes");
+const monitoring_metrics_1 = require("../modules/monitoring/monitoring.metrics");
+const monitoring_routes_1 = require("../modules/monitoring/monitoring.routes");
 /**
  * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
  * Aplica authMiddleware (popula req.user) e requireAdmin (403 se não-admin)
@@ -121,6 +123,13 @@ function buildApp() {
         timestamp: new Date().toISOString(),
         env: env_1.env.NODE_ENV,
     }));
+    // Instrumentação HTTP para Prometheus (usa a rota registrada, não a URL
+    // crua, para não explodir a cardinalidade com IDs)
+    app.addHook('onResponse', (req, reply, done) => {
+        (0, monitoring_metrics_1.recordHttpRequest)(req.method, req.routeOptions?.url ?? 'unmatched', reply.statusCode, reply.elapsedTime);
+        done();
+    });
+    app.register(monitoring_routes_1.monitoringRoutes);
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(auth_routes_1.authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsapp_routes_1.whatsappRoutes, { prefix: '/api/v1/whatsapp' });

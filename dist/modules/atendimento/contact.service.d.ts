@@ -16,6 +16,20 @@ export declare const contactService: {
      * @param waUsername  Username público (@apelido) quando a Meta expõe no payload
      */
     findOrCreate(companyId: string, number?: string | null, name?: string, lid?: string | null, waUsername?: string | null): Promise<Contact>;
+    /**
+     * Mantém o nome de exibição coerente com o pushName da mensagem recebida.
+     *
+     * - Mensagem do contato (!fromMe): se o nome atual é placeholder (número,
+     *   LID, @username, 'Sem nome'), assume o pushName real. Nomes "de verdade"
+     *   (editados no CRM ou de pushName anterior) nunca são sobrescritos.
+     * - Mensagem do dono (fromMe): pushName é o nome do DONO da conexão; se o
+     *   contato ficou gravado com esse nome (bug antigo que criava vários
+     *   contatos com o nome do dono), reseta para o placeholder — o pushName
+     *   real assume quando o contato responder.
+     */
+    refreshNameFromPushName(contact: Contact, pushName: string, fromMe: boolean): Promise<Contact>;
+    /** Nome é placeholder gerado pelo sistema (número, LID, @username, 'Sem nome')? */
+    _isPlaceholderName(contact: Contact): boolean;
     /** Preenche lid/username num contato existente sem sobrescrever dados já presentes. */
     _enrich(contact: Contact, data: {
         lidClean?: string;

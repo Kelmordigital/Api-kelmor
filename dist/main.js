@@ -38,6 +38,7 @@ async function main() {
         await app.listen({ port: env_1.env.PORT, host: '0.0.0.0' });
         (0, socket_1.initSocket)(app.server);
         healthInterval = (0, connection_health_job_1.startConnectionHealthJob)();
+        (0, connection_health_job_1.initSessionsGauge)().catch(() => { });
         reconnectWorker = (0, reconnection_queue_1.startReconnectionWorker)();
         (0, campanha_scheduler_1.restoreScheduledCampaigns)().catch(() => { });
         (0, rabbitmq_1.startRabbitConsumer)().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
