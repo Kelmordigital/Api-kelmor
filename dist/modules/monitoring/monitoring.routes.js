@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.monitoringRoutes = monitoringRoutes;
 const monitoring_metrics_1 = require("./monitoring.metrics");
+const monitoring_controller_1 = require("./monitoring.controller");
 /**
  * Rotas de monitoramento registradas SEM prefixo /api/v1.
  * GET /metrics NÃO tem auth — é bloqueado externamente pelo Nginx e pelo
@@ -12,5 +13,6 @@ async function monitoringRoutes(app) {
         reply.header('content-type', monitoring_metrics_1.metricsRegistry.contentType);
         return monitoring_metrics_1.metricsRegistry.metrics();
     });
+    app.post('/monitoring/alert', monitoring_controller_1.monitoringController.handleGrafanaAlert);
 }
 //# sourceMappingURL=monitoring.routes.js.map

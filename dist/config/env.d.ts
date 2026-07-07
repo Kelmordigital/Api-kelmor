@@ -31,5 +31,8 @@ export declare const env: {
     FILIPE_INSTANCE?: string | undefined;
     FILIPE_PHONE?: string | undefined;
     REDIS_URL?: string | undefined;
+    ALERT_WEBHOOK_TOKEN?: string | undefined;
+    ALERT_CONNECTION_ID?: string | undefined;
+    ALERT_PHONE?: string | undefined;
 };
 //# sourceMappingURL=env.d.ts.map

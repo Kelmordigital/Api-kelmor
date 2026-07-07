@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { metricsRegistry } from './monitoring.metrics';
+import { monitoringController } from './monitoring.controller';
 
 /**
  * Rotas de monitoramento registradas SEM prefixo /api/v1.
@@ -11,4 +12,6 @@ export async function monitoringRoutes(app: FastifyInstance) {
         reply.header('content-type', metricsRegistry.contentType);
         return metricsRegistry.metrics();
     });
+
+    app.post('/monitoring/alert', monitoringController.handleGrafanaAlert);
 }

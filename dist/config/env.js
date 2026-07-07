@@ -28,6 +28,10 @@ const envSchema = zod_1.z.object({
     BAYS_URL: zod_1.z.string().url().default('http://localhost:4001'),
     BAYS_SECRET_KEY: zod_1.z.string().default(''),
     BAYS_SESSION_ID: zod_1.z.string().default('1'),
+    // Monitoramento / alertas (opcionais — a API sobe sem eles)
+    ALERT_WEBHOOK_TOKEN: zod_1.z.string().min(16, 'ALERT_WEBHOOK_TOKEN deve ter ao menos 16 caracteres').optional(),
+    ALERT_CONNECTION_ID: zod_1.z.string().optional(),
+    ALERT_PHONE: zod_1.z.string().optional(),
     ADMIN_SECRET: zod_1.z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: zod_1.z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: zod_1.z.string().url().default('http://localhost:3000'),

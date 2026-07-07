@@ -37,6 +37,11 @@ const envSchema = z.object({
     BAYS_SECRET_KEY: z.string().default(''),
     BAYS_SESSION_ID: z.string().default('1'),
 
+    // Monitoramento / alertas (opcionais — a API sobe sem eles)
+    ALERT_WEBHOOK_TOKEN: z.string().min(16, 'ALERT_WEBHOOK_TOKEN deve ter ao menos 16 caracteres').optional(),
+    ALERT_CONNECTION_ID: z.string().optional(),
+    ALERT_PHONE:         z.string().optional(),
+
     ADMIN_SECRET: z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: z.string().url().default('http://localhost:3000'),
