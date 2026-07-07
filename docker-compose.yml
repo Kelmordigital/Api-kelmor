@@ -5,7 +5,7 @@ services:
     build: .
     container_name: kelmor-api
     ports:
-      - "3003:3000"
+      - "127.0.0.1:3003:3000"
     env_file:
       - .env
     depends_on:
@@ -65,11 +65,31 @@ services:
     networks:
       - kelmor-network
 
+  kelmor-alloy:
+    image: grafana/alloy:v1.5.1
+    container_name: kelmor-alloy
+    restart: always
+    mem_limit: 200m
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data", "--disable-reporting"]
+    env_file:
+      - .env
+    volumes:
+      - ./monitoring/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/sys:ro
+      - /:/rootfs:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - kelmor_alloy_data:/var/lib/alloy/data
+    networks:
+      - kelmor-network
+
 volumes:
   kelmor_postgres_data:
   kelmor_redis_data:
   kelmor_rabbitmq_data:
   kelmor_uploads:
+  kelmor_alloy_data:
 
 networks:
   kelmor-network:

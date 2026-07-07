@@ -1,0 +1,60 @@
+// ────────────────────────────────────────────────────────────────
+// Grafana Alloy — coletor único do servidor Kelmor (Hester)
+// Host (CPU/RAM/disco) + containers Docker + API-04 /metrics
+// → remote_write para o Grafana Cloud
+// ────────────────────────────────────────────────────────────────
+
+// Métricas do host (equivalente ao node_exporter)
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/sys"
+  rootfs_path = "/rootfs"
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.relabel.add_instance.receiver]
+  scrape_interval = "60s"
+}
+
+// Métricas dos containers (equivalente ao cAdvisor)
+prometheus.exporter.cadvisor "docker" {
+  docker_host = "unix:///var/run/docker.sock"
+}
+
+prometheus.scrape "docker" {
+  targets         = prometheus.exporter.cadvisor.docker.targets
+  forward_to      = [prometheus.relabel.add_instance.receiver]
+  scrape_interval = "60s"
+}
+
+// Métricas da aplicação (API-04) pela rede interna do Docker
+prometheus.scrape "kelmor_api" {
+  targets = [{
+    __address__ = "kelmor-api:3000",
+    job         = "kelmor-api",
+  }]
+  metrics_path    = "/metrics"
+  forward_to      = [prometheus.relabel.add_instance.receiver]
+  scrape_interval = "60s"
+}
+
+// Rótulo comum a tudo que sai deste servidor
+prometheus.relabel "add_instance" {
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+  rule {
+    target_label = "instance"
+    replacement  = "hester-kelmor"
+  }
+}
+
+// Envio para o Grafana Cloud (credenciais via .env do compose)
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GCLOUD_PROM_PUSH_URL")
+    basic_auth {
+      username = sys.env("GCLOUD_PROM_USER")
+      password = sys.env("GCLOUD_PROM_TOKEN")
+    }
+  }
+}
