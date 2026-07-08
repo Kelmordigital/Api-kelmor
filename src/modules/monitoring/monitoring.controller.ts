@@ -31,7 +31,7 @@ export const monitoringController = {
     async metricsHistory(req: FastifyRequest, reply: FastifyReply) {
         const { metric, range } = req.query as { metric?: string; range?: string };
         if (!metric || !(metric in METRICS)) {
-            return reply.status(400).send({ error: 'metric deve ser: cpu, ram, sessions ou http' });
+            return reply.status(400).send({ error: 'metric deve ser: cpu, ram, sessions, sessions_by_connection ou http' });
         }
         if (!range || !(range in RANGES)) {
             return reply.status(400).send({ error: 'range deve ser: 1h, 24h ou 7d' });

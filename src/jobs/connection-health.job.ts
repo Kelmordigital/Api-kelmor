@@ -3,7 +3,7 @@ import { connections } from '../modules/atendimento/atendimento.db.schema';
 import { eq } from 'drizzle-orm';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
 import { env } from '../config/env';
-import { whatsappSessionsConnected } from '../modules/monitoring/monitoring.metrics';
+import { whatsappSessionsConnected, whatsappSessionsByConnection } from '../modules/monitoring/monitoring.metrics';
 
 const INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 
@@ -14,6 +14,11 @@ async function runHealthCheck() {
         .where(eq(connections.status, 'connected'));
 
     whatsappSessionsConnected.set(rows.length);
+
+    // Alimenta métrica desagregada por conexão (1 = conectada, 0 = não aparece aqui)
+    for (const conn of rows) {
+        whatsappSessionsByConnection.set({ connection_id: conn.id, connection_name: conn.name }, 1);
+    }
 
     if (rows.length === 0) return;
 
@@ -61,8 +66,11 @@ export function startConnectionHealthJob(): NodeJS.Timeout {
 /** Inicializa o gauge no boot com a contagem atual do banco (sem pingar o bays). */
 export async function initSessionsGauge(): Promise<void> {
     const rows = await db
-        .select({ id: connections.id })
+        .select({ id: connections.id, name: connections.name })
         .from(connections)
         .where(eq(connections.status, 'connected'));
     whatsappSessionsConnected.set(rows.length);
+    for (const conn of rows) {
+        whatsappSessionsByConnection.set({ connection_id: conn.id, connection_name: conn.name }, 1);
+    }
 }

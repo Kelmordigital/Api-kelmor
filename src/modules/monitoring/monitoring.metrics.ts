@@ -26,6 +26,13 @@ export const whatsappSessionsConnected = new Gauge({
     registers: [metricsRegistry],
 });
 
+export const whatsappSessionsByConnection = new Gauge({
+    name: 'whatsapp_sessions_by_connection',
+    help: 'Quantidade de sessões WhatsApp por conexão',
+    labelNames: ['connection_id', 'connection_name'] as const,
+    registers: [metricsRegistry],
+});
+
 const IGNORED_ROUTES = new Set(['/metrics', '/health']);
 
 export function recordHttpRequest(method: string, route: string, statusCode: number, durationMs: number) {

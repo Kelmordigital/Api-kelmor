@@ -11,6 +11,9 @@ export const METRICS = {
     sessions: [
         { name: 'sessions', expr: 'whatsapp_sessions_connected' },
     ],
+    sessions_by_connection: [
+        { name: 'sessions_by_connection', expr: 'whatsapp_sessions_by_connection' },
+    ],
     http: [
         { name: 'req_per_min', expr: 'sum(rate(http_requests_total[5m])) * 60' },
         { name: 'err_per_min', expr: 'sum(rate(http_requests_total{status_code=~"5.."}[5m])) * 60' },
