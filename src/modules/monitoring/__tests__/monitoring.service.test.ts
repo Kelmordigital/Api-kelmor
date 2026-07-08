@@ -40,4 +40,8 @@ describe('formatAlertMessage', () => {
         expect(msg).toContain('Alerta4');
         expect(msg).not.toContain('Alerta5');
     });
+
+    it('retorna null quando alerts não é um array (payload malformado)', () => {
+        expect(formatAlertMessage({ alerts: 'malformado' as any })).toBeNull();
+    });
 });

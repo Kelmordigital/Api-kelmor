@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.formatAlertMessage = formatAlertMessage;
 /** Monta a mensagem de WhatsApp a partir do payload do webhook do Grafana. */
 function formatAlertMessage(body) {
-    const alerts = body?.alerts?.slice(0, 5) ?? [];
+    const alerts = Array.isArray(body?.alerts) ? body.alerts.slice(0, 5) : [];
     if (alerts.length === 0)
         return null;
     const lines = alerts.map((a) => {

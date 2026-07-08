@@ -42,7 +42,8 @@ async function queryRange(expr: string, start: number, end: number, step: number
         query: expr, start: String(start), end: String(end), step: String(step),
     });
     const auth = Buffer.from(`${env.GRAFANA_PROM_USER}:${env.GRAFANA_PROM_TOKEN}`).toString('base64');
-    const res = await fetch(`${env.GRAFANA_PROM_URL}/api/v1/query_range?${params}`, {
+    const baseUrl = (env.GRAFANA_PROM_URL ?? '').replace(/\/+$/, '');
+    const res = await fetch(`${baseUrl}/api/v1/query_range?${params}`, {
         headers: { Authorization: `Basic ${auth}` },
         signal: AbortSignal.timeout(15_000),
     });

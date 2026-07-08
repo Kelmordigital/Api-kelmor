@@ -9,7 +9,7 @@ export type GrafanaWebhookBody = { alerts?: GrafanaAlert[] };
 
 /** Monta a mensagem de WhatsApp a partir do payload do webhook do Grafana. */
 export function formatAlertMessage(body: GrafanaWebhookBody | undefined): string | null {
-    const alerts = body?.alerts?.slice(0, 5) ?? [];
+    const alerts = Array.isArray(body?.alerts) ? body!.alerts!.slice(0, 5) : [];
     if (alerts.length === 0) return null;
 
     const lines = alerts.map((a) => {
