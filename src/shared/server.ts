@@ -16,6 +16,8 @@ import { authRoutes } from '../modules/auth/auth.routes';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
+import { whatsappOficialRoutes } from '../modules/whatsapp-oficial/whatsapp-oficial.routes';
+import { whatsappOficialController } from '../modules/whatsapp-oficial/whatsapp-oficial.controller';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
 import { quickMessagesRoutes } from '../modules/quick-messages/quick-messages.routes';
 import { botsRoutes } from '../modules/bots/bots.routes';
@@ -133,6 +135,7 @@ export function buildApp() {
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
+    app.register(whatsappOficialRoutes, { prefix: '/api/v1/whatsapp-oficial' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
     app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiquetasRoutes, { prefix: '/api/v1' });
@@ -155,6 +158,12 @@ export function buildApp() {
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
     app.register(crmConfigRoutes, { prefix: '/api/v1/crm' });
     app.register(superadminRoutes, { prefix: '/api/v1/superadmin' });
+
+    // Webhook da API Oficial do WhatsApp (Cloud API) — chamado pela META.
+    // GET = verificação (hub.challenge); POST = eventos (messages/statuses).
+    // Público por natureza: a autenticação é o hub.verify_token no handshake.
+    app.get('/wabcloudapi/webhook', whatsappOficialController.verifyWebhook);
+    app.post('/wabcloudapi/webhook', whatsappOficialController.webhook);
 
     // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
     const baysAuth = { preHandler: baysWebhookMiddleware };

@@ -177,9 +177,26 @@ export const atendimentoController = {
                 const { whatsappService } = await import('../whatsapp/whatsapp.service');
                 const connId = ticket.connection_id ?? undefined;
                 if (contact?.number) {
-                    whatsappService.sendMessage(contact.number, body).catch((err: Error) => {
-                        console.error('[sendMessage] bays error:', err.message);
-                    });
+                    // Com conexão no ticket, roteia por ela (bays ou API oficial);
+                    // sem conexão, mantém o envio pela sessão padrão do bays.
+                    const sending = connId
+                        ? whatsappService.sendTextToPhone(connId, contact.number, body)
+                        : whatsappService.sendMessage(contact.number, body);
+                    Promise.resolve(sending)
+                        .then(async (result) => {
+                            // Envio oficial devolve o wamid — grava para casar o ACK do webhook
+                            const wamid = (result as { wabMessageId?: string } | void)?.wabMessageId;
+                            if (!wamid) return;
+                            const { db } = await import('../../database/client');
+                            const { atendimento_messages } = await import('./atendimento.db.schema');
+                            const { eq } = await import('drizzle-orm');
+                            await db.update(atendimento_messages)
+                                .set({ wab_message_id: wamid, ack: 1 })
+                                .where(eq(atendimento_messages.id, msg.id));
+                        })
+                        .catch((err: Error) => {
+                            console.error('[sendMessage] erro no envio WhatsApp:', err.message);
+                        });
                 } else if (contact?.lid) {
                     // Contato username-only (sem número): responde roteando pelo LID
                     whatsappService.sendMessageViaLid(contact.lid, body, connId).catch((err: Error) => {

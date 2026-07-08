@@ -17,8 +17,15 @@ export const connections = pgTable('at_connections', {
     company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
     name: varchar('name', { length: 255 }).notNull(),
     serialized_id: varchar('serialized_id', { length: 255 }),
-    type: varchar('type', { length: 50 }).default('whatsapp'),
+    type: varchar('type', { length: 50 }).default('whatsapp'), // whatsapp (Baileys) | whatsapp-oficial (Cloud API)
     status: varchar('status', { length: 50 }).default('disconnected'),
+    // ── API Oficial (WhatsApp Cloud API / Meta) ──────────────────────────────
+    wab_connection: boolean('wab_connection').default(false),
+    wab_business_id: varchar('wab_business_id', { length: 255 }),               // ID do WABA (templates)
+    wab_business_phonenumber_id: varchar('wab_business_phonenumber_id', { length: 255 }), // ID do telefone (URL de envio + lookup do webhook)
+    wab_business_number: varchar('wab_business_number', { length: 50 }),        // número exibível
+    wab_token: text('wab_token'),                                                // Bearer token da Graph API
+    wab_is_registered: boolean('wab_is_registered').default(false),
     created_at: timestamp('created_at').defaultNow(),
 });
 
@@ -98,6 +105,7 @@ export const atendimento_messages = pgTable('at_messages', {
     media_type: varchar('media_type', { length: 100 }),
     media_url: text('media_url'),
     ack: integer('ack').default(0),
+    wab_message_id: varchar('wab_message_id', { length: 255 }), // wamid da Cloud API (casa os status/ACK)
     created_at: timestamp('created_at').defaultNow(),
 });
 

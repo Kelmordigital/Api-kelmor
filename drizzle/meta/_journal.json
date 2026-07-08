@@ -134,6 +134,13 @@
       "when": 1783384430473,
       "tag": "0018_bot_flow_nodes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783450550612,
+      "tag": "0019_whatsapp_oficial",
+      "breakpoints": true
     }
   ]
 }
