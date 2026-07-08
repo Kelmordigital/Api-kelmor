@@ -36,6 +36,10 @@ describe('fetchMetricHistory', () => {
         expect(calledUrl).toContain('/api/v1/query_range');
         expect(calledUrl).toContain('step=60');
 
+        const params = new URL(calledUrl).searchParams;
+        expect(Number(params.get('start')) % 60).toBe(0);
+        expect(Number(params.get('end')) % 60).toBe(0);
+
         const calledOpts = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
         expect(calledOpts.headers.Authorization).toBe(
             `Basic ${Buffer.from('123456:glc_token_de_teste').toString('base64')}`,

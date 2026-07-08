@@ -58,7 +58,9 @@ export async function fetchMetricHistory(metric: MetricKey, range: RangeKey): Pr
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
 
     const { seconds, step } = RANGES[range];
-    const end = Math.floor(Date.now() / 1000);
+    // Alinha a janela à grade do step: chamadas próximas no tempo compartilham
+    // exatamente os mesmos timestamps (frontend faz merge por t)
+    const end = Math.floor(Date.now() / 1000 / step) * step;
     const start = end - seconds;
 
     const series: MetricSeries[] = await Promise.all(
