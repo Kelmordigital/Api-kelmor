@@ -131,43 +131,46 @@ exports.pesquisaService = {
             .returning({ id: pesquisa_db_schema_1.researchs.id });
         return !!row;
     },
-    // ── Envio após encerramento de ticket ────────────────────────────────────
-    async sendSurveyAfterClose(ticket) {
-        if (!ticket.queue_id)
-            return;
-        // Busca pesquisa associada à fila
+    // ── Fechamento com pesquisa de satisfação ────────────────────────────────
+    // Alternativa exclusiva à mensagem de despedida: em vez de enviar uma
+    // despedida, pergunta a pesquisa e só fecha o ticket de verdade quando o
+    // cliente responder (ver ticketService.closeTicketWithResearch).
+    /** Pesquisa ativa vinculada à fila do ticket, se houver. */
+    async findActiveForQueue(queueId, companyId) {
+        if (!queueId)
+            return null;
         const [link] = await client_1.db
             .select({ research_id: pesquisa_db_schema_1.queueResearchs.research_id })
             .from(pesquisa_db_schema_1.queueResearchs)
-            .where((0, drizzle_orm_1.eq)(pesquisa_db_schema_1.queueResearchs.queue_id, ticket.queue_id))
+            .where((0, drizzle_orm_1.eq)(pesquisa_db_schema_1.queueResearchs.queue_id, queueId))
             .limit(1);
         if (!link)
-            return;
+            return null;
         const [research] = await client_1.db
             .select()
             .from(pesquisa_db_schema_1.researchs)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchs.id, link.research_id), (0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchs.active, true)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchs.id, link.research_id), (0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchs.company_id, companyId), (0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchs.active, true)))
             .limit(1);
-        if (!research)
-            return;
+        return research ?? null;
+    },
+    /** Envia a pergunta da pesquisa e cria o registro pendente de resposta. */
+    async sendSurveyQuestion(ticket, research) {
         const answers = await client_1.db
             .select()
             .from(pesquisa_db_schema_1.researchAnswers)
             .where((0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchAnswers.research_id, research.id));
         if (answers.length === 0)
             return;
-        // Busca número do contato
         const [contact] = await client_1.db
-            .select({ number: atendimento_db_schema_1.contacts.number })
+            .select({ number: atendimento_db_schema_1.contacts.number, lid: atendimento_db_schema_1.contacts.lid })
             .from(atendimento_db_schema_1.contacts)
             .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.id, ticket.contact_id))
             .limit(1);
-        if (!contact?.number)
+        const target = contact?.number || (contact?.lid ? `lid:${contact.lid}` : null);
+        if (!target)
             return;
-        // Monta mensagem com as opções numeradas
         const opcoes = answers.map((a, i) => `${i + 1}. ${a.title}`).join('\n');
         const mensagem = `${research.name}\n\n${opcoes}\n\nResponda com o número da sua opção.`;
-        // Cria registro pendente
         await client_1.db.insert(pesquisa_db_schema_1.researchHistorics).values({
             company_id: ticket.company_id,
             ticket_id: ticket.id,
@@ -176,14 +179,14 @@ exports.pesquisaService = {
             answer_id: null,
             status: 'pending',
         });
-        // Envia mensagem via WhatsApp
+        const { messageService } = await Promise.resolve().then(() => __importStar(require('../atendimento/message.service')));
+        await messageService.save(ticket.id, ticket.contact_id, mensagem, true, ticket.company_id, { mediaType: 'auto_survey' });
         const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp/whatsapp.service')));
-        const connectionId = ticket.connection_id;
-        if (connectionId) {
-            whatsappService.sendTextToPhone(connectionId, contact.number, mensagem).catch((err) => console.error('[Survey] Falha ao enviar pesquisa:', err.message));
+        if (ticket.connection_id) {
+            await whatsappService.sendTextToPhone(ticket.connection_id, target, mensagem);
         }
         else {
-            whatsappService.sendMessage(contact.number, mensagem).catch((err) => console.error('[Survey] Falha ao enviar pesquisa:', err.message));
+            await whatsappService.sendMessage(target, mensagem);
         }
     },
     // ── Captura de resposta (mensagem recebida) ───────────────────────────────
@@ -212,6 +215,9 @@ exports.pesquisaService = {
         await client_1.db.update(pesquisa_db_schema_1.researchHistorics)
             .set({ answer_id: matched.id, status: 'answered', updated_at: new Date() })
             .where((0, drizzle_orm_1.eq)(pesquisa_db_schema_1.researchHistorics.id, pending.id));
+        // Pesquisa respondida = fechamento com pesquisa concluído (status 7 → 3)
+        const { ticketService } = await Promise.resolve().then(() => __importStar(require('../atendimento/ticket.service')));
+        await ticketService.finalizeAfterResearch(pending.ticket_id, companyId).catch((err) => console.error(`[Survey] Falha ao fechar ticket ${pending.ticket_id} após resposta:`, err instanceof Error ? err.message : err));
         return true;
     },
     // ── Relatório — resultados agregados ─────────────────────────────────────

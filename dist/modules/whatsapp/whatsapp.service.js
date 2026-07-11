@@ -134,10 +134,15 @@ exports.whatsappService = {
             const { connections } = await Promise.resolve().then(() => __importStar(require('../atendimento/atendimento.db.schema')));
             const { eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
             const [conn] = await client_1.db
-                .select({ status: connections.status })
+                .select({ status: connections.status, type: connections.type })
                 .from(connections)
                 .where(eq(connections.id, id))
                 .limit(1);
+            // API Oficial (Cloud API): não há sessão no bays nem QR — o status é o do
+            // banco. Sem esse guard, a confirmação com o bays derrubaria a conexão.
+            if (conn?.type === 'whatsapp-oficial') {
+                return { status: conn.status ?? 'connected' };
+            }
             if (conn?.status === 'connected') {
                 // Banco diz conectado → confirma com bays (pode ter caído sem webhook)
                 try {
@@ -208,6 +213,16 @@ exports.whatsappService = {
     async connect(connectionId) {
         const id = connectionId ?? Number(SESSION_ID);
         const redis = (0, redis_1.getRedisClient)();
+        // Conexão oficial não tem sessão no bays — nada a conectar via QR
+        try {
+            const { connections } = await Promise.resolve().then(() => __importStar(require('../atendimento/atendimento.db.schema')));
+            const { eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
+            const [conn] = await client_1.db.select({ type: connections.type }).from(connections)
+                .where(eq(connections.id, id)).limit(1);
+            if (conn?.type === 'whatsapp-oficial')
+                return;
+        }
+        catch { }
         const payload = { groups: false, company_id: 1, connection_name: `session-${id}` };
         try {
             await baysPost(`/session/create/${id}`, payload);
@@ -530,7 +545,8 @@ exports.whatsappService = {
             const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
             if (!wasAnswer) {
                 await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
-                if (sendTarget) {
+                const { shouldRunBot } = await Promise.resolve().then(() => __importStar(require('../atendimento/ticket.service')));
+                if (sendTarget && shouldRunBot(ticket)) {
                     const { chatbotExecutorService } = await Promise.resolve().then(() => __importStar(require('../bots/chatbot-executor.service')));
                     chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id, contact.id, contact.name).catch((err) => console.error('[ChatbotExecutor] Falha silenciosa:', err.message));
                 }
@@ -638,8 +654,30 @@ exports.whatsappService = {
      * Envia texto para um destino que pode ser um número ou um LID.
      * Se `target` vier no formato "lid:<id>", roteia pelo LID (contato username-only);
      * caso contrário trata como número normal. Não quebra chamadores que passam número puro.
+     *
+     * Ponto único de roteamento: conexões `whatsapp-oficial` saem pela Cloud API
+     * (graph.facebook.com); as demais pelo bays (Baileys). Retorna o wamid quando
+     * o envio é oficial — usado para casar os webhooks de status/ACK.
      */
     async sendTextToPhone(connectionId, target, text) {
+        // Conexão oficial? (LID não existe na Cloud API — sempre número)
+        if (!target.startsWith('lid:')) {
+            let conn;
+            try {
+                const { connections } = await Promise.resolve().then(() => __importStar(require('../atendimento/atendimento.db.schema')));
+                const { eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
+                [conn] = await client_1.db.select().from(connections)
+                    .where(eq(connections.id, connectionId)).limit(1);
+            }
+            catch {
+                // Banco indisponível para o lookup → segue o fluxo bays (comportamento antigo)
+            }
+            if (conn?.type === 'whatsapp-oficial') {
+                const { whatsappOficialService } = await Promise.resolve().then(() => __importStar(require('../whatsapp-oficial/whatsapp-oficial.service')));
+                const wamid = await whatsappOficialService.sendText(conn, target, text);
+                return { wabMessageId: wamid };
+            }
+        }
         if (target.startsWith('lid:')) {
             await this.sendMessageViaLid(target.slice(4), text, connectionId);
             return;

@@ -1,3 +1,4 @@
+import { Research } from './pesquisa.db.schema';
 export declare const pesquisaService: {
     list(companyId: string): Promise<{
         answers: {
@@ -59,13 +60,24 @@ export declare const pesquisaService: {
         id: number;
     }>;
     remove(id: number, companyId: string): Promise<boolean>;
-    sendSurveyAfterClose(ticket: {
+    /** Pesquisa ativa vinculada à fila do ticket, se houver. */
+    findActiveForQueue(queueId: number | null, companyId: string): Promise<{
         id: number;
         company_id: string;
-        queue_id: number | null;
+        name: string;
+        type: string;
+        active: boolean;
+        default_research: boolean;
+        created_at: Date | null;
+        updated_at: Date | null;
+    } | null>;
+    /** Envia a pergunta da pesquisa e cria o registro pendente de resposta. */
+    sendSurveyQuestion(ticket: {
+        id: number;
+        company_id: string;
         contact_id: number;
         connection_id: number | null;
-    }): Promise<void>;
+    }, research: Research): Promise<void>;
     tryRecordAnswer(companyId: string, contactId: number, messageBody: string): Promise<boolean>;
     getReport(companyId: string, params: {
         dateInit?: string;

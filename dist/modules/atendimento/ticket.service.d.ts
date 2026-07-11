@@ -18,12 +18,26 @@ export interface FunilCard {
     status_id: number;
     created_at: Date | null;
 }
+/** O bot só processa mensagens enquanto o ticket está em status Bot (9) — status_id é a única fonte de roteamento. */
+export declare function shouldRunBot(ticket: {
+    status_id: number;
+}): boolean;
 export declare const ticketService: {
     findOrCreateOpen(companyId: string, contactId: number, connectionId?: number, serializedId?: string, origin?: string): Promise<{
         ticket: Ticket;
         created: boolean;
     }>;
     get(ticketId: number, companyId: string): Promise<Ticket | null>;
+    /**
+     * Histórico de atendimentos de um contato — todos os tickets (aberto e
+     * fechados) para montar a timeline consolidada na tela de chat, sem
+     * precisar reabrir/reaproveitar o ticket antigo (cada um continua sendo
+     * um registro definitivo, preservando venda/ocorrência individuais).
+     */
+    listByContact(contactId: number, companyId: string): Promise<Array<Ticket & {
+        attendant_name: string | null;
+        closed_by_name: string | null;
+    }>>;
     list(companyId: string, filters?: {
         statusIds?: number[];
         attendantId?: string;
@@ -48,7 +62,7 @@ export declare const ticketService: {
         open: number;
         closed: number;
     }>;
-    /** Atendente assume o ticket (1 → 2). Protegido por lock em memória. */
+    /** Atendente assume o ticket (Pendente=1 ou Bot=9 → Aberto=2). Update atômico condicional. */
     assignAttendant(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
     _sendOpeningMessages(ticket: Ticket, userId: string, companyId: string, perms: Awaited<ReturnType<typeof getCompanyPermissions>>): Promise<void>;
     /**
@@ -57,6 +71,7 @@ export declare const ticketService: {
      * (status 1 → 2). Sem atendente elegível, o ticket fica pendente na fila.
      */
     routeToQueue(ticketId: number, companyId: string, queueId: number): Promise<Ticket | null>;
+    _sendQueueGreeting(ticket: Ticket, queueId: number): Promise<void>;
     /** Devolve o ticket para a fila (2 → 1). Zera o atendente. */
     returnToQueue(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
     /** Reabre um ticket finalizado (3 → 2). Verifica se não há outro aberto para o mesmo contato. */
@@ -69,8 +84,27 @@ export declare const ticketService: {
     closeTicket(ticketId: number, userId: string, companyId: string, opts?: {
         ocurrence?: string;
         service_not_made?: boolean;
+        sendGoodbye?: boolean;
     }): Promise<Ticket>;
-    _sendClosingMessage(ticket: Ticket, companyId: string): Promise<void>;
+    /**
+     * Fechamento alternativo: em vez de despedida, pergunta a pesquisa de
+     * satisfação. O ticket NÃO fecha ainda — vai para status 7 (Realizando
+     * Pesquisa) e só vira Fechado (3) de fato quando o cliente responder
+     * (ver pesquisaService.tryRecordAnswer → finalizeAfterResearch). É uma
+     * alternativa exclusiva à despedida, nunca as duas juntas.
+     */
+    closeTicketWithResearch(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
+    /** Fecha de fato o ticket depois que a pesquisa de satisfação foi respondida (status 7 → 3). */
+    finalizeAfterResearch(ticketId: number, companyId: string): Promise<void>;
+    /**
+     * Envia a mensagem de despedida ao fechar o ticket.
+     *
+     * @param sendGoodbye  Escolha explícita do fechamento manual:
+     *   - true      → envia, ignorando a permissão global
+     *   - false     → não envia
+     *   - undefined → comportamento automático (respeita send_ticket_goodbye_msg)
+     */
+    _sendClosingMessage(ticket: Ticket, companyId: string, sendGoodbye: boolean | undefined, userId: string): Promise<void>;
     registerSale(ticketId: number, companyId: string, payload: {
         isSale: boolean;
         saleAmount?: string;

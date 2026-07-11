@@ -55,9 +55,15 @@ exports.whatsappController = {
             .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId));
         const redis = (0, redis_1.getRedisClient)();
         const result = await Promise.all(rows.map(async (c) => {
+            // Nunca expõe o token da Meta para o frontend
+            const { wab_token: _omit, ...safe } = c;
+            // Conexão oficial não tem sessão no bays: o status do banco é a verdade
+            if (c.type === 'whatsapp-oficial') {
+                return { ...safe, live_status: c.status ?? 'connected', qr: undefined };
+            }
             const liveStatus = await redis?.get(`wa:status:${c.id}`) ?? c.status ?? 'disconnected';
             const qr = liveStatus === 'qr_ready' ? (await redis?.get(`wa:qr:${c.id}`) ?? null) : null;
-            return { ...c, live_status: liveStatus, qr: qr ?? undefined };
+            return { ...safe, live_status: liveStatus, qr: qr ?? undefined };
         }));
         return reply.send(result);
     },

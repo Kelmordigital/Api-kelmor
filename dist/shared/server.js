@@ -22,6 +22,8 @@ const auth_routes_1 = require("../modules/auth/auth.routes");
 const whatsapp_routes_1 = require("../modules/whatsapp/whatsapp.routes");
 const whatsapp_controller_1 = require("../modules/whatsapp/whatsapp.controller");
 const whatsapp_service_1 = require("../modules/whatsapp/whatsapp.service");
+const whatsapp_oficial_routes_1 = require("../modules/whatsapp-oficial/whatsapp-oficial.routes");
+const whatsapp_oficial_controller_1 = require("../modules/whatsapp-oficial/whatsapp-oficial.controller");
 const atendimento_routes_1 = require("../modules/atendimento/atendimento.routes");
 const quick_messages_routes_1 = require("../modules/quick-messages/quick-messages.routes");
 const bots_routes_1 = require("../modules/bots/bots.routes");
@@ -133,6 +135,7 @@ function buildApp() {
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(auth_routes_1.authRoutes, { prefix: '/api/v1/auth' });
     app.register(whatsapp_routes_1.whatsappRoutes, { prefix: '/api/v1/whatsapp' });
+    app.register(whatsapp_oficial_routes_1.whatsappOficialRoutes, { prefix: '/api/v1/whatsapp-oficial' });
     app.register(atendimento_routes_1.atendimentoRoutes, { prefix: '/api/v1/atendimento' });
     app.register(quick_messages_routes_1.quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiqueta_routes_1.etiquetasRoutes, { prefix: '/api/v1' });
@@ -154,6 +157,11 @@ function buildApp() {
     app.register(adminOnly(crm_reports_routes_1.crmReportsRoutes), { prefix: '/api/v1/crm-reports' });
     app.register(crm_config_routes_1.crmConfigRoutes, { prefix: '/api/v1/crm' });
     app.register(superadmin_routes_1.superadminRoutes, { prefix: '/api/v1/superadmin' });
+    // Webhook da API Oficial do WhatsApp (Cloud API) — chamado pela META.
+    // GET = verificação (hub.challenge); POST = eventos (messages/statuses).
+    // Público por natureza: a autenticação é o hub.verify_token no handshake.
+    app.get('/wabcloudapi/webhook', whatsapp_oficial_controller_1.whatsappOficialController.verifyWebhook);
+    app.post('/wabcloudapi/webhook', whatsapp_oficial_controller_1.whatsappOficialController.webhook);
     // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
     const baysAuth = { preHandler: internal_auth_middleware_1.baysWebhookMiddleware };
     app.put('/connection/update/:id', baysAuth, whatsapp_controller_1.whatsappController.connectionUpdate);

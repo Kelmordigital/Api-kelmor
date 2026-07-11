@@ -36,6 +36,12 @@ const envSchema = zod_1.z.object({
     GRAFANA_PROM_URL: zod_1.z.string().url().optional(),
     GRAFANA_PROM_USER: zod_1.z.string().optional(),
     GRAFANA_PROM_TOKEN: zod_1.z.string().optional(),
+    // API Oficial do WhatsApp (Cloud API / Meta)
+    META_GRAPH_API_VERSION: zod_1.z.string().default('v21.0'),
+    WAB_APP_ID: zod_1.z.string().default(''), // app da Meta (Embedded Signup / OAuth)
+    WAB_APP_SECRET: zod_1.z.string().default(''), // secret do app (troca do code OAuth)
+    WAB_USER_TOKEN: zod_1.z.string().default(''), // token do System User → wab_token das conexões
+    WAB_WEBHOOK_VERIFY_TOKEN: zod_1.z.string().default('kelmor'), // hub.verify_token do webhook
     ADMIN_SECRET: zod_1.z.string().min(16, 'ADMIN_SECRET deve ter ao menos 16 caracteres'),
     WEBHOOK_SECRET: zod_1.z.string().min(16, 'WEBHOOK_SECRET deve ter ao menos 16 caracteres'),
     API_URL: zod_1.z.string().url().default('http://localhost:3000'),

@@ -15,8 +15,15 @@ exports.connections = (0, pg_core_1.pgTable)('at_connections', {
     company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
     name: (0, pg_core_1.varchar)('name', { length: 255 }).notNull(),
     serialized_id: (0, pg_core_1.varchar)('serialized_id', { length: 255 }),
-    type: (0, pg_core_1.varchar)('type', { length: 50 }).default('whatsapp'),
+    type: (0, pg_core_1.varchar)('type', { length: 50 }).default('whatsapp'), // whatsapp (Baileys) | whatsapp-oficial (Cloud API)
     status: (0, pg_core_1.varchar)('status', { length: 50 }).default('disconnected'),
+    // ── API Oficial (WhatsApp Cloud API / Meta) ──────────────────────────────
+    wab_connection: (0, pg_core_1.boolean)('wab_connection').default(false),
+    wab_business_id: (0, pg_core_1.varchar)('wab_business_id', { length: 255 }), // ID do WABA (templates)
+    wab_business_phonenumber_id: (0, pg_core_1.varchar)('wab_business_phonenumber_id', { length: 255 }), // ID do telefone (URL de envio + lookup do webhook)
+    wab_business_number: (0, pg_core_1.varchar)('wab_business_number', { length: 50 }), // número exibível
+    wab_token: (0, pg_core_1.text)('wab_token'), // Bearer token da Graph API
+    wab_is_registered: (0, pg_core_1.boolean)('wab_is_registered').default(false),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 exports.queues = (0, pg_core_1.pgTable)('at_queues', {
@@ -90,6 +97,7 @@ exports.atendimento_messages = (0, pg_core_1.pgTable)('at_messages', {
     media_type: (0, pg_core_1.varchar)('media_type', { length: 100 }),
     media_url: (0, pg_core_1.text)('media_url'),
     ack: (0, pg_core_1.integer)('ack').default(0),
+    wab_message_id: (0, pg_core_1.varchar)('wab_message_id', { length: 255 }), // wamid da Cloud API (casa os status/ACK)
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 exports.historic_tickets = (0, pg_core_1.pgTable)('at_historic_tickets', {

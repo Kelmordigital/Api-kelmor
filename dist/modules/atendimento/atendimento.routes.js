@@ -16,6 +16,9 @@ async function atendimentoRoutes(app) {
     app.put('/tickets/:id/transfer', auth, atendimento_controller_1.atendimentoController.transfer);
     app.put('/tickets/:id/pin', auth, atendimento_controller_1.atendimentoController.togglePin);
     app.post('/tickets/:id/close', auth, atendimento_controller_1.atendimentoController.closeTicket);
+    app.post('/tickets/:id/research', auth, atendimento_controller_1.atendimentoController.closeTicketWithResearch);
+    app.get('/tickets/:id/research-available', auth, atendimento_controller_1.atendimentoController.researchAvailable);
+    app.get('/close-config', auth, atendimento_controller_1.atendimentoController.closeConfig);
     app.patch('/tickets/:id/status', auth, atendimento_controller_1.atendimentoController.updateStatus);
     // Tickets — venda
     app.put('/tickets/:id/sale', auth, atendimento_controller_1.atendimentoController.registerSale);
@@ -26,6 +29,9 @@ async function atendimentoRoutes(app) {
     app.get('/contacts/report', auth, atendimento_controller_1.atendimentoController.listContactsReport);
     app.get('/contacts/export', auth, atendimento_controller_1.atendimentoController.exportContactsExcel);
     app.get('/contacts', auth, atendimento_controller_1.atendimentoController.listContacts);
+    app.get('/contacts/:contactId/tickets', auth, atendimento_controller_1.atendimentoController.listContactTickets);
+    // Catálogo de produtos (consulta durante o atendimento — carrinho no chat)
+    app.get('/produtos', auth, atendimento_controller_1.atendimentoController.listProdutos);
     // Atendentes da empresa (para transferência)
     app.get('/attendants', auth, atendimento_controller_1.atendimentoController.listAttendants);
     // Analytics de vendas (AdminDashboard)

@@ -23,8 +23,14 @@ export declare const whatsappService: {
      * Envia texto para um destino que pode ser um número ou um LID.
      * Se `target` vier no formato "lid:<id>", roteia pelo LID (contato username-only);
      * caso contrário trata como número normal. Não quebra chamadores que passam número puro.
+     *
+     * Ponto único de roteamento: conexões `whatsapp-oficial` saem pela Cloud API
+     * (graph.facebook.com); as demais pelo bays (Baileys). Retorna o wamid quando
+     * o envio é oficial — usado para casar os webhooks de status/ACK.
      */
-    sendTextToPhone(connectionId: number, target: string, text: string): Promise<void>;
+    sendTextToPhone(connectionId: number, target: string, text: string): Promise<{
+        wabMessageId?: string;
+    } | void>;
     /** Campos de destino (número ou LID) no formato aceito pelo bays. */
     _sendTargetFields(target: string): {
         contact?: string;

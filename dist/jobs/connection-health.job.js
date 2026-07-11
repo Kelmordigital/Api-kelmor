@@ -15,6 +15,10 @@ async function runHealthCheck() {
         .from(atendimento_db_schema_1.connections)
         .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.status, 'connected'));
     monitoring_metrics_1.whatsappSessionsConnected.set(rows.length);
+    // Alimenta métrica desagregada por conexão (1 = conectada, 0 = não aparece aqui)
+    for (const conn of rows) {
+        monitoring_metrics_1.whatsappSessionsByConnection.set({ connection_id: conn.id, connection_name: conn.name }, 1);
+    }
     if (rows.length === 0)
         return;
     for (const conn of rows) {
@@ -56,9 +60,12 @@ function startConnectionHealthJob() {
 /** Inicializa o gauge no boot com a contagem atual do banco (sem pingar o bays). */
 async function initSessionsGauge() {
     const rows = await client_1.db
-        .select({ id: atendimento_db_schema_1.connections.id })
+        .select({ id: atendimento_db_schema_1.connections.id, name: atendimento_db_schema_1.connections.name })
         .from(atendimento_db_schema_1.connections)
         .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.status, 'connected'));
     monitoring_metrics_1.whatsappSessionsConnected.set(rows.length);
+    for (const conn of rows) {
+        monitoring_metrics_1.whatsappSessionsByConnection.set({ connection_id: conn.id, connection_name: conn.name }, 1);
+    }
 }
 //# sourceMappingURL=connection-health.job.js.map

@@ -140,8 +140,17 @@ async function applyDelay(node) {
 }
 async function sendText(envr, text) {
     const msg = interpolate(text, envr.ctx).trim();
-    if (msg)
-        await whatsapp_service_1.whatsappService.sendTextToPhone(envr.connectionId, envr.phone, msg);
+    if (!msg)
+        return;
+    await logOutgoing(envr, msg);
+    await whatsapp_service_1.whatsappService.sendTextToPhone(envr.connectionId, envr.phone, msg).catch((err) => console.error('[ChatbotExecutor] Falha ao enviar mensagem:', err.message));
+}
+/** Salva a mensagem que o bot mandou no histórico do ticket (user_id null = automático). */
+async function logOutgoing(envr, body, mediaType) {
+    if (!envr.ticketId || !envr.contactId || !body.trim())
+        return;
+    const { messageService } = await Promise.resolve().then(() => __importStar(require('../atendimento/message.service')));
+    await messageService.save(envr.ticketId, envr.contactId, body, true, envr.companyId, { mediaType }).catch((err) => console.error('[ChatbotExecutor] Falha ao salvar mensagem do bot:', err.message));
 }
 /**
  * Executa a AÇÃO de um nó (envio/efeito). Retorna o id do próximo nó quando o
@@ -237,7 +246,7 @@ async function runNode(node, envr, bot) {
             const text = [interpolate(node.message ?? '', envr.ctx).trim(), data.link?.trim()]
                 .filter(Boolean).join('\n\n');
             if (text)
-                await whatsapp_service_1.whatsappService.sendTextToPhone(envr.connectionId, envr.phone, text);
+                await sendText(envr, text);
             return node.next_node_id ?? null;
         }
         case 'add_tag': {
@@ -259,8 +268,10 @@ async function runNode(node, envr, bot) {
                 const lines = data.options.map(o => `${o.number}. ${o.label}`).join('\n');
                 text = text ? `${text}\n\n${lines}` : lines;
             }
-            if (text.trim())
-                await whatsapp_service_1.whatsappService.sendTextToPhone(envr.connectionId, envr.phone, text);
+            if (text.trim()) {
+                await logOutgoing(envr, text);
+                await whatsapp_service_1.whatsappService.sendTextToPhone(envr.connectionId, envr.phone, text).catch((err) => console.error('[ChatbotExecutor] Falha ao enviar menu:', err.message));
+            }
             return null; // aguarda resposta
         }
         case 'poll': {
@@ -380,6 +391,15 @@ exports.chatbotExecutorService = {
             // Bots NUNCA respondem grupos — guarda extra além do descarte no webhook
             if (phone.includes('@g.us'))
                 return;
+            // Reconfere o status do ticket: se um atendente assumiu entre o
+            // webhook decidir chamar o bot e este ponto rodar, aborta sem
+            // enviar nada — status_id é a única fonte de verdade do roteamento.
+            if (ticketId != null) {
+                const { ticketService, shouldRunBot } = await Promise.resolve().then(() => __importStar(require('../atendimento/ticket.service')));
+                const ticket = await ticketService.get(ticketId, companyId);
+                if (!ticket || !shouldRunBot(ticket))
+                    return;
+            }
             const bot = await bots_repository_1.botsRepository.findDefaultActive(companyId);
             if (!bot)
                 return;

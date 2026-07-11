@@ -12,6 +12,10 @@ export declare const METRICS: {
         readonly name: "sessions";
         readonly expr: "whatsapp_sessions_connected";
     }];
+    readonly sessions_by_connection: readonly [{
+        readonly name: "sessions_by_connection";
+        readonly expr: "whatsapp_sessions_by_connection";
+    }];
     readonly http: readonly [{
         readonly name: "req_per_min";
         readonly expr: "sum(rate(http_requests_total[5m])) * 60";

@@ -38,6 +38,11 @@ const contact_service_1 = require("./contact.service");
 const ticket_service_1 = require("./ticket.service");
 const message_service_1 = require("./message.service");
 const dashboard_service_1 = require("./dashboard.service");
+const produto_service_1 = require("../produtos/produto.service");
+const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const client_1 = require("../../database/client");
+const company_db_schema_1 = require("../companies/company.db.schema");
+const drizzle_orm_1 = require("drizzle-orm");
 exports.atendimentoController = {
     async listTickets(req, reply) {
         const companyId = req.user.company_id;
@@ -68,6 +73,42 @@ exports.atendimentoController = {
         const body = req.body;
         const ticket = await ticket_service_1.ticketService.closeTicket(Number(id), userId, companyId, body);
         return reply.send(ticket);
+    },
+    /** Dados leves pro modal de fechamento (mensagem de despedida + se a opção "com mensagem" deve aparecer) — sem exigir admin. */
+    async closeConfig(req, reply) {
+        const companyId = req.user.company_id;
+        const [company, perms] = await Promise.all([
+            client_1.db.select({ end_message: company_db_schema_1.companies.end_message }).from(company_db_schema_1.companies).where((0, drizzle_orm_1.eq)(company_db_schema_1.companies.id, companyId)).then(rows => rows[0]),
+            (0, configuracao_geral_service_1.getCompanyPermissions)(companyId),
+        ]);
+        return reply.send({
+            end_message: company?.end_message ?? null,
+            send_ticket_goodbye_msg: perms.send_ticket_goodbye_msg,
+        });
+    },
+    /** Alternativa exclusiva à despedida: fecha com pesquisa de satisfação (ticket só fecha de fato quando o cliente responder). */
+    async closeTicketWithResearch(req, reply) {
+        const { id } = req.params;
+        const companyId = req.user.company_id;
+        const userId = req.user.id;
+        try {
+            const ticket = await ticket_service_1.ticketService.closeTicketWithResearch(Number(id), userId, companyId);
+            return reply.send(ticket);
+        }
+        catch (err) {
+            return reply.status(400).send({ error: err instanceof Error ? err.message : 'Erro ao iniciar pesquisa de satisfação' });
+        }
+    },
+    /** Indica se o ticket tem pesquisa de satisfação disponível (fila vinculada a uma pesquisa ativa) — usado pra mostrar/esconder a opção na hora de fechar. */
+    async researchAvailable(req, reply) {
+        const { id } = req.params;
+        const companyId = req.user.company_id;
+        const ticket = await ticket_service_1.ticketService.get(Number(id), companyId);
+        if (!ticket)
+            return reply.status(404).send({ error: 'Ticket não encontrado' });
+        const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
+        const research = await pesquisaService.findActiveForQueue(ticket.queue_id, companyId);
+        return reply.send({ available: !!research, name: research?.name ?? null });
     },
     async updateStatus(req, reply) {
         const { id } = req.params;
@@ -164,8 +205,26 @@ exports.atendimentoController = {
                 const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp/whatsapp.service')));
                 const connId = ticket.connection_id ?? undefined;
                 if (contact?.number) {
-                    whatsappService.sendMessage(contact.number, body).catch((err) => {
-                        console.error('[sendMessage] bays error:', err.message);
+                    // Com conexão no ticket, roteia por ela (bays ou API oficial);
+                    // sem conexão, mantém o envio pela sessão padrão do bays.
+                    const sending = connId
+                        ? whatsappService.sendTextToPhone(connId, contact.number, body)
+                        : whatsappService.sendMessage(contact.number, body);
+                    Promise.resolve(sending)
+                        .then(async (result) => {
+                        // Envio oficial devolve o wamid — grava para casar o ACK do webhook
+                        const wamid = result?.wabMessageId;
+                        if (!wamid)
+                            return;
+                        const { db } = await Promise.resolve().then(() => __importStar(require('../../database/client')));
+                        const { atendimento_messages } = await Promise.resolve().then(() => __importStar(require('./atendimento.db.schema')));
+                        const { eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
+                        await db.update(atendimento_messages)
+                            .set({ wab_message_id: wamid, ack: 1 })
+                            .where(eq(atendimento_messages.id, msg.id));
+                    })
+                        .catch((err) => {
+                        console.error('[sendMessage] erro no envio WhatsApp:', err.message);
                     });
                 }
                 else if (contact?.lid) {
@@ -196,6 +255,18 @@ exports.atendimentoController = {
         const companyId = req.user.company_id;
         const list = await contact_service_1.contactService.list(companyId);
         return reply.send(list);
+    },
+    async listContactTickets(req, reply) {
+        const { contactId } = req.params;
+        const companyId = req.user.company_id;
+        const list = await ticket_service_1.ticketService.listByContact(Number(contactId), companyId);
+        return reply.send(list);
+    },
+    /** Catálogo de produtos para consulta durante o atendimento (carrinho no chat) — leitura, sem exigir admin. */
+    async listProdutos(req, reply) {
+        const companyId = req.user.company_id;
+        const list = await produto_service_1.produtoService.list(companyId);
+        return reply.send(list.filter(p => p.is_active));
     },
     async listContactsReport(req, reply) {
         const companyId = req.user.company_id;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.whatsappSessionsConnected = exports.httpRequestDuration = exports.httpRequestsTotal = exports.metricsRegistry = void 0;
+exports.whatsappSessionsByConnection = exports.whatsappSessionsConnected = exports.httpRequestDuration = exports.httpRequestsTotal = exports.metricsRegistry = void 0;
 exports.recordHttpRequest = recordHttpRequest;
 const prom_client_1 = require("prom-client");
 exports.metricsRegistry = new prom_client_1.Registry();
@@ -22,6 +22,12 @@ exports.httpRequestDuration = new prom_client_1.Histogram({
 exports.whatsappSessionsConnected = new prom_client_1.Gauge({
     name: 'whatsapp_sessions_connected',
     help: 'Quantidade de sessões WhatsApp com status connected',
+    registers: [exports.metricsRegistry],
+});
+exports.whatsappSessionsByConnection = new prom_client_1.Gauge({
+    name: 'whatsapp_sessions_by_connection',
+    help: 'Quantidade de sessões WhatsApp por conexão',
+    labelNames: ['connection_id', 'connection_name'],
     registers: [exports.metricsRegistry],
 });
 const IGNORED_ROUTES = new Set(['/metrics', '/health']);

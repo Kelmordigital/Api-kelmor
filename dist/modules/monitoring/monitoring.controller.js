@@ -28,7 +28,7 @@ exports.monitoringController = {
     async metricsHistory(req, reply) {
         const { metric, range } = req.query;
         if (!metric || !(metric in grafana_prom_client_1.METRICS)) {
-            return reply.status(400).send({ error: 'metric deve ser: cpu, ram, sessions ou http' });
+            return reply.status(400).send({ error: 'metric deve ser: cpu, ram, sessions, sessions_by_connection ou http' });
         }
         if (!range || !(range in grafana_prom_client_1.RANGES)) {
             return reply.status(400).send({ error: 'range deve ser: 1h, 24h ou 7d' });

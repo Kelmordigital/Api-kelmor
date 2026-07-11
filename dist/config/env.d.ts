@@ -11,6 +11,11 @@ export declare const env: {
     BAYS_URL: string;
     BAYS_SECRET_KEY: string;
     BAYS_SESSION_ID: string;
+    META_GRAPH_API_VERSION: string;
+    WAB_APP_ID: string;
+    WAB_APP_SECRET: string;
+    WAB_USER_TOKEN: string;
+    WAB_WEBHOOK_VERIFY_TOKEN: string;
     ADMIN_SECRET: string;
     WEBHOOK_SECRET: string;
     API_URL: string;
