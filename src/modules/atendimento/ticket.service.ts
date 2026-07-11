@@ -54,6 +54,11 @@ export interface FunilCard {
 // 1=Pendente 2=Em Atendimento 7=Pesquisa de Satisfação 9=Bot/Resolvido
 const OPEN_STATUSES = [1, 2, 7, 9];
 
+/** O bot só processa mensagens enquanto o ticket está em status Bot (9) — status_id é a única fonte de roteamento. */
+export function shouldRunBot(ticket: { status_id: number }): boolean {
+    return ticket.status_id === 9;
+}
+
 // In-memory lock simples para evitar race condition no "assumir ticket"
 const _locks = new Map<string, boolean>();
 function acquireLock(key: string): boolean {

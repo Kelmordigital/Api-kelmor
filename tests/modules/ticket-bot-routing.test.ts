@@ -100,3 +100,18 @@ describe('assignAttendant — aceita ticket em Bot e é atômico', () => {
         ).rejects.toThrow();
     });
 });
+
+import { shouldRunBot } from '../../src/modules/atendimento/ticket.service';
+
+describe('shouldRunBot — decide se o executor do bot deve rodar', () => {
+    it('true quando o ticket está em status_id=9 (Bot)', () => {
+        expect(shouldRunBot({ status_id: 9 })).toBe(true);
+    });
+
+    it('false para Pendente, Aberto, Fechado e Pesquisa', () => {
+        expect(shouldRunBot({ status_id: 1 })).toBe(false);
+        expect(shouldRunBot({ status_id: 2 })).toBe(false);
+        expect(shouldRunBot({ status_id: 3 })).toBe(false);
+        expect(shouldRunBot({ status_id: 7 })).toBe(false);
+    });
+});
