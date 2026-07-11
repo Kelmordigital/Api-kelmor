@@ -1,6 +1,7 @@
 import { eq, and, ne, inArray, isNull, desc, asc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../database/client';
-import { tickets, contacts, historic_tickets, userQueues, Ticket } from './atendimento.db.schema';
+import { tickets, contacts, historic_tickets, userQueues, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
@@ -64,6 +65,26 @@ function acquireLock(key: string): boolean {
 }
 function releaseLock(key: string) { _locks.delete(key); }
 
+/** Data/hora atual no fuso de São Paulo, formato DD/MM/AAAA HH:mm:ss (placeholder {hora}). */
+function formatHoraBR(date: Date): string {
+    const parts = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+    }).formatToParts(date);
+    const get = (t: string) => parts.find(p => p.type === t)?.value ?? '';
+    return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}:${get('second')}`;
+}
+
+/** Substitui os placeholders {atendente}/{ticket}/{hora} (case-insensitive) numa mensagem automática. */
+function fillMessageTemplate(template: string, vars: { atendente?: string; ticketId: number }): string {
+    return template
+        .replace(/\{atendente\}/gi, vars.atendente ?? 'atendente')
+        .replace(/\{ticket\}/gi, String(vars.ticketId))
+        .replace(/\{hora\}/gi, formatHoraBR(new Date()));
+}
+
 export const ticketService = {
 
     // ── Busca / criação ──────────────────────────────────────────────────────
@@ -95,9 +116,18 @@ export const ticketService = {
 
         if (existing) return { ticket: existing, created: false };
 
+        // Nenhum ticket aberto: cria um novo. Um contato pode ter vários tickets
+        // fechados ao longo do tempo — cada atendimento é um registro definitivo
+        // (preserva vendas/ocorrências individuais nos relatórios). O histórico
+        // consolidado é resolvido na tela (timeline por contato), não reabrindo
+        // o ticket antigo.
+        const { botsRepository } = await import('../bots/bots.repository');
+        const activeBot = await botsRepository.findDefaultActive(companyId);
+        const initialStatusId = activeBot ? 9 : 1;
+
         const [created] = await db
             .insert(tickets)
-            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: 1 })
+            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: initialStatusId })
             .returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket: created });
@@ -109,6 +139,38 @@ export const ticketService = {
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
             .limit(1);
         return ticket ?? null;
+    },
+
+    /**
+     * Histórico de atendimentos de um contato — todos os tickets (aberto e
+     * fechados) para montar a timeline consolidada na tela de chat, sem
+     * precisar reabrir/reaproveitar o ticket antigo (cada um continua sendo
+     * um registro definitivo, preservando venda/ocorrência individuais).
+     */
+    async listByContact(contactId: number, companyId: string): Promise<Array<Ticket & {
+        attendant_name: string | null;
+        closed_by_name: string | null;
+    }>> {
+        const attendantUser = alias(users, 'attendant_user');
+        const closerUser = alias(users, 'closer_user');
+
+        const rows = await db
+            .select({
+                ticket: tickets,
+                attendant_name: attendantUser.name,
+                closed_by_name: closerUser.name,
+            })
+            .from(tickets)
+            .leftJoin(attendantUser, eq(attendantUser.id, tickets.attendant_user_id))
+            .leftJoin(closerUser, eq(closerUser.id, tickets.closed_by_user_id))
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.contact_id, contactId),
+                isNull(tickets.deleted_at),
+            ))
+            .orderBy(desc(tickets.created_at));
+
+        return rows.map(r => ({ ...r.ticket, attendant_name: r.attendant_name, closed_by_name: r.closed_by_name }));
     },
 
     // ── Listagem ─────────────────────────────────────────────────────────────
@@ -302,17 +364,32 @@ export const ticketService = {
         const { whatsappService } = await import('../whatsapp/whatsapp.service');
 
         if (perms.show_ticket_name_message && companyRow?.init_message) {
-            const [attendant] = await db
-                .select({ name: users.name })
-                .from(users)
-                .where(eq(users.id, userId))
+            // Dedup: evita repetir a mensagem de abertura pro mesmo contato em
+            // sequência rápida (ex.: reabrir/reatribuir várias vezes seguidas).
+            const intervalHours = perms.interval_between_init_message ?? 1;
+            const cutoff = new Date(Date.now() - intervalHours * 3600 * 1000);
+            const [recent] = await db
+                .select({ id: atendimento_messages.id })
+                .from(atendimento_messages)
+                .where(and(
+                    eq(atendimento_messages.contact_id, ticket.contact_id),
+                    eq(atendimento_messages.media_type, 'auto_init'),
+                    gte(atendimento_messages.created_at, cutoff),
+                ))
                 .limit(1);
 
-            const msg = companyRow.init_message.replace(
-                /\{atendente\}/gi,
-                attendant?.name ?? 'nosso atendente',
-            );
-            await whatsappService.sendTextToPhone(ticket.connection_id, target, msg);
+            if (!recent) {
+                const [attendant] = await db
+                    .select({ name: users.name })
+                    .from(users)
+                    .where(eq(users.id, userId))
+                    .limit(1);
+
+                const msg = fillMessageTemplate(companyRow.init_message, { atendente: attendant?.name ?? 'nosso atendente', ticketId: ticket.id });
+                const { messageService } = await import('./message.service');
+                await messageService.save(ticket.id, ticket.contact_id, msg, true, companyId, { userId, mediaType: 'auto_init' });
+                await whatsappService.sendTextToPhone(ticket.connection_id, target, msg);
+            }
         }
 
         if (perms.send_ticket_protocol) {
@@ -361,7 +438,45 @@ export const ticketService = {
             .returning();
 
         emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+
+        // Saudação da fila — só na primeira vez que o ticket entra numa fila
+        // (transferência manual entre filas não reenvia, só a nota interna).
+        if (!current.queue_id) {
+            this._sendQueueGreeting(updated, queueId).catch((err: unknown) =>
+                console.error(
+                    `[Queue] Falha ao enviar saudação (ticket ${ticketId}, fila ${queueId}):`,
+                    err instanceof Error ? err.message : err,
+                ),
+            );
+        }
+
         return updated;
+    },
+
+    async _sendQueueGreeting(ticket: Ticket, queueId: number): Promise<void> {
+        if (!ticket.connection_id || !ticket.contact_id) return;
+
+        const [queueRow] = await db
+            .select({ greeting_message: queues.greeting_message })
+            .from(queues)
+            .where(eq(queues.id, queueId))
+            .limit(1);
+        if (!queueRow?.greeting_message) return;
+
+        const [contactRow] = await db
+            .select({ number: contacts.number, lid: contacts.lid })
+            .from(contacts)
+            .where(eq(contacts.id, ticket.contact_id))
+            .limit(1);
+
+        const target = contactRow?.number || (contactRow?.lid ? `lid:${contactRow.lid}` : null);
+        if (!target) return;
+
+        const { messageService } = await import('./message.service');
+        const { whatsappService } = await import('../whatsapp/whatsapp.service');
+
+        await messageService.save(ticket.id, ticket.contact_id, queueRow.greeting_message, true, ticket.company_id, { mediaType: 'auto_queue_greeting' });
+        await whatsappService.sendTextToPhone(ticket.connection_id, target, queueRow.greeting_message);
     },
 
     /** Devolve o ticket para a fila (2 → 1). Zera o atendente. */
@@ -466,7 +581,6 @@ export const ticketService = {
             .where(eq(tickets.id, ticketId))
             .returning();
 
-        const { atendimento_messages } = await import('./atendimento.db.schema');
         const fromName = fromUser?.name ?? 'Atendente anterior';
         await db.insert(atendimento_messages).values({
             ticket_id: ticketId,
@@ -543,7 +657,7 @@ export const ticketService = {
         ticketId: number,
         userId: string,
         companyId: string,
-        opts: { ocurrence?: string; service_not_made?: boolean } = {},
+        opts: { ocurrence?: string; service_not_made?: boolean; sendGoodbye?: boolean } = {},
     ): Promise<Ticket> {
         const [current] = await db.select().from(tickets)
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
@@ -573,23 +687,93 @@ export const ticketService = {
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
 
-        // Mensagem de despedida (fire-and-forget)
-        this._sendClosingMessage(updated, companyId).catch(() => {});
-
-        // Pesquisa de satisfação (fire-and-forget)
-        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
-        pesquisaService.sendSurveyAfterClose(updated).catch((err: Error) =>
-            console.error('[Survey] Erro ao enviar pesquisa:', err.message)
+        // Mensagem de despedida (fire-and-forget). Se o fechamento manual informou
+        // a escolha (com/sem mensagem), ela sobrepõe a permissão global. Erro no envio
+        // (ex.: conexão do WhatsApp caída) não impede o fechamento, mas é logado —
+        // antes era engolido em silêncio, escondendo desconexões do bays.
+        this._sendClosingMessage(updated, companyId, opts.sendGoodbye, userId).catch((err: unknown) =>
+            console.error(
+                `[Close] Falha ao enviar mensagem de despedida (ticket ${ticketId}):`,
+                err instanceof Error ? err.message : err,
+            ),
         );
 
         return updated;
     },
 
-    async _sendClosingMessage(ticket: Ticket, companyId: string): Promise<void> {
-        if (!ticket.connection_id || !ticket.contact_id) return;
+    /**
+     * Fechamento alternativo: em vez de despedida, pergunta a pesquisa de
+     * satisfação. O ticket NÃO fecha ainda — vai para status 7 (Realizando
+     * Pesquisa) e só vira Fechado (3) de fato quando o cliente responder
+     * (ver pesquisaService.tryRecordAnswer → finalizeAfterResearch). É uma
+     * alternativa exclusiva à despedida, nunca as duas juntas.
+     */
+    async closeTicketWithResearch(ticketId: number, userId: string, companyId: string): Promise<Ticket> {
+        const [current] = await db.select().from(tickets)
+            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+            .limit(1);
+        if (!current) throw new Error('Ticket não encontrado');
+
+        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+        const research = await pesquisaService.findActiveForQueue(current.queue_id, companyId);
+        if (!research) throw new Error('Nenhuma pesquisa de satisfação configurada para este atendimento');
+
+        await db.insert(historic_tickets).values({
+            ticket_id: ticketId,
+            user_id: userId,
+            status_id_init: current.status_id,
+            status_id_end: 7,
+        });
+
+        const [updated] = await db
+            .update(tickets)
+            .set({ status_id: 7, closed_by_user_id: userId, pinned: 0, updated_at: new Date() })
+            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+            .returning();
+
+        emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+
+        await pesquisaService.sendSurveyQuestion(updated, research);
+
+        return updated;
+    },
+
+    /** Fecha de fato o ticket depois que a pesquisa de satisfação foi respondida (status 7 → 3). */
+    async finalizeAfterResearch(ticketId: number, companyId: string): Promise<void> {
+        const [current] = await db.select().from(tickets)
+            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+            .limit(1);
+        if (!current || current.status_id !== 7) return;
+
+        await db.insert(historic_tickets).values({
+            ticket_id: ticketId,
+            user_id: current.closed_by_user_id,
+            status_id_init: 7,
+            status_id_end: 3,
+        });
+
+        await db
+            .update(tickets)
+            .set({ status_id: 3, updated_at: new Date() })
+            .where(eq(tickets.id, ticketId));
+
+        emitToCompany(companyId, 'ticket:closed', { ticketId });
+    },
+
+    /**
+     * Envia a mensagem de despedida ao fechar o ticket.
+     *
+     * @param sendGoodbye  Escolha explícita do fechamento manual:
+     *   - true      → envia, ignorando a permissão global
+     *   - false     → não envia
+     *   - undefined → comportamento automático (respeita send_ticket_goodbye_msg)
+     */
+    async _sendClosingMessage(ticket: Ticket, companyId: string, sendGoodbye: boolean | undefined, userId: string): Promise<void> {
+        if (!ticket.contact_id) return;
+        if (sendGoodbye === false) return;
 
         const perms = await getCompanyPermissions(companyId);
-        if (!perms.send_ticket_goodbye_msg) return;
+        if (sendGoodbye === undefined && !perms.send_ticket_goodbye_msg) return;
 
         const [companyRow] = await db
             .select({ end_message: companies.end_message })
@@ -608,8 +792,42 @@ export const ticketService = {
         const target = contactRow?.number || (contactRow?.lid ? `lid:${contactRow.lid}` : null);
         if (!target) return;
 
+        if (!ticket.connection_id) {
+            console.warn(`[_sendClosingMessage] Sem connection_id para ticket ${ticket.id} (contact: ${target}). Mensagem não será enviada.`);
+            return;
+        }
+
+        // Dedup: evita reenviar despedida pro mesmo contato em sequência rápida
+        // (ex.: fecha e reabre vários tickets seguidos em pouco tempo).
+        const intervalHours = perms.interval_between_ended_message ?? 6;
+        const cutoff = new Date(Date.now() - intervalHours * 3600 * 1000);
+        const [recent] = await db
+            .select({ id: atendimento_messages.id })
+            .from(atendimento_messages)
+            .where(and(
+                eq(atendimento_messages.contact_id, ticket.contact_id),
+                eq(atendimento_messages.media_type, 'auto_goodbye'),
+                gte(atendimento_messages.created_at, cutoff),
+            ))
+            .limit(1);
+        if (recent) return;
+
+        const [closer] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+        const text = fillMessageTemplate(companyRow.end_message, { atendente: closer?.name ?? 'atendente', ticketId: ticket.id });
+
+        const { messageService } = await import('./message.service');
         const { whatsappService } = await import('../whatsapp/whatsapp.service');
-        await whatsappService.sendTextToPhone(ticket.connection_id, target, companyRow.end_message);
+
+        await messageService.save(
+            ticket.id,
+            ticket.contact_id,
+            text,
+            true,
+            companyId,
+            { userId, mediaType: 'auto_goodbye' },
+        );
+
+        await whatsappService.sendTextToPhone(ticket.connection_id, target, text);
     },
 
     async registerSale(
