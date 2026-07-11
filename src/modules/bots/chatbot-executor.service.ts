@@ -439,6 +439,15 @@ export const chatbotExecutorService = {
             // Bots NUNCA respondem grupos — guarda extra além do descarte no webhook
             if (phone.includes('@g.us')) return;
 
+            // Reconfere o status do ticket: se um atendente assumiu entre o
+            // webhook decidir chamar o bot e este ponto rodar, aborta sem
+            // enviar nada — status_id é a única fonte de verdade do roteamento.
+            if (ticketId != null) {
+                const { ticketService, shouldRunBot } = await import('../atendimento/ticket.service');
+                const ticket = await ticketService.get(ticketId, companyId);
+                if (!ticket || !shouldRunBot(ticket)) return;
+            }
+
             const bot = await botsRepository.findDefaultActive(companyId);
             if (!bot) return;
 
