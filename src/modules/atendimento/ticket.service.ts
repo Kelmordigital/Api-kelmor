@@ -121,13 +121,9 @@ export const ticketService = {
         // (preserva vendas/ocorrências individuais nos relatórios). O histórico
         // consolidado é resolvido na tela (timeline por contato), não reabrindo
         // o ticket antigo.
-        const { botsRepository } = await import('../bots/bots.repository');
-        const activeBot = await botsRepository.findDefaultActive(companyId);
-        const initialStatusId = activeBot ? 9 : 1;
-
         const [created] = await db
             .insert(tickets)
-            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: initialStatusId })
+            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: 1 })
             .returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket: created });
