@@ -55,6 +55,11 @@ export interface FunilCard {
 // 1=Pendente 2=Em Atendimento 7=Pesquisa de Satisfação 9=Bot/Resolvido
 const OPEN_STATUSES = [1, 2, 7, 9];
 
+/** O bot só processa mensagens enquanto o ticket está em status Bot (9) — status_id é a única fonte de roteamento. */
+export function shouldRunBot(ticket: { status_id: number }): boolean {
+    return ticket.status_id === 9;
+}
+
 // In-memory lock simples para evitar race condition no "assumir ticket"
 const _locks = new Map<string, boolean>();
 function acquireLock(key: string): boolean {
@@ -121,9 +126,13 @@ export const ticketService = {
         // (preserva vendas/ocorrências individuais nos relatórios). O histórico
         // consolidado é resolvido na tela (timeline por contato), não reabrindo
         // o ticket antigo.
+        const { botsRepository } = await import('../bots/bots.repository');
+        const activeBot = await botsRepository.findDefaultActive(companyId);
+        const initialStatusId = activeBot ? 9 : 1;
+
         const [created] = await db
             .insert(tickets)
-            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: 1 })
+            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: initialStatusId })
             .returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket: created });
@@ -279,7 +288,7 @@ export const ticketService = {
 
     // ── Transições de status ──────────────────────────────────────────────────
 
-    /** Atendente assume o ticket (1 → 2). Protegido por lock em memória. */
+    /** Atendente assume o ticket (Pendente=1 ou Bot=9 → Aberto=2). Update atômico condicional. */
     async assignAttendant(ticketId: number, userId: string, companyId: string): Promise<Ticket> {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey)) throw new Error('Ticket já está sendo assumido por outro atendente');
@@ -290,9 +299,6 @@ export const ticketService = {
                 .limit(1);
 
             if (!current) throw new Error('Ticket não encontrado');
-            if (current.status_id === 2 && current.attendant_user_id) {
-                throw new Error('Ticket já está em atendimento');
-            }
 
             // Verifica limite de atendimentos simultâneos por atendente
             const perms = await getCompanyPermissions(companyId);
@@ -310,18 +316,29 @@ export const ticketService = {
                 }
             }
 
+            // Update atômico condicional: só aplica se o ticket ainda estiver
+            // Pendente(1) ou em Bot(9) e sem atendente — garante que o bot
+            // rodando em paralelo (ou outro atendente) nunca vence uma corrida
+            // silenciosamente. Se 0 linhas afetadas, alguém chegou primeiro.
+            const [updated] = await db
+                .update(tickets)
+                .set({ status_id: 2, attendant_user_id: userId, updated_at: new Date() })
+                .where(and(
+                    eq(tickets.id, ticketId),
+                    eq(tickets.company_id, companyId),
+                    inArray(tickets.status_id, [1, 9]),
+                    isNull(tickets.attendant_user_id),
+                ))
+                .returning();
+
+            if (!updated) throw new Error('Ticket já foi assumido por outro atendente ou não está mais disponível');
+
             await db.insert(historic_tickets).values({
                 ticket_id: ticketId,
                 user_id: userId,
                 status_id_init: current.status_id,
                 status_id_end: 2,
             });
-
-            const [updated] = await db
-                .update(tickets)
-                .set({ status_id: 2, attendant_user_id: userId, updated_at: new Date() })
-                .where(eq(tickets.id, ticketId))
-                .returning();
 
             emitToCompany(companyId, 'ticket:updated', { ticket: updated });
 

@@ -204,7 +204,7 @@ export const whatsappOficialWebhookService = {
         if (dup) return;
 
         const { contactService } = await import('../atendimento/contact.service');
-        const { ticketService } = await import('../atendimento/ticket.service');
+        const { ticketService, shouldRunBot } = await import('../atendimento/ticket.service');
         const { messageService } = await import('../atendimento/message.service');
 
         const contact = await contactService.findOrCreate(companyId, contactNumber, contactName);
@@ -239,8 +239,9 @@ export const whatsappOficialWebhookService = {
             .where(eq(atendimento_messages.id, saved.id))
             .catch(() => {});
 
-        // Chatbot: mesmo fluxo do Baileys — o executor envia pela própria conexão
-        if (body) {
+        // Chatbot: mesmo fluxo do Baileys — o executor envia pela própria conexão.
+        // Só roda quando o ticket está em status Bot (9) — status_id decide o roteamento.
+        if (body && shouldRunBot(ticket)) {
             const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
             chatbotExecutorService.execute(companyId, conn.id, contactNumber, body, ticket.id)
                 .catch((err: Error) => console.error('[WAB ChatbotExecutor] Falha silenciosa:', err.message));

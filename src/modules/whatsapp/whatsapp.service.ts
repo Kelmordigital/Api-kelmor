@@ -565,7 +565,8 @@ export const whatsappService = {
 
             if (!wasAnswer) {
                 await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
-                if (sendTarget) {
+                const { shouldRunBot } = await import('../atendimento/ticket.service');
+                if (sendTarget && shouldRunBot(ticket)) {
                     const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
                     chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id, contact.id, contact.name).catch((err: Error) =>
                         console.error('[ChatbotExecutor] Falha silenciosa:', err.message)
