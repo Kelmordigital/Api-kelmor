@@ -147,7 +147,18 @@ async function applyDelay(node: BotNode): Promise<void> {
 
 async function sendText(envr: ExecEnv, text: string): Promise<void> {
     const msg = interpolate(text, envr.ctx).trim();
-    if (msg) await whatsappService.sendTextToPhone(envr.connectionId, envr.phone, msg);
+    if (!msg) return;
+    await logOutgoing(envr, msg);
+    await whatsappService.sendTextToPhone(envr.connectionId, envr.phone, msg).catch((err: Error) =>
+        console.error('[ChatbotExecutor] Falha ao enviar mensagem:', err.message));
+}
+
+/** Salva a mensagem que o bot mandou no histórico do ticket (user_id null = automático). */
+async function logOutgoing(envr: ExecEnv, body: string, mediaType?: string): Promise<void> {
+    if (!envr.ticketId || !envr.contactId || !body.trim()) return;
+    const { messageService } = await import('../atendimento/message.service');
+    await messageService.save(envr.ticketId, envr.contactId, body, true, envr.companyId, { mediaType }).catch((err: Error) =>
+        console.error('[ChatbotExecutor] Falha ao salvar mensagem do bot:', err.message));
 }
 
 /**
@@ -263,7 +274,7 @@ async function runNode(node: BotNode, envr: ExecEnv, bot: Bot): Promise<string |
             await applyDelay(node);
             const text = [interpolate(node.message ?? '', envr.ctx).trim(), data.link?.trim()]
                 .filter(Boolean).join('\n\n');
-            if (text) await whatsappService.sendTextToPhone(envr.connectionId, envr.phone, text);
+            if (text) await sendText(envr, text);
             return node.next_node_id ?? null;
         }
 
@@ -288,7 +299,11 @@ async function runNode(node: BotNode, envr: ExecEnv, bot: Bot): Promise<string |
                 const lines = data.options.map(o => `${o.number}. ${o.label}`).join('\n');
                 text = text ? `${text}\n\n${lines}` : lines;
             }
-            if (text.trim()) await whatsappService.sendTextToPhone(envr.connectionId, envr.phone, text);
+            if (text.trim()) {
+                await logOutgoing(envr, text);
+                await whatsappService.sendTextToPhone(envr.connectionId, envr.phone, text).catch((err: Error) =>
+                    console.error('[ChatbotExecutor] Falha ao enviar menu:', err.message));
+            }
             return null; // aguarda resposta
         }
 
