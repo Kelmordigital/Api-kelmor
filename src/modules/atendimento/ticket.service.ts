@@ -230,7 +230,7 @@ export const ticketService = {
 
     // ── Transições de status ──────────────────────────────────────────────────
 
-    /** Atendente assume o ticket (1 → 2). Protegido por lock em memória. */
+    /** Atendente assume o ticket (Pendente=1 ou Bot=9 → Aberto=2). Update atômico condicional. */
     async assignAttendant(ticketId: number, userId: string, companyId: string): Promise<Ticket> {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey)) throw new Error('Ticket já está sendo assumido por outro atendente');
@@ -241,9 +241,6 @@ export const ticketService = {
                 .limit(1);
 
             if (!current) throw new Error('Ticket não encontrado');
-            if (current.status_id === 2 && current.attendant_user_id) {
-                throw new Error('Ticket já está em atendimento');
-            }
 
             // Verifica limite de atendimentos simultâneos por atendente
             const perms = await getCompanyPermissions(companyId);
@@ -261,18 +258,29 @@ export const ticketService = {
                 }
             }
 
+            // Update atômico condicional: só aplica se o ticket ainda estiver
+            // Pendente(1) ou em Bot(9) e sem atendente — garante que o bot
+            // rodando em paralelo (ou outro atendente) nunca vence uma corrida
+            // silenciosamente. Se 0 linhas afetadas, alguém chegou primeiro.
+            const [updated] = await db
+                .update(tickets)
+                .set({ status_id: 2, attendant_user_id: userId, updated_at: new Date() })
+                .where(and(
+                    eq(tickets.id, ticketId),
+                    eq(tickets.company_id, companyId),
+                    inArray(tickets.status_id, [1, 9]),
+                    isNull(tickets.attendant_user_id),
+                ))
+                .returning();
+
+            if (!updated) throw new Error('Ticket já foi assumido por outro atendente ou não está mais disponível');
+
             await db.insert(historic_tickets).values({
                 ticket_id: ticketId,
                 user_id: userId,
                 status_id_init: current.status_id,
                 status_id_end: 2,
             });
-
-            const [updated] = await db
-                .update(tickets)
-                .set({ status_id: 2, attendant_user_id: userId, updated_at: new Date() })
-                .where(eq(tickets.id, ticketId))
-                .returning();
 
             emitToCompany(companyId, 'ticket:updated', { ticket: updated });
 
