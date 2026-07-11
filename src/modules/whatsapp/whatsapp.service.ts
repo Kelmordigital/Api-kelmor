@@ -28,15 +28,32 @@ async function baysGet(path: string): Promise<any> {
     return res.json();
 }
 
+const BAYS_RETRY_ATTEMPTS = 2;
+const BAYS_RETRY_DELAY_MS = 1000;
+
 async function baysPost(path: string, body?: unknown): Promise<any> {
     const url = `${env.BAYS_URL}${path}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { secretkey: env.BAYS_SECRET_KEY, 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) throw new Error(`bays POST ${path} → ${res.status}`);
-    return res.json().catch(() => ({}));
+
+    for (let attempt = 1; attempt <= BAYS_RETRY_ATTEMPTS; attempt++) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { secretkey: env.BAYS_SECRET_KEY, 'Content-Type': 'application/json' },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        if (res.ok) return res.json().catch(() => ({}));
+
+        const detail = await res.json().catch(() => null) as { message?: string } | null;
+        const reason = detail?.message ? `: ${detail.message}` : '';
+        const err = new Error(`bays POST ${path} → ${res.status}${reason}`);
+
+        // Só reincide em erro 5xx (falha transitória do lado do bays — ex.:
+        // sessão do Baileys reconectando). Erro 4xx é do payload/requisição
+        // em si e tentar de novo não vai mudar o resultado.
+        const retryable = res.status >= 500 && attempt < BAYS_RETRY_ATTEMPTS;
+        if (!retryable) throw err;
+
+        await new Promise((resolve) => setTimeout(resolve, BAYS_RETRY_DELAY_MS));
+    }
 }
 
 async function baysDelete(path: string): Promise<void> {
