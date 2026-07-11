@@ -1,6 +1,6 @@
 import { eq, and, inArray, gte, lte, desc, sql, isNull } from 'drizzle-orm';
 import { db } from '../../database/client';
-import { researchs, researchAnswers, queueResearchs, researchHistorics } from './pesquisa.db.schema';
+import { researchs, researchAnswers, queueResearchs, researchHistorics, Research } from './pesquisa.db.schema';
 import { queues, tickets, contacts } from '../atendimento/atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 
@@ -131,51 +131,57 @@ export const pesquisaService = {
         return !!row;
     },
 
-    // ── Envio após encerramento de ticket ────────────────────────────────────
+    // ── Fechamento com pesquisa de satisfação ────────────────────────────────
+    // Alternativa exclusiva à mensagem de despedida: em vez de enviar uma
+    // despedida, pergunta a pesquisa e só fecha o ticket de verdade quando o
+    // cliente responder (ver ticketService.closeTicketWithResearch).
 
-    async sendSurveyAfterClose(ticket: {
-        id: number;
-        company_id: string;
-        queue_id: number | null;
-        contact_id: number;
-        connection_id: number | null;
-    }): Promise<void> {
-        if (!ticket.queue_id) return;
+    /** Pesquisa ativa vinculada à fila do ticket, se houver. */
+    async findActiveForQueue(queueId: number | null, companyId: string) {
+        if (!queueId) return null;
 
-        // Busca pesquisa associada à fila
         const [link] = await db
             .select({ research_id: queueResearchs.research_id })
             .from(queueResearchs)
-            .where(eq(queueResearchs.queue_id, ticket.queue_id))
+            .where(eq(queueResearchs.queue_id, queueId))
             .limit(1);
-        if (!link) return;
+        if (!link) return null;
 
         const [research] = await db
             .select()
             .from(researchs)
-            .where(and(eq(researchs.id, link.research_id), eq(researchs.active, true)))
+            .where(and(
+                eq(researchs.id, link.research_id),
+                eq(researchs.company_id, companyId),
+                eq(researchs.active, true),
+            ))
             .limit(1);
-        if (!research) return;
+        return research ?? null;
+    },
 
+    /** Envia a pergunta da pesquisa e cria o registro pendente de resposta. */
+    async sendSurveyQuestion(
+        ticket: { id: number; company_id: string; contact_id: number; connection_id: number | null },
+        research: Research,
+    ): Promise<void> {
         const answers = await db
             .select()
             .from(researchAnswers)
             .where(eq(researchAnswers.research_id, research.id));
         if (answers.length === 0) return;
 
-        // Busca número do contato
         const [contact] = await db
-            .select({ number: contacts.number })
+            .select({ number: contacts.number, lid: contacts.lid })
             .from(contacts)
             .where(eq(contacts.id, ticket.contact_id))
             .limit(1);
-        if (!contact?.number) return;
 
-        // Monta mensagem com as opções numeradas
+        const target = contact?.number || (contact?.lid ? `lid:${contact.lid}` : null);
+        if (!target) return;
+
         const opcoes = answers.map((a, i) => `${i + 1}. ${a.title}`).join('\n');
         const mensagem = `${research.name}\n\n${opcoes}\n\nResponda com o número da sua opção.`;
 
-        // Cria registro pendente
         await db.insert(researchHistorics).values({
             company_id:  ticket.company_id,
             ticket_id:   ticket.id,
@@ -185,17 +191,14 @@ export const pesquisaService = {
             status:      'pending',
         });
 
-        // Envia mensagem via WhatsApp
+        const { messageService } = await import('../atendimento/message.service');
+        await messageService.save(ticket.id, ticket.contact_id, mensagem, true, ticket.company_id, { mediaType: 'auto_survey' });
+
         const { whatsappService } = await import('../whatsapp/whatsapp.service');
-        const connectionId = ticket.connection_id;
-        if (connectionId) {
-            whatsappService.sendTextToPhone(connectionId, contact.number, mensagem).catch((err: Error) =>
-                console.error('[Survey] Falha ao enviar pesquisa:', err.message)
-            );
+        if (ticket.connection_id) {
+            await whatsappService.sendTextToPhone(ticket.connection_id, target, mensagem);
         } else {
-            whatsappService.sendMessage(contact.number, mensagem).catch((err: Error) =>
-                console.error('[Survey] Falha ao enviar pesquisa:', err.message)
-            );
+            await whatsappService.sendMessage(target, mensagem);
         }
     },
 
@@ -233,6 +236,12 @@ export const pesquisaService = {
         await db.update(researchHistorics)
             .set({ answer_id: matched.id, status: 'answered', updated_at: new Date() })
             .where(eq(researchHistorics.id, pending.id));
+
+        // Pesquisa respondida = fechamento com pesquisa concluído (status 7 → 3)
+        const { ticketService } = await import('../atendimento/ticket.service');
+        await ticketService.finalizeAfterResearch(pending.ticket_id, companyId).catch((err: unknown) =>
+            console.error(`[Survey] Falha ao fechar ticket ${pending.ticket_id} após resposta:`, err instanceof Error ? err.message : err),
+        );
 
         return true;
     },

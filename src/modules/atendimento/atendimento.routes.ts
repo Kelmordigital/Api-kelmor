@@ -17,6 +17,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.put('/tickets/:id/transfer',  auth, atendimentoController.transfer);
     app.put('/tickets/:id/pin',       auth, atendimentoController.togglePin);
     app.post('/tickets/:id/close',    auth, atendimentoController.closeTicket);
+    app.post('/tickets/:id/research', auth, atendimentoController.closeTicketWithResearch);
+    app.get('/tickets/:id/research-available', auth, atendimentoController.researchAvailable);
+    app.get('/close-config', auth, atendimentoController.closeConfig);
     app.patch('/tickets/:id/status',  auth, atendimentoController.updateStatus);
 
     // Tickets — venda
@@ -30,6 +33,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.get('/contacts/report', auth, atendimentoController.listContactsReport);
     app.get('/contacts/export', auth, atendimentoController.exportContactsExcel);
     app.get('/contacts',        auth, atendimentoController.listContacts);
+    app.get('/contacts/:contactId/tickets', auth, atendimentoController.listContactTickets);
+
+    // Catálogo de produtos (consulta durante o atendimento — carrinho no chat)
+    app.get('/produtos', auth, atendimentoController.listProdutos);
 
     // Atendentes da empresa (para transferência)
     app.get('/attendants', auth, atendimentoController.listAttendants);

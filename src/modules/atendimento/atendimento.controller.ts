@@ -3,6 +3,11 @@ import { contactService } from './contact.service';
 import { ticketService } from './ticket.service';
 import { messageService } from './message.service';
 import { dashboardService, parsePeriod } from './dashboard.service';
+import { produtoService } from '../produtos/produto.service';
+import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { db } from '../../database/client';
+import { companies } from '../companies/company.db.schema';
+import { eq } from 'drizzle-orm';
 
 export const atendimentoController = {
 
@@ -49,9 +54,47 @@ export const atendimentoController = {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
         const userId = req.user.id;
-        const body = req.body as { ocurrence?: string; service_not_made?: boolean };
+        const body = req.body as { ocurrence?: string; service_not_made?: boolean; sendGoodbye?: boolean };
         const ticket = await ticketService.closeTicket(Number(id), userId, companyId, body);
         return reply.send(ticket);
+    },
+
+    /** Dados leves pro modal de fechamento (mensagem de despedida + se a opção "com mensagem" deve aparecer) — sem exigir admin. */
+    async closeConfig(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const [company, perms] = await Promise.all([
+            db.select({ end_message: companies.end_message }).from(companies).where(eq(companies.id, companyId)).then(rows => rows[0]),
+            getCompanyPermissions(companyId),
+        ]);
+        return reply.send({
+            end_message: company?.end_message ?? null,
+            send_ticket_goodbye_msg: perms.send_ticket_goodbye_msg,
+        });
+    },
+
+    /** Alternativa exclusiva à despedida: fecha com pesquisa de satisfação (ticket só fecha de fato quando o cliente responder). */
+    async closeTicketWithResearch(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const userId = req.user.id;
+        try {
+            const ticket = await ticketService.closeTicketWithResearch(Number(id), userId, companyId);
+            return reply.send(ticket);
+        } catch (err) {
+            return reply.status(400).send({ error: err instanceof Error ? err.message : 'Erro ao iniciar pesquisa de satisfação' });
+        }
+    },
+
+    /** Indica se o ticket tem pesquisa de satisfação disponível (fila vinculada a uma pesquisa ativa) — usado pra mostrar/esconder a opção na hora de fechar. */
+    async researchAvailable(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const ticket = await ticketService.get(Number(id), companyId);
+        if (!ticket) return reply.status(404).send({ error: 'Ticket não encontrado' });
+
+        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+        const research = await pesquisaService.findActiveForQueue(ticket.queue_id, companyId);
+        return reply.send({ available: !!research, name: research?.name ?? null });
     },
 
     async updateStatus(req: FastifyRequest, reply: FastifyReply) {
@@ -229,6 +272,20 @@ export const atendimentoController = {
         const companyId = req.user.company_id!;
         const list = await contactService.list(companyId);
         return reply.send(list);
+    },
+
+    async listContactTickets(req: FastifyRequest, reply: FastifyReply) {
+        const { contactId } = req.params as { contactId: string };
+        const companyId = req.user.company_id!;
+        const list = await ticketService.listByContact(Number(contactId), companyId);
+        return reply.send(list);
+    },
+
+    /** Catálogo de produtos para consulta durante o atendimento (carrinho no chat) — leitura, sem exigir admin. */
+    async listProdutos(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        const list = await produtoService.list(companyId);
+        return reply.send(list.filter(p => p.is_active));
     },
 
     async listContactsReport(req: FastifyRequest, reply: FastifyReply) {
