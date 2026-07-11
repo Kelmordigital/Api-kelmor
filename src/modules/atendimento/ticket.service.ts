@@ -95,9 +95,18 @@ export const ticketService = {
 
         if (existing) return { ticket: existing, created: false };
 
+        // Nenhum ticket aberto: cria um novo. Um contato pode ter vários tickets
+        // fechados ao longo do tempo — cada atendimento é um registro definitivo
+        // (preserva vendas/ocorrências individuais nos relatórios). O histórico
+        // consolidado é resolvido na tela (timeline por contato), não reabrindo
+        // o ticket antigo.
+        const { botsRepository } = await import('../bots/bots.repository');
+        const activeBot = await botsRepository.findDefaultActive(companyId);
+        const initialStatusId = activeBot ? 9 : 1;
+
         const [created] = await db
             .insert(tickets)
-            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: 1 })
+            .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: initialStatusId })
             .returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket: created });
