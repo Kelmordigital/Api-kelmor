@@ -30,16 +30,38 @@ async function baysGet(path: string): Promise<any> {
 
 const BAYS_RETRY_ATTEMPTS = 2;
 const BAYS_RETRY_DELAY_MS = 1000;
+const BAYS_TIMEOUT_MS = 15000;
 
 async function baysPost(path: string, body?: unknown): Promise<any> {
     const url = `${env.BAYS_URL}${path}`;
 
     for (let attempt = 1; attempt <= BAYS_RETRY_ATTEMPTS; attempt++) {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { secretkey: env.BAYS_SECRET_KEY, 'Content-Type': 'application/json' },
-            body: body ? JSON.stringify(body) : undefined,
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), BAYS_TIMEOUT_MS);
+
+        let res: Response;
+        try {
+            res = await fetch(url, {
+                method: 'POST',
+                headers: { secretkey: env.BAYS_SECRET_KEY, 'Content-Type': 'application/json' },
+                body: body ? JSON.stringify(body) : undefined,
+                signal: controller.signal,
+            });
+        } catch (err) {
+            // Sem resposta nenhuma (timeout do AbortController ou falha de rede)
+            // — o bays as vezes trava (ex.: sessao do Baileys ainda inicializando
+            // apos reconectar) e o fetch nunca resolve sozinho. Mesma politica de
+            // retry do 5xx: so desiste na ultima tentativa.
+            if (attempt >= BAYS_RETRY_ATTEMPTS) {
+                const reason = err instanceof Error ? err.message : String(err);
+                throw new Error(`bays POST ${path} → sem resposta (timeout/rede): ${reason}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, BAYS_RETRY_DELAY_MS));
+            continue;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+
         if (res.ok) return res.json().catch(() => ({}));
 
         const detail = await res.json().catch(() => null) as { message?: string } | null;

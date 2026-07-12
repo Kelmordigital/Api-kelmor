@@ -51,4 +51,15 @@ describe('whatsappService.sendTextToPhone — resiliência do bays', () => {
         ).rejects.toThrow(/Connection Closed/);
         expect(global.fetch).toHaveBeenCalledTimes(2);
     });
+
+    it('nao fica pendurado pra sempre quando o fetch falha sem responder (ex.: timeout/rede) — reincide e desiste com erro claro', async () => {
+        global.fetch = vi.fn(async () => {
+            throw new DOMException('This operation was aborted', 'AbortError');
+        }) as unknown as typeof fetch;
+
+        await expect(
+            whatsappService.sendTextToPhone(FAKE_CONNECTION_ID, '5511999999999', 'oi'),
+        ).rejects.toThrow(/sem resposta/i);
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
 });
