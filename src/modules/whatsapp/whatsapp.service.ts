@@ -554,6 +554,17 @@ export const whatsappService = {
             } catch { }
         }
 
+        if (fromMe) {
+            // Eco do nosso próprio envio: o Baileys reporta a mensagem que A GENTE
+            // manda (despedida, saudação de fila, etc.) de volta como um evento de
+            // "mensagem recebida" (message-upsert com fromMe:true). Só nos interessa
+            // se já existe um ticket aberto pra anexar — nunca cria um do zero, senão
+            // toda mensagem automática enviada logo após fechar um ticket recria um
+            // ticket fantasma em "Aguardando" pro mesmo contato.
+            const existingTicket = await ticketService.findOpenTicket(companyId, contact.id, conn.id);
+            if (!existingTicket) return;
+        }
+
         const { ticket, created: ticketCreated } = await ticketService.findOrCreateOpen(
             companyId,
             contact.id,

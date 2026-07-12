@@ -6,6 +6,15 @@ import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { filaService } from '../filas/fila.service';
+
+export class AtendenteNaoElegivelError extends Error {
+    constructor() { super('O atendente selecionado não pertence à fila de destino.'); }
+}
+
+export class TransferenciaParaSiMesmoError extends Error {
+    constructor() { super('Não é possível transferir o atendimento para o mesmo atendente.'); }
+}
 
 /**
  * Constrói a condição de visibilidade de tickets para um "viewer".
@@ -94,14 +103,8 @@ export const ticketService = {
 
     // ── Busca / criação ──────────────────────────────────────────────────────
 
-    async findOrCreateOpen(
-        companyId: string,
-        contactId: number,
-        connectionId?: number,
-        serializedId?: string,
-        origin = 'Base de contatos',
-    ): Promise<{ ticket: Ticket; created: boolean }> {
-        // Filtra pela mesma conexão: um contato pode ter tickets em conexões distintas
+    /** Busca o ticket aberto do contato (mesma conexão), sem criar um novo. */
+    async findOpenTicket(companyId: string, contactId: number, connectionId?: number): Promise<Ticket | null> {
         const connCondition = connectionId
             ? eq(tickets.connection_id, connectionId)
             : isNull(tickets.connection_id);
@@ -119,6 +122,17 @@ export const ticketService = {
             .orderBy(desc(tickets.updated_at))
             .limit(1);
 
+        return existing ?? null;
+    },
+
+    async findOrCreateOpen(
+        companyId: string,
+        contactId: number,
+        connectionId?: number,
+        serializedId?: string,
+        origin = 'Base de contatos',
+    ): Promise<{ ticket: Ticket; created: boolean }> {
+        const existing = await this.findOpenTicket(companyId, contactId, connectionId);
         if (existing) return { ticket: existing, created: false };
 
         // Nenhum ticket aberto: cria um novo. Um contato pode ter vários tickets
@@ -554,19 +568,24 @@ export const ticketService = {
         return updated;
     },
 
-    /** Transfere o ticket para outro atendente. Cria mensagem interna de transferência. */
+    /** Transfere o ticket para outro atendente dentro de uma fila. Cria mensagem interna de transferência. */
     async transfer(
         ticketId: number,
         fromUserId: string,
         toUserId: string,
         companyId: string,
-        queueId?: number,
+        queueId: number,
     ): Promise<Ticket> {
+        if (fromUserId === toUserId) throw new TransferenciaParaSiMesmoError();
+
         const [current] = await db.select().from(tickets)
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
             .limit(1);
 
         if (!current) throw new Error('Ticket não encontrado');
+
+        const eligible = await filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
+        if (!eligible.some((u) => u.id === toUserId)) throw new AtendenteNaoElegivelError();
 
         const [fromUser] = await db.select({ name: users.name }).from(users).where(eq(users.id, fromUserId)).limit(1);
         const [toUser]   = await db.select({ name: users.name }).from(users).where(eq(users.id, toUserId)).limit(1);
@@ -585,8 +604,8 @@ export const ticketService = {
             is_transfer: 1,
             status_id: 2,
             updated_at: new Date(),
+            queue_id: queueId,
         };
-        if (queueId !== undefined) set.queue_id = queueId;
 
         const [updated] = await db
             .update(tickets)
