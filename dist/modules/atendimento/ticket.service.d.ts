@@ -1,6 +1,12 @@
 import { type SQL } from 'drizzle-orm';
 import { Ticket } from './atendimento.db.schema';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+export declare class AtendenteNaoElegivelError extends Error {
+    constructor();
+}
+export declare class TransferenciaParaSiMesmoError extends Error {
+    constructor();
+}
 /**
  * Constrói a condição de visibilidade de tickets para um "viewer".
  * - admin/superAdmin ou empresa com show_all_tickets → sem restrição (undefined).
@@ -23,6 +29,8 @@ export declare function shouldRunBot(ticket: {
     status_id: number;
 }): boolean;
 export declare const ticketService: {
+    /** Busca o ticket aberto do contato (mesma conexão), sem criar um novo. */
+    findOpenTicket(companyId: string, contactId: number, connectionId?: number): Promise<Ticket | null>;
     findOrCreateOpen(companyId: string, contactId: number, connectionId?: number, serializedId?: string, origin?: string): Promise<{
         ticket: Ticket;
         created: boolean;
@@ -76,8 +84,8 @@ export declare const ticketService: {
     returnToQueue(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
     /** Reabre um ticket finalizado (3 → 2). Verifica se não há outro aberto para o mesmo contato. */
     reopen(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
-    /** Transfere o ticket para outro atendente. Cria mensagem interna de transferência. */
-    transfer(ticketId: number, fromUserId: string, toUserId: string, companyId: string, queueId?: number): Promise<Ticket>;
+    /** Transfere o ticket para outro atendente dentro de uma fila. Cria mensagem interna de transferência. */
+    transfer(ticketId: number, fromUserId: string, toUserId: string, companyId: string, queueId: number): Promise<Ticket>;
     _sendTransferMessage(ticket: Ticket, companyId: string, fromName: string | undefined, toName: string): Promise<void>;
     /** Alterna fixação do ticket no topo da lista. */
     togglePin(ticketId: number, companyId: string): Promise<Ticket>;

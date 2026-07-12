@@ -12,6 +12,7 @@ async function whatsappRoutes(app) {
     app.get('/connections', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.listConnections);
     app.post('/connections', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.createConnection);
     app.delete('/connections/:id', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.removeConnection);
+    app.put('/connections/:id/queues', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.updateConnectionQueues);
     app.get('/connections/:id/status', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.getConnectionStatus);
     app.post('/connections/:id/connect', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.connectConnection);
     app.delete('/connections/:id/disconnect', { preHandler: auth_middleware_1.authMiddleware }, whatsapp_controller_1.whatsappController.disconnectConnection);

@@ -163,3 +163,9 @@ export const userConnections = pgTable('at_user_connections', {
     user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     connection_id: bigint('connection_id', { mode: 'number' }).notNull().references(() => connections.id, { onDelete: 'cascade' }),
 }, (t) => ({ pk: primaryKey({ columns: [t.user_id, t.connection_id] }) }));
+
+// ── Filas oferecidas por uma conexão (config, sem efeito em roteamento ainda) ─
+export const connectionQueues = pgTable('at_connection_queues', {
+    connection_id: bigint('connection_id', { mode: 'number' }).notNull().references(() => connections.id, { onDelete: 'cascade' }),
+    queue_id: bigint('queue_id', { mode: 'number' }).notNull().references(() => queues.id, { onDelete: 'cascade' }),
+}, (t) => ({ pk: primaryKey({ columns: [t.connection_id, t.queue_id] }) }));

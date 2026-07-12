@@ -28,11 +28,14 @@ export declare const filaService: {
     listUserQueues(companyId: string, userId: string): Promise<Queue[]>;
     /** Apenas filas ativas (para seletores). */
     listActive(companyId: string): Promise<Queue[]>;
+    /** Filas ativas vinculadas a uma conexão (usado no roteamento automático de ticket novo). */
+    findActiveQueuesByConnection(connectionId: number): Promise<Queue[]>;
     findById(id: number, companyId: string): Promise<Queue | null>;
     /**
      * Atendentes elegíveis para atender/transferir nesta fila usando esta conexão:
-     * pertencem à fila E têm acesso à conexão. Se transfer_online_users estiver
-     * ligado na empresa, filtra também por quem está online.
+     * pertencem à fila E têm acesso à conexão. Se connectionId for 0/ausente
+     * (ticket sem connection_id), a elegibilidade considera só a fila.
+     * Se transfer_online_users estiver ligado na empresa, filtra também por quem está online.
      */
     eligibleUsers(companyId: string, queueId: number, connectionId: number): Promise<{
         id: string;

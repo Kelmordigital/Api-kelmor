@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../../database/client';
-import { connections, connection_errors_log } from '../atendimento/atendimento.db.schema';
+import { connections, connection_errors_log, connectionQueues, queues } from '../atendimento/atendimento.db.schema';
 import { getRedisClient } from '../../config/redis';
 import { whatsappService } from './whatsapp.service';
 import { env } from '../../config/env';
@@ -58,17 +58,33 @@ export const whatsappController = {
             .from(connections)
             .where(eq(connections.company_id, companyId));
 
+        const connIds = rows.map((c) => c.id);
+        const queueLinks = connIds.length
+            ? await db
+                .select({ connection_id: connectionQueues.connection_id, id: queues.id, name: queues.name, color: queues.color })
+                .from(connectionQueues)
+                .innerJoin(queues, eq(queues.id, connectionQueues.queue_id))
+                .where(inArray(connectionQueues.connection_id, connIds))
+            : [];
+        const queuesByConn = new Map<number, { id: number; name: string; color: string | null }[]>();
+        for (const l of queueLinks) {
+            const arr = queuesByConn.get(l.connection_id) ?? [];
+            arr.push({ id: l.id, name: l.name, color: l.color });
+            queuesByConn.set(l.connection_id, arr);
+        }
+
         const redis = getRedisClient();
         const result = await Promise.all(rows.map(async (c) => {
             // Nunca expõe o token da Meta para o frontend
             const { wab_token: _omit, ...safe } = c;
+            const connQueues = queuesByConn.get(c.id) ?? [];
             // Conexão oficial não tem sessão no bays: o status do banco é a verdade
             if (c.type === 'whatsapp-oficial') {
-                return { ...safe, live_status: c.status ?? 'connected', qr: undefined };
+                return { ...safe, live_status: c.status ?? 'connected', qr: undefined, queues: connQueues };
             }
             const liveStatus = await redis?.get(`wa:status:${c.id}`) ?? c.status ?? 'disconnected';
             const qr = liveStatus === 'qr_ready' ? (await redis?.get(`wa:qr:${c.id}`) ?? null) : null;
-            return { ...safe, live_status: liveStatus, qr: qr ?? undefined };
+            return { ...safe, live_status: liveStatus, qr: qr ?? undefined, queues: connQueues };
         }));
 
         return reply.send(result);
@@ -105,6 +121,32 @@ export const whatsappController = {
         await db.delete(connection_errors_log).where(eq(connection_errors_log.connection_id, connId)).catch(() => {});
 
         await db.delete(connections).where(eq(connections.id, connId));
+
+        return reply.send({ ok: true });
+    },
+
+    // PUT /api/v1/whatsapp/connections/:id/queues
+    async updateConnectionQueues(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id;
+        if (!companyId) return reply.status(400).send({ error: 'company_id ausente no token' });
+
+        const { id } = req.params as { id: string };
+        const connId = Number(id);
+        const { queueIds } = req.body as { queueIds?: number[] };
+
+        const [conn] = await db
+            .select({ id: connections.id })
+            .from(connections)
+            .where(and(eq(connections.id, connId), eq(connections.company_id, companyId)))
+            .limit(1);
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+
+        await db.delete(connectionQueues).where(eq(connectionQueues.connection_id, connId));
+        if (queueIds?.length) {
+            await db.insert(connectionQueues).values(
+                queueIds.map((qid) => ({ connection_id: connId, queue_id: qid }))
+            );
+        }
 
         return reply.send({ ok: true });
     },

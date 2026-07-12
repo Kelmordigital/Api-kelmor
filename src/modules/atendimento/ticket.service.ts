@@ -150,6 +150,17 @@ export const ticketService = {
             .returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket: created });
+
+        // Sem bot ativo: se a conexão tiver exatamente 1 fila ativa vinculada,
+        // o ticket já nasce roteado pra ela (mesma lógica do nó "Transferir" do bot).
+        if (!activeBot && connectionId) {
+            const activeQueues = await filaService.findActiveQueuesByConnection(connectionId);
+            if (activeQueues.length === 1) {
+                const routed = await this.routeToQueue(created.id, companyId, activeQueues[0].id);
+                if (routed) return { ticket: routed, created: true };
+            }
+        }
+
         return { ticket: created, created: true };
     },
 

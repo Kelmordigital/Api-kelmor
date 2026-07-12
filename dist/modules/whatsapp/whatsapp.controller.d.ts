@@ -6,6 +6,7 @@ export declare const whatsappController: {
     listConnections(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     createConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     removeConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;
+    updateConnectionQueues(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     getConnectionStatus(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     connectConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     disconnectConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;

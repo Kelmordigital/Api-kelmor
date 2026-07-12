@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { contactService } from './contact.service';
-import { ticketService } from './ticket.service';
+import { ticketService, AtendenteNaoElegivelError, TransferenciaParaSiMesmoError } from './ticket.service';
 import { messageService } from './message.service';
 import { dashboardService, parsePeriod } from './dashboard.service';
 import { produtoService } from '../produtos/produto.service';
@@ -132,8 +132,16 @@ export const atendimentoController = {
         const companyId = req.user.company_id!;
         const { attendantId, queueId } = req.body as { attendantId: string; queueId?: number };
         if (!attendantId) return reply.status(400).send({ error: 'attendantId obrigatório' });
-        const ticket = await ticketService.transfer(Number(id), req.user.id, attendantId, companyId, queueId);
-        return reply.send(ticket);
+        if (!queueId) return reply.status(400).send({ error: 'queueId obrigatório' });
+        try {
+            const ticket = await ticketService.transfer(Number(id), req.user.id, attendantId, companyId, queueId);
+            return reply.send(ticket);
+        } catch (err) {
+            if (err instanceof AtendenteNaoElegivelError || err instanceof TransferenciaParaSiMesmoError) {
+                return reply.status(409).send({ error: (err as Error).message });
+            }
+            throw err;
+        }
     },
 
     async togglePin(req: FastifyRequest, reply: FastifyReply) {

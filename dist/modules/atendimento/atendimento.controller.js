@@ -142,8 +142,18 @@ exports.atendimentoController = {
         const { attendantId, queueId } = req.body;
         if (!attendantId)
             return reply.status(400).send({ error: 'attendantId obrigatório' });
-        const ticket = await ticket_service_1.ticketService.transfer(Number(id), req.user.id, attendantId, companyId, queueId);
-        return reply.send(ticket);
+        if (!queueId)
+            return reply.status(400).send({ error: 'queueId obrigatório' });
+        try {
+            const ticket = await ticket_service_1.ticketService.transfer(Number(id), req.user.id, attendantId, companyId, queueId);
+            return reply.send(ticket);
+        }
+        catch (err) {
+            if (err instanceof ticket_service_1.AtendenteNaoElegivelError || err instanceof ticket_service_1.TransferenciaParaSiMesmoError) {
+                return reply.status(409).send({ error: err.message });
+            }
+            throw err;
+        }
     },
     async togglePin(req, reply) {
         const { id } = req.params;

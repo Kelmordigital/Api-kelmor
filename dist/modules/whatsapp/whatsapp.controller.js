@@ -53,17 +53,32 @@ exports.whatsappController = {
             .select()
             .from(atendimento_db_schema_1.connections)
             .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId));
+        const connIds = rows.map((c) => c.id);
+        const queueLinks = connIds.length
+            ? await client_1.db
+                .select({ connection_id: atendimento_db_schema_1.connectionQueues.connection_id, id: atendimento_db_schema_1.queues.id, name: atendimento_db_schema_1.queues.name, color: atendimento_db_schema_1.queues.color })
+                .from(atendimento_db_schema_1.connectionQueues)
+                .innerJoin(atendimento_db_schema_1.queues, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.queues.id, atendimento_db_schema_1.connectionQueues.queue_id))
+                .where((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.connectionQueues.connection_id, connIds))
+            : [];
+        const queuesByConn = new Map();
+        for (const l of queueLinks) {
+            const arr = queuesByConn.get(l.connection_id) ?? [];
+            arr.push({ id: l.id, name: l.name, color: l.color });
+            queuesByConn.set(l.connection_id, arr);
+        }
         const redis = (0, redis_1.getRedisClient)();
         const result = await Promise.all(rows.map(async (c) => {
             // Nunca expõe o token da Meta para o frontend
             const { wab_token: _omit, ...safe } = c;
+            const connQueues = queuesByConn.get(c.id) ?? [];
             // Conexão oficial não tem sessão no bays: o status do banco é a verdade
             if (c.type === 'whatsapp-oficial') {
-                return { ...safe, live_status: c.status ?? 'connected', qr: undefined };
+                return { ...safe, live_status: c.status ?? 'connected', qr: undefined, queues: connQueues };
             }
             const liveStatus = await redis?.get(`wa:status:${c.id}`) ?? c.status ?? 'disconnected';
             const qr = liveStatus === 'qr_ready' ? (await redis?.get(`wa:qr:${c.id}`) ?? null) : null;
-            return { ...safe, live_status: liveStatus, qr: qr ?? undefined };
+            return { ...safe, live_status: liveStatus, qr: qr ?? undefined, queues: connQueues };
         }));
         return reply.send(result);
     },
@@ -92,6 +107,27 @@ exports.whatsappController = {
         // Remove logs de erro vinculados antes de deletar a conexão (evita FK violation)
         await client_1.db.delete(atendimento_db_schema_1.connection_errors_log).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connection_errors_log.connection_id, connId)).catch(() => { });
         await client_1.db.delete(atendimento_db_schema_1.connections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, connId));
+        return reply.send({ ok: true });
+    },
+    // PUT /api/v1/whatsapp/connections/:id/queues
+    async updateConnectionQueues(req, reply) {
+        const companyId = req.user.company_id;
+        if (!companyId)
+            return reply.status(400).send({ error: 'company_id ausente no token' });
+        const { id } = req.params;
+        const connId = Number(id);
+        const { queueIds } = req.body;
+        const [conn] = await client_1.db
+            .select({ id: atendimento_db_schema_1.connections.id })
+            .from(atendimento_db_schema_1.connections)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, connId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId)))
+            .limit(1);
+        if (!conn)
+            return reply.status(404).send({ error: 'Conexão não encontrada' });
+        await client_1.db.delete(atendimento_db_schema_1.connectionQueues).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connectionQueues.connection_id, connId));
+        if (queueIds?.length) {
+            await client_1.db.insert(atendimento_db_schema_1.connectionQueues).values(queueIds.map((qid) => ({ connection_id: connId, queue_id: qid })));
+        }
         return reply.send({ ok: true });
     },
     // GET /api/v1/whatsapp/connections/:id/status

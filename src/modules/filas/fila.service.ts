@@ -1,6 +1,6 @@
 import { eq, and, ilike, isNull, sql, inArray } from 'drizzle-orm';
 import { db } from '../../database/client';
-import { queues, userQueues, userConnections, tickets, Queue } from '../atendimento/atendimento.db.schema';
+import { queues, userQueues, userConnections, connectionQueues, tickets, Queue } from '../atendimento/atendimento.db.schema';
 import { bots, bot_nodes } from '../bots/bots.db.schema';
 import { users } from '../auth/auth.schema';
 import { isUserOnline } from '../../shared/socket';
@@ -70,6 +70,23 @@ export const filaService = {
             .orderBy(queues.name);
     },
 
+    /** Filas ativas vinculadas a uma conexão (usado no roteamento automático de ticket novo). */
+    async findActiveQueuesByConnection(connectionId: number): Promise<Queue[]> {
+        return db
+            .select({
+                id: queues.id, company_id: queues.company_id, name: queues.name,
+                color: queues.color, enabled: queues.enabled, greeting_message: queues.greeting_message,
+                distribution: queues.distribution, deleted_at: queues.deleted_at,
+            })
+            .from(queues)
+            .innerJoin(connectionQueues, eq(connectionQueues.queue_id, queues.id))
+            .where(and(
+                eq(connectionQueues.connection_id, connectionId),
+                eq(queues.enabled, true),
+                isNull(queues.deleted_at),
+            ));
+    },
+
     async findById(id: number, companyId: string): Promise<Queue | null> {
         const [row] = await db
             .select()
@@ -81,17 +98,23 @@ export const filaService = {
 
     /**
      * Atendentes elegíveis para atender/transferir nesta fila usando esta conexão:
-     * pertencem à fila E têm acesso à conexão. Se transfer_online_users estiver
-     * ligado na empresa, filtra também por quem está online.
+     * pertencem à fila E têm acesso à conexão. Se connectionId for 0/ausente
+     * (ticket sem connection_id), a elegibilidade considera só a fila.
+     * Se transfer_online_users estiver ligado na empresa, filtra também por quem está online.
      */
     async eligibleUsers(companyId: string, queueId: number, connectionId: number) {
         const [inQueue, withConn, perms] = await Promise.all([
             db.select({ id: userQueues.user_id }).from(userQueues).where(eq(userQueues.queue_id, queueId)),
-            db.select({ id: userConnections.user_id }).from(userConnections).where(eq(userConnections.connection_id, connectionId)),
+            connectionId
+                ? db.select({ id: userConnections.user_id }).from(userConnections).where(eq(userConnections.connection_id, connectionId))
+                : Promise.resolve(null),
             getCompanyPermissions(companyId),
         ]);
-        const connSet = new Set(withConn.map((r) => r.id));
-        let ids = inQueue.map((r) => r.id).filter((id) => connSet.has(id));
+        let ids = inQueue.map((r) => r.id);
+        if (withConn) {
+            const connSet = new Set(withConn.map((r) => r.id));
+            ids = ids.filter((id) => connSet.has(id));
+        }
         if (perms.transfer_online_users) ids = ids.filter((id) => isUserOnline(id));
         if (ids.length === 0) return [];
 

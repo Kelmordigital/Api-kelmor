@@ -1898,4 +1898,45 @@ export declare const userConnections: import("drizzle-orm/pg-core").PgTableWithC
     };
     dialect: "pg";
 }>;
+export declare const connectionQueues: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "at_connection_queues";
+    schema: undefined;
+    columns: {
+        connection_id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "connection_id";
+            tableName: "at_connection_queues";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        queue_id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "queue_id";
+            tableName: "at_connection_queues";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
 //# sourceMappingURL=atendimento.db.schema.d.ts.map

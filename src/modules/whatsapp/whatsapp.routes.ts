@@ -12,6 +12,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
     app.get('/connections',                      { preHandler: authMiddleware }, whatsappController.listConnections);
     app.post('/connections',                     { preHandler: authMiddleware }, whatsappController.createConnection);
     app.delete('/connections/:id',               { preHandler: authMiddleware }, whatsappController.removeConnection);
+    app.put('/connections/:id/queues',           { preHandler: authMiddleware }, whatsappController.updateConnectionQueues);
     app.get('/connections/:id/status',           { preHandler: authMiddleware }, whatsappController.getConnectionStatus);
     app.post('/connections/:id/connect',         { preHandler: authMiddleware }, whatsappController.connectConnection);
     app.delete('/connections/:id/disconnect',    { preHandler: authMiddleware }, whatsappController.disconnectConnection);

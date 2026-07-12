@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userConnections = exports.userQueues = exports.connection_errors_log = exports.connection_health = exports.historic_tickets = exports.atendimento_messages = exports.tickets = exports.crm_keywords = exports.crm_sales_reasons = exports.contacts = exports.queues = exports.connections = exports.statuses = void 0;
+exports.connectionQueues = exports.userConnections = exports.userQueues = exports.connection_errors_log = exports.connection_health = exports.historic_tickets = exports.atendimento_messages = exports.tickets = exports.crm_keywords = exports.crm_sales_reasons = exports.contacts = exports.queues = exports.connections = exports.statuses = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const auth_schema_1 = require("../auth/auth.schema");
@@ -138,4 +138,9 @@ exports.userConnections = (0, pg_core_1.pgTable)('at_user_connections', {
     user_id: (0, pg_core_1.uuid)('user_id').notNull().references(() => auth_schema_1.users.id, { onDelete: 'cascade' }),
     connection_id: (0, pg_core_1.bigint)('connection_id', { mode: 'number' }).notNull().references(() => exports.connections.id, { onDelete: 'cascade' }),
 }, (t) => ({ pk: (0, pg_core_1.primaryKey)({ columns: [t.user_id, t.connection_id] }) }));
+// ── Filas oferecidas por uma conexão (config, sem efeito em roteamento ainda) ─
+exports.connectionQueues = (0, pg_core_1.pgTable)('at_connection_queues', {
+    connection_id: (0, pg_core_1.bigint)('connection_id', { mode: 'number' }).notNull().references(() => exports.connections.id, { onDelete: 'cascade' }),
+    queue_id: (0, pg_core_1.bigint)('queue_id', { mode: 'number' }).notNull().references(() => exports.queues.id, { onDelete: 'cascade' }),
+}, (t) => ({ pk: (0, pg_core_1.primaryKey)({ columns: [t.connection_id, t.queue_id] }) }));
 //# sourceMappingURL=atendimento.db.schema.js.map

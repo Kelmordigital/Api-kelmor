@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ticketService = void 0;
+exports.ticketService = exports.TransferenciaParaSiMesmoError = exports.AtendenteNaoElegivelError = void 0;
 exports.ticketVisibilityCondition = ticketVisibilityCondition;
 exports.shouldRunBot = shouldRunBot;
 const drizzle_orm_1 = require("drizzle-orm");
@@ -44,6 +44,15 @@ const auth_schema_1 = require("../auth/auth.schema");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const socket_1 = require("../../shared/socket");
 const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const fila_service_1 = require("../filas/fila.service");
+class AtendenteNaoElegivelError extends Error {
+    constructor() { super('O atendente selecionado não pertence à fila de destino.'); }
+}
+exports.AtendenteNaoElegivelError = AtendenteNaoElegivelError;
+class TransferenciaParaSiMesmoError extends Error {
+    constructor() { super('Não é possível transferir o atendimento para o mesmo atendente.'); }
+}
+exports.TransferenciaParaSiMesmoError = TransferenciaParaSiMesmoError;
 /**
  * Constrói a condição de visibilidade de tickets para um "viewer".
  * - admin/superAdmin ou empresa com show_all_tickets → sem restrição (undefined).
@@ -107,8 +116,8 @@ function fillMessageTemplate(template, vars) {
 }
 exports.ticketService = {
     // ── Busca / criação ──────────────────────────────────────────────────────
-    async findOrCreateOpen(companyId, contactId, connectionId, serializedId, origin = 'Base de contatos') {
-        // Filtra pela mesma conexão: um contato pode ter tickets em conexões distintas
+    /** Busca o ticket aberto do contato (mesma conexão), sem criar um novo. */
+    async findOpenTicket(companyId, contactId, connectionId) {
         const connCondition = connectionId
             ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.connection_id, connectionId)
             : (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.connection_id);
@@ -118,6 +127,10 @@ exports.ticketService = {
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, contactId), connCondition, (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, OPEN_STATUSES), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at)))
             .orderBy((0, drizzle_orm_1.desc)(atendimento_db_schema_1.tickets.updated_at))
             .limit(1);
+        return existing ?? null;
+    },
+    async findOrCreateOpen(companyId, contactId, connectionId, serializedId, origin = 'Base de contatos') {
+        const existing = await this.findOpenTicket(companyId, contactId, connectionId);
         if (existing)
             return { ticket: existing, created: false };
         // Nenhum ticket aberto: cria um novo. Um contato pode ter vários tickets
@@ -133,6 +146,16 @@ exports.ticketService = {
             .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: initialStatusId })
             .returning();
         (0, socket_1.emitToCompany)(companyId, 'ticket:created', { ticket: created });
+        // Sem bot ativo: se a conexão tiver exatamente 1 fila ativa vinculada,
+        // o ticket já nasce roteado pra ela (mesma lógica do nó "Transferir" do bot).
+        if (!activeBot && connectionId) {
+            const activeQueues = await fila_service_1.filaService.findActiveQueuesByConnection(connectionId);
+            if (activeQueues.length === 1) {
+                const routed = await this.routeToQueue(created.id, companyId, activeQueues[0].id);
+                if (routed)
+                    return { ticket: routed, created: true };
+            }
+        }
         return { ticket: created, created: true };
     },
     async get(ticketId, companyId) {
@@ -439,13 +462,18 @@ exports.ticketService = {
         (0, socket_1.emitToCompany)(companyId, 'ticket:updated', { ticket: updated });
         return updated;
     },
-    /** Transfere o ticket para outro atendente. Cria mensagem interna de transferência. */
+    /** Transfere o ticket para outro atendente dentro de uma fila. Cria mensagem interna de transferência. */
     async transfer(ticketId, fromUserId, toUserId, companyId, queueId) {
+        if (fromUserId === toUserId)
+            throw new TransferenciaParaSiMesmoError();
         const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
             .limit(1);
         if (!current)
             throw new Error('Ticket não encontrado');
+        const eligible = await fila_service_1.filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
+        if (!eligible.some((u) => u.id === toUserId))
+            throw new AtendenteNaoElegivelError();
         const [fromUser] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, fromUserId)).limit(1);
         const [toUser] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, toUserId)).limit(1);
         if (!toUser)
@@ -461,9 +489,8 @@ exports.ticketService = {
             is_transfer: 1,
             status_id: 2,
             updated_at: new Date(),
+            queue_id: queueId,
         };
-        if (queueId !== undefined)
-            set.queue_id = queueId;
         const [updated] = await client_1.db
             .update(atendimento_db_schema_1.tickets)
             .set(set)

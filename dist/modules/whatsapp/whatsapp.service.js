@@ -58,16 +58,51 @@ async function baysGet(path) {
         throw new Error(`bays GET ${path} → ${res.status}`);
     return res.json();
 }
+const BAYS_RETRY_ATTEMPTS = 2;
+const BAYS_RETRY_DELAY_MS = 1000;
+const BAYS_TIMEOUT_MS = 15000;
 async function baysPost(path, body) {
     const url = `${env_1.env.BAYS_URL}${path}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { secretkey: env_1.env.BAYS_SECRET_KEY, 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok)
-        throw new Error(`bays POST ${path} → ${res.status}`);
-    return res.json().catch(() => ({}));
+    for (let attempt = 1; attempt <= BAYS_RETRY_ATTEMPTS; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), BAYS_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(url, {
+                method: 'POST',
+                headers: { secretkey: env_1.env.BAYS_SECRET_KEY, 'Content-Type': 'application/json' },
+                body: body ? JSON.stringify(body) : undefined,
+                signal: controller.signal,
+            });
+        }
+        catch (err) {
+            // Sem resposta nenhuma (timeout do AbortController ou falha de rede)
+            // — o bays as vezes trava (ex.: sessao do Baileys ainda inicializando
+            // apos reconectar) e o fetch nunca resolve sozinho. Mesma politica de
+            // retry do 5xx: so desiste na ultima tentativa.
+            if (attempt >= BAYS_RETRY_ATTEMPTS) {
+                const reason = err instanceof Error ? err.message : String(err);
+                throw new Error(`bays POST ${path} → sem resposta (timeout/rede): ${reason}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, BAYS_RETRY_DELAY_MS));
+            continue;
+        }
+        finally {
+            clearTimeout(timeoutId);
+        }
+        if (res.ok)
+            return res.json().catch(() => ({}));
+        const detail = await res.json().catch(() => null);
+        const reason = detail?.message ? `: ${detail.message}` : '';
+        const err = new Error(`bays POST ${path} → ${res.status}${reason}`);
+        // Só reincide em erro 5xx (falha transitória do lado do bays — ex.:
+        // sessão do Baileys reconectando). Erro 4xx é do payload/requisição
+        // em si e tentar de novo não vai mudar o resultado.
+        const retryable = res.status >= 500 && attempt < BAYS_RETRY_ATTEMPTS;
+        if (!retryable)
+            throw err;
+        await new Promise((resolve) => setTimeout(resolve, BAYS_RETRY_DELAY_MS));
+    }
 }
 async function baysDelete(path) {
     const url = `${env_1.env.BAYS_URL}${path}`;
@@ -525,6 +560,17 @@ exports.whatsappService = {
                 }
             }
             catch { }
+        }
+        if (fromMe) {
+            // Eco do nosso próprio envio: o Baileys reporta a mensagem que A GENTE
+            // manda (despedida, saudação de fila, etc.) de volta como um evento de
+            // "mensagem recebida" (message-upsert com fromMe:true). Só nos interessa
+            // se já existe um ticket aberto pra anexar — nunca cria um do zero, senão
+            // toda mensagem automática enviada logo após fechar um ticket recria um
+            // ticket fantasma em "Aguardando" pro mesmo contato.
+            const existingTicket = await ticketService.findOpenTicket(companyId, contact.id, conn.id);
+            if (!existingTicket)
+                return;
         }
         const { ticket, created: ticketCreated } = await ticketService.findOrCreateOpen(companyId, contact.id, conn.id, jid);
         // Se ticket novo e mensagem do cliente: tenta identificar origem por palavra-chave
