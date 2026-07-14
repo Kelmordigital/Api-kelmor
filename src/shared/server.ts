@@ -24,6 +24,7 @@ import { botsRoutes } from '../modules/bots/bots.routes';
 import { etiquetasRoutes } from '../modules/etiquetas/etiqueta.routes';
 import { filasRoutes } from '../modules/filas/fila.routes';
 import { usuariosRoutes } from '../modules/usuarios/usuario.routes';
+import { meuPerfilRoutes } from '../modules/meu-perfil/meu-perfil.routes';
 import { pesquisasRoutes } from '../modules/pesquisas/pesquisa.routes';
 import { produtosRoutes } from '../modules/produtos/produto.routes';
 import { campanhasRoutes } from '../modules/campanhas/campanha.routes';
@@ -115,6 +116,13 @@ export function buildApp() {
         root: path.join(process.cwd(), 'uploads'),
         prefix: '/uploads/',
         decorateReply: false,
+        // helmet marca tudo como Cross-Origin-Resource-Policy: same-origin por padrão,
+        // o que bloqueia o navegador de carregar essas imagens quando o front (outro
+        // domínio/porta) tenta exibi-las em <img>. Esses arquivos são públicos por
+        // natureza (avatar, mídia de mensagens), então liberamos o embed cross-origin.
+        setHeaders: (res) => {
+            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        },
     });
 
     app.get('/health', async () => ({
@@ -141,6 +149,7 @@ export function buildApp() {
     app.register(etiquetasRoutes, { prefix: '/api/v1' });
     app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
     app.register(tarefasRoutes, { prefix: '/api/v1/tarefas' });
+    app.register(meuPerfilRoutes, { prefix: '/api/v1/configuracao/meu-perfil' });
 
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
     app.register(adminOnly(botsRoutes), { prefix: '/api/v1/bots' });

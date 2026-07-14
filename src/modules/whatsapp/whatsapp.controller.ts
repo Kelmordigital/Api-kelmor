@@ -40,6 +40,20 @@ export const whatsappController = {
         return reply.status(202).send({ message: 'Conexão iniciada. Aguardando QR Code...' });
     },
 
+    // ── Importar sessão (fingerprint do navegador) ──────────────────────────
+
+    async generateWebToken(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const result = await whatsappService.generateWebToken(Number(id));
+        return reply.send(result);
+    },
+
+    async checkConnectionFingerprint(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const result = await whatsappService.checkFingerprint(Number(id));
+        return reply.send(result);
+    },
+
     async disconnect(req: FastifyRequest, reply: FastifyReply) {
         const id = await getCompanyConnectionId(req);
         await whatsappService.disconnect(id);
@@ -300,6 +314,18 @@ export const whatsappController = {
                 error: message,
             });
         }
+    },
+
+    // ── Extensão de importação de sessão ────────────────────────────────────
+
+    async downloadExtension(_req: FastifyRequest, reply: FastifyReply) {
+        const response = await fetch(`${env.BAYS_URL}/session/extension-download`, {
+            headers: { secretkey: env.BAYS_SECRET_KEY },
+        });
+        const buffer = Buffer.from(await response.arrayBuffer());
+        reply.header('Content-Type', 'application/zip');
+        reply.header('Content-Disposition', 'attachment; filename="kelmor-conecao-extension.zip"');
+        return reply.send(buffer);
     },
 
     // ── Health ──────────────────────────────────────────────────────────────

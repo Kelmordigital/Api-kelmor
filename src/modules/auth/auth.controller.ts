@@ -73,6 +73,7 @@ async function issueSession(user: UserWithProfile, reply: FastifyReply) {
             company_id: user.company_id,
             finance: user.finance,
             totp_enabled: user.totp_enabled,
+            avatar_url: user.avatar_url,
         },
     });
 }
@@ -171,6 +172,7 @@ export const authController = {
             is_approved: user.is_approved,
             finance: user.finance,
             totp_enabled: user.totp_enabled,
+            avatar_url: user.avatar_url,
         });
     },
 

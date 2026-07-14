@@ -3,6 +3,7 @@ import { db } from '../../database/client';
 import { users, refreshTokens } from './auth.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { companies } from '../companies/company.db.schema';
+import { userAvatars } from '../meu-perfil/meu-perfil.db.schema';
 
 export type UserWithProfile = {
     id: string;
@@ -16,6 +17,7 @@ export type UserWithProfile = {
     is_approved: boolean;
     finance: boolean;
     totp_enabled: boolean;
+    avatar_url: string | null;
 };
 
 export const authRepository = {
@@ -33,9 +35,11 @@ export const authRepository = {
                 is_approved: users.is_approved,
                 finance: users.finance,
                 totp_enabled: users.totp_enabled,
+                avatar_url: userAvatars.url,
             })
             .from(users)
             .innerJoin(profiles, eq(users.profile_id, profiles.id))
+            .leftJoin(userAvatars, eq(userAvatars.user_id, users.id))
             .where(eq(users.email, email));
         return result ?? null;
     },
@@ -64,9 +68,11 @@ export const authRepository = {
                 is_approved: users.is_approved,
                 finance: users.finance,
                 totp_enabled: users.totp_enabled,
+                avatar_url: userAvatars.url,
             })
             .from(users)
             .innerJoin(profiles, eq(users.profile_id, profiles.id))
+            .leftJoin(userAvatars, eq(userAvatars.user_id, users.id))
             .where(eq(users.id, id));
         return result ?? null;
     },

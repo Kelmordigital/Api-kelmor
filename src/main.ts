@@ -7,6 +7,7 @@ import { initSocket } from './shared/socket';
 import { startConnectionHealthJob, initSessionsGauge } from './jobs/connection-health.job';
 import { startReconnectionWorker } from './jobs/reconnection.queue';
 import { restoreScheduledCampaigns } from './modules/campanhas/campanha.scheduler';
+import { restoreScheduledMessages } from './modules/agendamento-mensagens/agendamento-mensagens.scheduler';
 import { startRabbitConsumer, stopRabbitConsumer } from './shared/rabbitmq';
 import type { Worker } from 'bullmq';
 
@@ -47,6 +48,7 @@ async function main() {
         initSessionsGauge().catch(() => {});
         reconnectWorker   = startReconnectionWorker();
         restoreScheduledCampaigns().catch(() => {});
+        restoreScheduledMessages().catch(() => {});
         startRabbitConsumer().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
         console.log(`Servidor rodando na porta ${env.PORT}`);
     } catch (err) {

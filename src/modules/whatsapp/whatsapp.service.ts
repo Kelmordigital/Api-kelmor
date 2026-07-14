@@ -233,6 +233,16 @@ export const whatsappService = {
         return { status: 'disconnected' };
     },
 
+    // ── Importar sessão (fingerprint do navegador) ──────────────────────────
+
+    async generateWebToken(connectionId: number): Promise<{ success: boolean; token: string }> {
+        return baysPost(`/session/web-token/${connectionId}`);
+    },
+
+    async checkFingerprint(connectionId: number): Promise<{ success: boolean; hasFingerprint: boolean; hasWsHeaders: boolean }> {
+        return baysGet(`/session/check-fingerprint/${connectionId}`);
+    },
+
     async connect(connectionId?: number): Promise<void> {
         const id = connectionId ?? Number(SESSION_ID);
         const redis = getRedisClient();
@@ -614,7 +624,15 @@ export const whatsappService = {
             const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
 
             if (!wasAnswer) {
-                await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
+                const media = (msg as Record<string, unknown>).media as
+                    | { url?: string; mimetype?: string; waveform?: number[]; seconds?: number }
+                    | undefined;
+                await messageService.save(ticket.id, contact.id, body, fromMe, companyId, {
+                    mediaType: media?.mimetype || undefined,
+                    mediaUrl: media?.url || undefined,
+                    mediaWaveform: media?.waveform,
+                    mediaSeconds: media?.seconds,
+                });
                 const { shouldRunBot } = await import('../atendimento/ticket.service');
                 if (sendTarget && shouldRunBot(ticket)) {
                     const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');

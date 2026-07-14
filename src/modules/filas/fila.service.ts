@@ -119,7 +119,7 @@ export const filaService = {
         if (ids.length === 0) return [];
 
         return db
-            .select({ id: users.id, name: users.name, email: users.email })
+            .select({ id: users.id, name: users.name, nickname: users.nickname, email: users.email })
             .from(users)
             .where(and(eq(users.company_id, companyId), inArray(users.id, ids)))
             .orderBy(users.name);

@@ -10,7 +10,13 @@ export const messageService = {
         body: string,
         fromMe: boolean,
         companyId: string,
-        opts: { userId?: string; mediaType?: string; mediaUrl?: string } = {},
+        opts: {
+            userId?: string;
+            mediaType?: string;
+            mediaUrl?: string;
+            mediaWaveform?: number[];
+            mediaSeconds?: number;
+        } = {},
     ): Promise<AtMessage> {
         const [msg] = await db
             .insert(atendimento_messages)
@@ -22,6 +28,8 @@ export const messageService = {
                 from_me: fromMe,
                 media_type: opts.mediaType ?? null,
                 media_url: opts.mediaUrl ?? null,
+                media_waveform: opts.mediaWaveform ?? null,
+                media_seconds: opts.mediaSeconds ?? null,
             })
             .returning();
 

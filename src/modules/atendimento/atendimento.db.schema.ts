@@ -1,6 +1,6 @@
 import {
     pgTable, bigserial, varchar, text, boolean,
-    integer, bigint, timestamp, uuid, primaryKey,
+    integer, bigint, timestamp, uuid, primaryKey, jsonb,
 } from 'drizzle-orm/pg-core';
 import { companies } from '../companies/company.db.schema';
 import { users } from '../auth/auth.schema';
@@ -104,6 +104,8 @@ export const atendimento_messages = pgTable('at_messages', {
     from_me: boolean('from_me').default(false),
     media_type: varchar('media_type', { length: 100 }),
     media_url: text('media_url'),
+    media_waveform: jsonb('media_waveform').$type<number[]>(),
+    media_seconds: integer('media_seconds'),
     ack: integer('ack').default(0),
     wab_message_id: varchar('wab_message_id', { length: 255 }), // wamid da Cloud API (casa os status/ACK)
     created_at: timestamp('created_at').defaultNow(),

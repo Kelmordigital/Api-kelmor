@@ -5,6 +5,7 @@ import { messageService } from './message.service';
 import { dashboardService, parsePeriod } from './dashboard.service';
 import { produtoService } from '../produtos/produto.service';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { agendamentoMensagensService, TicketSemConexaoError } from '../agendamento-mensagens/agendamento-mensagens.service';
 import { db } from '../../database/client';
 import { companies } from '../companies/company.db.schema';
 import { eq } from 'drizzle-orm';
@@ -142,6 +143,34 @@ export const atendimentoController = {
             }
             throw err;
         }
+    },
+
+    async scheduleMessage(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const { message, send_date } = req.body as { message?: string; send_date?: string };
+        if (!message?.trim()) return reply.status(400).send({ error: 'message obrigatório' });
+        if (!send_date)       return reply.status(400).send({ error: 'send_date obrigatório' });
+
+        try {
+            const row = await agendamentoMensagensService.create(companyId, Number(id), req.user.id, {
+                message: message.trim(),
+                send_date,
+            });
+            return reply.status(201).send(row);
+        } catch (err) {
+            if (err instanceof TicketSemConexaoError) {
+                return reply.status(400).send({ error: err.message });
+            }
+            throw err;
+        }
+    },
+
+    async listScheduledMessages(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const companyId = req.user.company_id!;
+        const rows = await agendamentoMensagensService.listByTicketContact(companyId, Number(id));
+        return reply.send(rows);
     },
 
     async togglePin(req: FastifyRequest, reply: FastifyReply) {

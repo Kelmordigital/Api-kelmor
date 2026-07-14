@@ -14,6 +14,7 @@ import { companies } from '../companies/company.db.schema';
 export const users = pgTable('users', {
     id: uuid('id').primaryKey().defaultRandom(),
     name: varchar('name', { length: 200 }).notNull(),
+    nickname: varchar('nickname', { length: 100 }),
     email: varchar('email', { length: 200 }).notNull().unique(),
     password_hash: varchar('password_hash', { length: 300 }).notNull(),
     profile_id: integer('profile_id').notNull().references(() => profiles.id),

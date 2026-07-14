@@ -12,3 +12,5 @@ export * from '../modules/agenda/agenda.db.schema';
 export * from '../modules/tarefas/tarefas.db.schema';
 export * from '../modules/integracoes/integracao.db.schema';
 export * from '../modules/configuracao-geral/configuracao-geral.db.schema';
+export * from '../modules/agendamento-mensagens/agendamento-mensagens.db.schema';
+export * from '../modules/meu-perfil/meu-perfil.db.schema';

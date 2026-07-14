@@ -4,6 +4,7 @@ import { db } from '../../database/client';
 import { users } from '../auth/auth.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { queues, connections, userQueues, userConnections } from '../atendimento/atendimento.db.schema';
+import { userAvatars } from '../meu-perfil/meu-perfil.db.schema';
 
 export const usuarioService = {
 
@@ -12,15 +13,18 @@ export const usuarioService = {
             .select({
                 id: users.id,
                 name: users.name,
+                nickname: users.nickname,
                 email: users.email,
                 profile_id: users.profile_id,
                 profile_tag: profiles.tag,
                 profile_name: profiles.name,
                 is_approved: users.is_approved,
                 created_at: users.created_at,
+                avatar_url: userAvatars.url,
             })
             .from(users)
             .innerJoin(profiles, eq(users.profile_id, profiles.id))
+            .leftJoin(userAvatars, eq(userAvatars.user_id, users.id))
             .where(eq(users.company_id, companyId));
 
         if (userList.length === 0) return [];
