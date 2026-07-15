@@ -1,7 +1,7 @@
 import { eq, and, ne, inArray, isNull, desc, asc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../database/client';
-import { tickets, contacts, historic_tickets, userQueues, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
+import { tickets, contacts, historic_tickets, userQueues, userConnections, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
@@ -19,7 +19,12 @@ export class TransferenciaParaSiMesmoError extends Error {
 /**
  * Constrói a condição de visibilidade de tickets para um "viewer".
  * - admin/superAdmin ou empresa com show_all_tickets → sem restrição (undefined).
- * - demais: vê ticket cuja fila ele pertence, OU sem fila, OU atribuído a ele.
+ * - demais, o atendente vê o ticket se qualquer uma valer:
+ *     (a) está atribuído a ele; OU
+ *     (b) está numa fila dele E numa conexão dele (ou sem conexão atribuída) —
+ *         isolamento por conexão: atendimentos de um número que não é dele não
+ *         aparecem, mesmo que caiam numa fila em comum; OU
+ *     (c) não tem fila (queue_id nulo) — permanece visível a todos os atendentes.
  *   Se not_show_pending_ticket_without_queue: oculta pendentes (status 1) sem fila.
  */
 export async function ticketVisibilityCondition(
@@ -33,14 +38,22 @@ export async function ticketVisibilityCondition(
     const perms = await getCompanyPermissions(companyId);
     if (perms.show_all_tickets) return undefined;
 
-    const myQueues = await db
-        .select({ queue_id: userQueues.queue_id })
-        .from(userQueues)
-        .where(eq(userQueues.user_id, userId));
+    const [myQueues, myConns] = await Promise.all([
+        db.select({ queue_id: userQueues.queue_id }).from(userQueues).where(eq(userQueues.user_id, userId)),
+        db.select({ connection_id: userConnections.connection_id }).from(userConnections).where(eq(userConnections.user_id, userId)),
+    ]);
     const queueIds = myQueues.map((q) => q.queue_id);
+    const connIds = myConns.map((c) => c.connection_id);
 
     const ors: SQL[] = [eq(tickets.attendant_user_id, userId)];
-    if (queueIds.length) ors.push(inArray(tickets.queue_id, queueIds));
+    if (queueIds.length) {
+        // Ticket com fila só é visível se também for de uma conexão do atendente
+        // (ou sem conexão atribuída — ticket "solto" não é da Conexão B).
+        const connScope = connIds.length
+            ? (or(inArray(tickets.connection_id, connIds), isNull(tickets.connection_id)) as SQL)
+            : (isNull(tickets.connection_id) as SQL);
+        ors.push(and(inArray(tickets.queue_id, queueIds), connScope) as SQL);
+    }
     ors.push(
         perms.not_show_pending_ticket_without_queue
             ? (and(isNull(tickets.queue_id), ne(tickets.status_id, 1)) as SQL)

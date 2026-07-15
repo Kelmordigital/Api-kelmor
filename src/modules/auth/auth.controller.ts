@@ -1,10 +1,13 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import { eq, sql } from 'drizzle-orm';
 import { authRepository, UserWithProfile } from './auth.repository';
 import { signAccessToken, signRefreshToken, verifyRefreshToken, signTotpTicket, verifyTotpTicket } from '../../config/jwt';
 import { getRedisClient } from '../../config/redis';
 import { totpService } from './totp.service';
+import { db } from '../../database/client';
+import { userQueues, userConnections } from '../atendimento/atendimento.db.schema';
 
 const loginSchema = z.object({
     email: z.string().email(),
@@ -161,6 +164,12 @@ export const authController = {
         if (!user) {
             return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
         }
+        // Quantas filas/conexões o usuário tem atribuídas — usado no front para
+        // avisar o atendente quando ele não recebe/enxerga atendimentos.
+        const [qCount, cCount] = await Promise.all([
+            db.select({ n: sql<number>`count(*)::int` }).from(userQueues).where(eq(userQueues.user_id, user.id)),
+            db.select({ n: sql<number>`count(*)::int` }).from(userConnections).where(eq(userConnections.user_id, user.id)),
+        ]);
         return reply.send({
             id: user.id,
             name: user.name,
@@ -173,6 +182,8 @@ export const authController = {
             finance: user.finance,
             totp_enabled: user.totp_enabled,
             avatar_url: user.avatar_url,
+            queue_count: qCount[0]?.n ?? 0,
+            connection_count: cCount[0]?.n ?? 0,
         });
     },
 
