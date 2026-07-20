@@ -25,6 +25,9 @@ export const users = pgTable('users', {
     totp_secret: varchar('totp_secret', { length: 64 }),
     totp_enabled: boolean('totp_enabled').notNull().default(false),
     totp_recovery_codes: jsonb('totp_recovery_codes'),
+    // XP do mini-game de Conquistas: soma real (não calculada), incrementada
+    // só quando o próprio usuário fecha um atendimento como venda.
+    xp: integer('xp').notNull().default(0),
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),
 });

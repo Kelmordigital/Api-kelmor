@@ -8,6 +8,16 @@ import { emitToCompany } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 import { filaService } from '../filas/fila.service';
 
+// XP do mini-game de Conquistas: só quando o próprio fechamento é uma venda
+// (ticket.is_sale === 1 no momento em que o fechamento se efetiva). Fechar
+// sem venda, ou sem classificar, não soma nada — é um contador real
+// (users.xp), não recalculado a partir do histórico de tickets.
+const SALE_CLOSE_XP = 10;
+
+async function grantSaleXp(userId: string) {
+    await db.update(users).set({ xp: sql`${users.xp} + ${SALE_CLOSE_XP}` }).where(eq(users.id, userId));
+}
+
 export class AtendenteNaoElegivelError extends Error {
     constructor() { super('O atendente selecionado não pertence à fila de destino.'); }
 }
@@ -741,6 +751,8 @@ export const ticketService = {
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
             .returning();
 
+        if (current.is_sale === 1) await grantSaleXp(userId);
+
         emitToCompany(companyId, 'ticket:closed', { ticketId });
 
         // Mensagem de despedida (fire-and-forget). Se o fechamento manual informou
@@ -812,6 +824,8 @@ export const ticketService = {
             .update(tickets)
             .set({ status_id: 3, updated_at: new Date() })
             .where(eq(tickets.id, ticketId));
+
+        if (current.is_sale === 1 && current.closed_by_user_id) await grantSaleXp(current.closed_by_user_id);
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
     },

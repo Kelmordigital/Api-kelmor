@@ -1,5 +1,5 @@
 import {
-    pgTable, bigserial, uuid, boolean, integer, real, bigint, timestamp,
+    pgTable, bigserial, uuid, boolean, integer, real, bigint, timestamp, varchar,
 } from 'drizzle-orm/pg-core';
 import { companies } from '../companies/company.db.schema';
 
@@ -73,3 +73,10 @@ export const companyPermissions = pgTable('company_permissions', {
 });
 
 export type CompanyPermission = typeof companyPermissions.$inferSelect;
+
+export const companyEmailNotify = pgTable('company_email_notify', {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    email: varchar('email', { length: 255 }).notNull(),
+    created_at: timestamp('created_at').defaultNow(),
+});

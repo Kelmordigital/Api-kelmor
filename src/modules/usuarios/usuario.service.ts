@@ -5,6 +5,7 @@ import { users } from '../auth/auth.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { queues, connections, userQueues, userConnections } from '../atendimento/atendimento.db.schema';
 import { userAvatars } from '../meu-perfil/meu-perfil.db.schema';
+import { achievementsService } from '../achievements/achievements.service';
 
 export const usuarioService = {
 
@@ -31,15 +32,18 @@ export const usuarioService = {
 
         const userIds = userList.map((u) => u.id);
 
-        const [queueAssocs, connAssocs] = await Promise.all([
+        const [queueAssocs, connAssocs, progressByUser] = await Promise.all([
             db.select().from(userQueues).where(inArray(userQueues.user_id, userIds)),
             db.select().from(userConnections).where(inArray(userConnections.user_id, userIds)),
+            achievementsService.getCompanyProgress(companyId, userIds),
         ]);
 
         return userList.map((u) => ({
             ...u,
             queue_ids: queueAssocs.filter((q) => q.user_id === u.id).map((q) => q.queue_id),
             connection_ids: connAssocs.filter((c) => c.user_id === u.id).map((c) => c.connection_id),
+            patente: progressByUser[u.id]?.patente ?? 'Aprendiz',
+            patente_sub_level: progressByUser[u.id]?.sub_level ?? null,
         }));
     },
 

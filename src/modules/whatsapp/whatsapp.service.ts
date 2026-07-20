@@ -370,9 +370,9 @@ export const whatsappService = {
                 .catch(() => {});
 
             // Busca company_id para notificações
-            let connD: { company_id: string | null } | undefined;
+            let connD: { company_id: string | null; name: string } | undefined;
             try {
-                const [r] = await db.select({ company_id: connections.company_id }).from(connections).where(eq(connections.id, id)).limit(1);
+                const [r] = await db.select({ company_id: connections.company_id, name: connections.name }).from(connections).where(eq(connections.id, id)).limit(1);
                 connD = r;
             } catch {}
 
@@ -381,6 +381,38 @@ export const whatsappService = {
                 emitToCompany(String(connD.company_id), 'connection:status', {
                     connectionId: id, status: 'disconnected', code: data.code,
                 });
+            }
+
+            // Alerta por e-mail — best-effort, nunca bloqueia o resto do fluxo
+            if (connD?.company_id) {
+                try {
+                    const { companies } = await import('../companies/company.db.schema');
+                    const { companyPermissions, companyEmailNotify } = await import('../configuracao-geral/configuracao-geral.db.schema');
+                    const { sendDropConnectionEmail } = await import('../../shared/email/resend.service');
+
+                    const [perms] = await db.select({ notify_by_email_connection: companyPermissions.notify_by_email_connection })
+                        .from(companyPermissions)
+                        .where(eq(companyPermissions.company_id, connD.company_id));
+
+                    if (perms?.notify_by_email_connection) {
+                        const emailRows = await db.select({ email: companyEmailNotify.email })
+                            .from(companyEmailNotify)
+                            .where(eq(companyEmailNotify.company_id, connD.company_id));
+
+                        if (emailRows.length > 0) {
+                            const [company] = await db.select({ name: companies.name }).from(companies).where(eq(companies.id, connD.company_id));
+                            await sendDropConnectionEmail({
+                                to: emailRows.map(r => r.email),
+                                connectionName: connD.name,
+                                companyName: company?.name ?? '',
+                                code: data.code,
+                                reason: data.reason,
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[WA:${id}] Falha ao processar alerta de e-mail de queda:`, err);
+                }
             }
 
             const codeLabels: Record<number, string> = {

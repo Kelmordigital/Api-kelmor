@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { companies } from '../companies/company.db.schema';
-import { companyPermissions } from './configuracao-geral.db.schema';
+import { companyPermissions, companyEmailNotify } from './configuracao-geral.db.schema';
 
 export interface ConfiguracaoGeralPayload {
     // Mensagens
@@ -54,6 +54,7 @@ export interface ConfiguracaoGeralPayload {
     allow_show_name_on_chat?: boolean;
     create_ticket_api_msg?: boolean;
     notify_by_email_connection?: boolean;
+    notify_emails?: string[];
     active_crm?: boolean;
     active_kanban?: boolean;
     group_ticket?: boolean;
@@ -95,11 +96,15 @@ export const configuracaoGeralService = {
 
         const perms = await getCompanyPermissions(companyId);
 
-        return { ...company, ...perms };
+        const emailRows = await db.select({ email: companyEmailNotify.email })
+            .from(companyEmailNotify)
+            .where(eq(companyEmailNotify.company_id, companyId));
+
+        return { ...company, ...perms, notify_emails: emailRows.map(r => r.email) };
     },
 
     async update(companyId: string, payload: ConfiguracaoGeralPayload) {
-        const { init_message, end_message, transfer_message, ...rest } = payload;
+        const { init_message, end_message, transfer_message, notify_emails, ...rest } = payload;
 
         // Remove campos não-editáveis que o frontend pode reenviar acidentalmente
         const { id: _id, company_id: _cid, created_at: _ca, updated_at: _ua, ...permPayload } = rest as any;
@@ -126,6 +131,16 @@ export const configuracaoGeralService = {
                     target: companyPermissions.company_id,
                     set: { ...permPayload, updated_at: new Date() },
                 });
+        }
+
+        // Substitui a lista de e-mails de notificação (apaga e recria)
+        if (notify_emails !== undefined) {
+            await db.delete(companyEmailNotify).where(eq(companyEmailNotify.company_id, companyId));
+            const uniqueEmails = [...new Set(notify_emails.map(e => e.trim()).filter(Boolean))];
+            if (uniqueEmails.length > 0) {
+                await db.insert(companyEmailNotify)
+                    .values(uniqueEmails.map(email => ({ company_id: companyId, email })));
+            }
         }
 
         return this.get(companyId);

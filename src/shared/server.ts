@@ -23,6 +23,7 @@ import { quickMessagesRoutes } from '../modules/quick-messages/quick-messages.ro
 import { botsRoutes } from '../modules/bots/bots.routes';
 import { etiquetasRoutes } from '../modules/etiquetas/etiqueta.routes';
 import { filasRoutes } from '../modules/filas/fila.routes';
+import { achievementsRoutes } from '../modules/achievements/achievements.routes';
 import { usuariosRoutes } from '../modules/usuarios/usuario.routes';
 import { meuPerfilRoutes } from '../modules/meu-perfil/meu-perfil.routes';
 import { pesquisasRoutes } from '../modules/pesquisas/pesquisa.routes';
@@ -148,6 +149,7 @@ export function buildApp() {
     app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiquetasRoutes, { prefix: '/api/v1' });
     app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
+    app.register(achievementsRoutes, { prefix: '/api/v1/achievements' });
     app.register(tarefasRoutes, { prefix: '/api/v1/tarefas' });
     app.register(meuPerfilRoutes, { prefix: '/api/v1/configuracao/meu-perfil' });
 

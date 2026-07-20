@@ -183,6 +183,27 @@
       "when": 1783907498836,
       "tag": "0025_dear_sir_ram",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784155487235,
+      "tag": "0026_achievements",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1784432243842,
+      "tag": "0027_users_xp",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1784508218762,
+      "tag": "0028_chilly_goblin_queen",
+      "breakpoints": true
     }
   ]
 }
