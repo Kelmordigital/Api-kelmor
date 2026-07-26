@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "hide_name_active" boolean DEFAULT false NOT NULL;

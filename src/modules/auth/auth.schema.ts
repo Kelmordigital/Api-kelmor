@@ -28,6 +28,11 @@ export const users = pgTable('users', {
     // XP do mini-game de Conquistas: soma real (não calculada), incrementada
     // só quando o próprio usuário fecha um atendimento como venda.
     xp: integer('xp').notNull().default(0),
+    // Modo "permanente" de ocultar o nome no chat (config "Permitir ocultar
+    // nome por tempo indeterminado"): true enquanto o atendente mantém o nome
+    // oculto de propósito, até ele mesmo desligar — sobrevive a troca de
+    // dispositivo/aba, ao contrário do modo temporário (2min, só client-side).
+    hide_name_active: boolean('hide_name_active').notNull().default(false),
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),
 });

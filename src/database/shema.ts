@@ -15,3 +15,4 @@ export * from '../modules/configuracao-geral/configuracao-geral.db.schema';
 export * from '../modules/agendamento-mensagens/agendamento-mensagens.db.schema';
 export * from '../modules/meu-perfil/meu-perfil.db.schema';
 export * from '../modules/achievements/achievements.db.schema';
+export * from '../modules/api-messages/api-messages.db.schema';

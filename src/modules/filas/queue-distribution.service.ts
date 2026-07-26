@@ -4,6 +4,8 @@ import {
     tickets, queues, userQueues, userConnections,
 } from '../atendimento/atendimento.db.schema';
 import { isUserOnline } from '../../shared/socket';
+import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { filterByCapacity } from '../atendimento/attendant-capacity.service';
 
 function pickRandom<T>(arr: T[]): T {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -51,9 +53,18 @@ export async function distributeTicket(
         db.select({ id: userConnections.user_id }).from(userConnections).where(eq(userConnections.connection_id, connectionId)),
     ]);
     const connSet = new Set(withConn.map((r) => r.id));
-    const eligible = inQueue
+    let eligible = inQueue
         .map((r) => r.id)
         .filter((id) => connSet.has(id) && isUserOnline(id));
+
+    if (eligible.length === 0) return undefined;
+
+    // Distribuição capacity-aware: quem já bateu o teto de atendimentos
+    // simultâneos (config "Limitar atendimentos por usuário") sai da disputa
+    // antes do ranking — a distribuição automática nunca empurra ticket pra
+    // quem não tem vaga, mesmo sendo o "melhor" candidato relativo aos outros.
+    const perms = await getCompanyPermissions(companyId);
+    eligible = await filterByCapacity(eligible, perms);
 
     if (eligible.length === 0) return undefined;
     if (eligible.length === 1) return eligible[0];

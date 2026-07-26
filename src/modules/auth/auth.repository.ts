@@ -18,6 +18,7 @@ export type UserWithProfile = {
     finance: boolean;
     totp_enabled: boolean;
     avatar_url: string | null;
+    hide_name_active: boolean;
 };
 
 export const authRepository = {
@@ -35,6 +36,7 @@ export const authRepository = {
                 is_approved: users.is_approved,
                 finance: users.finance,
                 totp_enabled: users.totp_enabled,
+                hide_name_active: users.hide_name_active,
                 avatar_url: userAvatars.url,
             })
             .from(users)
@@ -68,6 +70,7 @@ export const authRepository = {
                 is_approved: users.is_approved,
                 finance: users.finance,
                 totp_enabled: users.totp_enabled,
+                hide_name_active: users.hide_name_active,
                 avatar_url: userAvatars.url,
             })
             .from(users)

@@ -18,7 +18,12 @@ export const meuPerfilController = {
     },
 
     async updateProfile(req: FastifyRequest, reply: FastifyReply) {
-        const body = req.body as { nickname?: string | null; queue_ids?: number[]; connection_ids?: number[] };
+        const body = req.body as {
+            nickname?: string | null;
+            queue_ids?: number[];
+            connection_ids?: number[];
+            hide_name_active?: boolean;
+        };
 
         const changesQueuesOrConnections = body.queue_ids !== undefined || body.connection_ids !== undefined;
         if (changesQueuesOrConnections && req.user.profile_tag !== 'admin' && req.user.profile_tag !== 'superAdmin') {

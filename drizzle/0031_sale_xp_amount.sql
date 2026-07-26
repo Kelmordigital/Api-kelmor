@@ -1,0 +1,1 @@
+ALTER TABLE "company_permissions" ADD COLUMN "sale_xp_amount" integer DEFAULT 10 NOT NULL;

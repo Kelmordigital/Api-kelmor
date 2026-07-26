@@ -17,20 +17,16 @@ export const etiquetaController = {
 
     async create(req: FastifyRequest, reply: FastifyReply) {
         const companyId = req.user.company_id!;
-        const { name, color, icon, keyword_trigger, keyword_type } = req.body as {
+        const { name, color, icon } = req.body as {
             name: string;
             color?: string;
             icon?: string;
-            keyword_trigger?: string | null;
-            keyword_type?: string;
         };
         if (!name?.trim()) return reply.status(400).send({ error: 'name é obrigatório' });
         const row = await etiquetaService.create(companyId, {
             name: name.trim(),
             color: color ?? '#6366f1',
             icon: icon ?? 'tag',
-            keyword_trigger: keyword_trigger ?? null,
-            keyword_type: keyword_type ?? 'contains',
         });
         return reply.status(201).send(row);
     },
@@ -42,8 +38,6 @@ export const etiquetaController = {
             name?: string;
             color?: string;
             icon?: string;
-            keyword_trigger?: string | null;
-            keyword_type?: string;
         };
         const row = await etiquetaService.update(id, companyId, body);
         if (!row) return reply.status(404).send({ error: 'Etiqueta não encontrada' });

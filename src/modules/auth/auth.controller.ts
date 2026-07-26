@@ -77,6 +77,7 @@ async function issueSession(user: UserWithProfile, reply: FastifyReply) {
             finance: user.finance,
             totp_enabled: user.totp_enabled,
             avatar_url: user.avatar_url,
+            hide_name_active: user.hide_name_active,
         },
     });
 }
@@ -182,6 +183,7 @@ export const authController = {
             finance: user.finance,
             totp_enabled: user.totp_enabled,
             avatar_url: user.avatar_url,
+            hide_name_active: user.hide_name_active,
             queue_count: qCount[0]?.n ?? 0,
             connection_count: cCount[0]?.n ?? 0,
         });

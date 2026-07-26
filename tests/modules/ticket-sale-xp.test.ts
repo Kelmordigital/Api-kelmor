@@ -7,6 +7,7 @@ import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
 import { ticketService } from '../../src/modules/atendimento/ticket.service';
+import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
 import { runSeed } from '../../src/database/seed';
 
 const SUFFIX = Date.now();
@@ -104,5 +105,86 @@ describe('XP real ao fechar atendimento como venda (users.xp)', () => {
 
         expect(await xpOf(fechador)).toBe(10);
         expect(await xpOf(registrante)).toBe(0);
+    });
+});
+
+describe('XP para de contar quando gamification_enabled está desligado', () => {
+    let gateCompanyId: string;
+    let gateContactId: number;
+
+    beforeAll(async () => {
+        const [co] = await db.insert(companies)
+            .values({ name: `Empresa Sale XP Gate ${SUFFIX}`, status: true })
+            .returning({ id: companies.id });
+        gateCompanyId = co.id;
+
+        const [ct] = await db.insert(contacts)
+            .values({ company_id: gateCompanyId, name: 'Contato Gate', number: '5511999993333' })
+            .returning({ id: contacts.id });
+        gateContactId = ct.id;
+
+        await db.insert(companyPermissions)
+            .values({ company_id: gateCompanyId, gamification_enabled: false })
+            .onConflictDoUpdate({ target: companyPermissions.company_id, set: { gamification_enabled: false } });
+    });
+
+    it('fechar uma venda com a empresa desligada não soma XP nenhum', async () => {
+        const [profile] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.tag, 'user'));
+        const [u] = await db.insert(users).values({
+            name: 'Vendedor Desligado', email: `sale-xp-gate-${SUFFIX}@test.com`,
+            password_hash: hashSync('senha123', 10),
+            profile_id: profile.id, company_id: gateCompanyId,
+            email_verified: true, is_approved: true,
+        }).returning({ id: users.id });
+
+        const [ticket] = await db.insert(tickets).values({
+            company_id: gateCompanyId, contact_id: gateContactId, status_id: 2,
+        }).returning();
+
+        await ticketService.registerSale(ticket.id, gateCompanyId, { isSale: true, saleAmount: '500,00' });
+        await ticketService.closeTicket(ticket.id, u.id, gateCompanyId, {});
+
+        expect(await xpOf(u.id)).toBe(0);
+    });
+});
+
+describe('sale_xp_amount configurável (o dono decide quanto XP por venda fechada)', () => {
+    let customCompanyId: string;
+    let customContactId: number;
+
+    beforeAll(async () => {
+        const [co] = await db.insert(companies)
+            .values({ name: `Empresa XP Custom ${SUFFIX}`, status: true })
+            .returning({ id: companies.id });
+        customCompanyId = co.id;
+
+        const [ct] = await db.insert(contacts)
+            .values({ company_id: customCompanyId, name: 'Contato XP Custom', number: '5511999994444' })
+            .returning({ id: contacts.id });
+        customContactId = ct.id;
+
+        // Dono configurou 25 XP por venda em vez do padrão (10).
+        await db.insert(companyPermissions)
+            .values({ company_id: customCompanyId, sale_xp_amount: 25 })
+            .onConflictDoUpdate({ target: companyPermissions.company_id, set: { sale_xp_amount: 25 } });
+    });
+
+    it('fechar uma venda concede o valor configurado (25), não o padrão fixo (10)', async () => {
+        const [profile] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.tag, 'user'));
+        const [u] = await db.insert(users).values({
+            name: 'Vendedor XP Custom', email: `sale-xp-custom-${SUFFIX}@test.com`,
+            password_hash: hashSync('senha123', 10),
+            profile_id: profile.id, company_id: customCompanyId,
+            email_verified: true, is_approved: true,
+        }).returning({ id: users.id });
+
+        const [ticket] = await db.insert(tickets).values({
+            company_id: customCompanyId, contact_id: customContactId, status_id: 2,
+        }).returning();
+
+        await ticketService.registerSale(ticket.id, customCompanyId, { isSale: true, saleAmount: '300,00' });
+        await ticketService.closeTicket(ticket.id, u.id, customCompanyId, {});
+
+        expect(await xpOf(u.id)).toBe(25);
     });
 });

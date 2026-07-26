@@ -33,6 +33,7 @@ import { integracoesRoutes } from '../modules/integracoes/integracao.routes';
 import { agendaRoutes } from '../modules/agenda/agenda.routes';
 import { tarefasRoutes } from '../modules/tarefas/tarefas.routes';
 import { configuracaoGeralRoutes } from '../modules/configuracao-geral/configuracao-geral.routes';
+import { apiMessagesRoutes } from '../modules/api-messages/api-messages.routes';
 import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
 import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
@@ -162,6 +163,10 @@ export function buildApp() {
     // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
     // O gating admin é feito por-rota dentro de integracao.routes.ts.
     app.register(integracoesRoutes, { prefix: '/api/v1/integracoes' });
+    // api-messages NÃO usa adminOnly: /send é público, autenticado por X-Api-Key
+    // (chamado por sistemas externos, não por usuário logado). O gating admin
+    // das rotas de gestão da chave é feito por-rota dentro de api-messages.routes.ts.
+    app.register(apiMessagesRoutes, { prefix: '/api/v1' });
     app.register(adminOnly(agendaRoutes), { prefix: '/api/v1/agenda' });
     app.register(adminOnly(configuracaoGeralRoutes), { prefix: '/api/v1/configuracao/configuracoes-gerais' });
     app.register(adminOnly(reportsRoutes),       { prefix: '/api/v1/reports' });

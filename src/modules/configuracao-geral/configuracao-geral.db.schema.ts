@@ -67,6 +67,12 @@ export const companyPermissions = pgTable('company_permissions', {
     notify_by_email_connection: boolean('notify_by_email_connection').notNull().default(false),
     active_crm: boolean('active_crm').notNull().default(false),
     google_contacts_auto_sync: boolean('google_contacts_auto_sync').notNull().default(false),
+    // Chave-mestra da "experiência gamer" (Mapa de Conquistas, XP, patente).
+    // Desligada, nenhuma tela/celebração do jogo aparece e o XP para de contar.
+    gamification_enabled: boolean('gamification_enabled').notNull().default(true),
+    // Quantos XP o vendedor ganha por atendimento fechado como venda. Configurável
+    // pelo dono da empresa (só faz sentido com gamification_enabled ligado).
+    sale_xp_amount: integer('sale_xp_amount').notNull().default(10),
 
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),

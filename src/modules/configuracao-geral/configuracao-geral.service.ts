@@ -52,6 +52,7 @@ export interface ConfiguracaoGeralPayload {
     hide_name_indefinitely?: boolean;
     hide_send_no_goodbyemsg?: boolean;
     allow_show_name_on_chat?: boolean;
+    api_messages?: boolean;
     create_ticket_api_msg?: boolean;
     notify_by_email_connection?: boolean;
     notify_emails?: string[];
@@ -60,6 +61,8 @@ export interface ConfiguracaoGeralPayload {
     group_ticket?: boolean;
     google_contacts_auto_sync?: boolean;
     restrict_access_user_historic_tickets?: boolean;
+    gamification_enabled?: boolean;
+    sale_xp_amount?: number;
 }
 
 function stripHtml(html: string | null | undefined): string {

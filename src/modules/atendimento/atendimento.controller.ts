@@ -1,7 +1,12 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { contactService } from './contact.service';
-import { ticketService, AtendenteNaoElegivelError, TransferenciaParaSiMesmoError } from './ticket.service';
-import { messageService } from './message.service';
+import {
+    ticketService, AtendenteNaoElegivelError, TransferenciaParaSiMesmoError, ReturnTicketPermissionError,
+    ensureCanViewTicketMessages, ensureCanSendToTicket, SpyTicketPermissionError,
+} from './ticket.service';
+import { AttendantLimitReachedError } from './attendant-capacity.service';
+import { messageService, withAttendantNamePrefix } from './message.service';
+import { users } from '../auth/auth.schema';
 import { dashboardService, parsePeriod } from './dashboard.service';
 import { produtoService } from '../produtos/produto.service';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
@@ -110,22 +115,46 @@ export const atendimentoController = {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
         const userId = req.user.id;
-        const ticket = await ticketService.assignAttendant(Number(id), userId, companyId);
-        return reply.send(ticket);
+        try {
+            const ticket = await ticketService.assignAttendant(Number(id), userId, companyId);
+            return reply.send(ticket);
+        } catch (err) {
+            if (err instanceof AttendantLimitReachedError) {
+                return reply.status(409).send({ error: err.message });
+            }
+            throw err;
+        }
     },
 
     async returnToQueue(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
-        const ticket = await ticketService.returnToQueue(Number(id), req.user.id, companyId);
-        return reply.send(ticket);
+        try {
+            const ticket = await ticketService.returnToQueue(Number(id), req.user.id, companyId, req.user.profile_tag);
+            return reply.send(ticket);
+        } catch (err) {
+            if (err instanceof ReturnTicketPermissionError) {
+                return reply.status(403).send({ error: err.message });
+            }
+            throw err;
+        }
     },
 
     async reopen(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
-        const ticket = await ticketService.reopen(Number(id), req.user.id, companyId);
-        return reply.send(ticket);
+        try {
+            const ticket = await ticketService.reopen(Number(id), req.user.id, companyId, req.user.profile_tag);
+            return reply.send(ticket);
+        } catch (err) {
+            if (err instanceof AttendantLimitReachedError) {
+                return reply.status(409).send({ error: err.message });
+            }
+            if (err instanceof ReturnTicketPermissionError) {
+                return reply.status(403).send({ error: err.message });
+            }
+            throw err;
+        }
     },
 
     async transfer(req: FastifyRequest, reply: FastifyReply) {
@@ -138,7 +167,8 @@ export const atendimentoController = {
             const ticket = await ticketService.transfer(Number(id), req.user.id, attendantId, companyId, queueId);
             return reply.send(ticket);
         } catch (err) {
-            if (err instanceof AtendenteNaoElegivelError || err instanceof TransferenciaParaSiMesmoError) {
+            if (err instanceof AtendenteNaoElegivelError || err instanceof TransferenciaParaSiMesmoError
+                || err instanceof AttendantLimitReachedError) {
                 return reply.status(409).send({ error: (err as Error).message });
             }
             throw err;
@@ -234,6 +264,14 @@ export const atendimentoController = {
     async listMessages(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
+        const ticket = await ticketService.get(Number(id), companyId);
+        if (!ticket) return reply.status(404).send({ error: 'Ticket não encontrado' });
+        try {
+            await ensureCanViewTicketMessages(ticket, req.user.id, req.user.profile_tag);
+        } catch (err) {
+            if (err instanceof SpyTicketPermissionError) return reply.status(403).send({ error: err.message });
+            throw err;
+        }
         const msgs = await messageService.list(Number(id), companyId);
         return reply.send(msgs);
     },
@@ -242,16 +280,46 @@ export const atendimentoController = {
         const { id } = req.params as { id: string };
         const companyId = req.user.company_id!;
         const userId = req.user.id;
-        const { body, fromMe = true, contactId } = req.body as {
+        const { body, fromMe = true, contactId, hideName = false } = req.body as {
             body: string;
             fromMe?: boolean;
             contactId?: number;
+            hideName?: boolean;
         };
 
-        const msg = await messageService.save(Number(id), contactId ?? null, body, fromMe, companyId, { userId });
+        // Ticket ainda Pendente(1)/Bot(9) = ninguém aceitou de fato — mandar
+        // mensagem não pode ser um jeito de "atender" por trás do aceite (que é
+        // onde o limite de atendimentos simultâneos é verificado). Sem isso, o
+        // limite vira decorativo: basta não clicar em Aceitar e digitar direto.
+        const ticket = fromMe ? await ticketService.get(Number(id), companyId) : null;
+        if (fromMe && ticket && (ticket.status_id === 1 || ticket.status_id === 9)) {
+            return reply.status(409).send({ error: 'Aceite o atendimento antes de enviar mensagens.' });
+        }
+        if (fromMe && ticket) {
+            try {
+                ensureCanSendToTicket(ticket, userId, req.user.profile_tag);
+            } catch (err) {
+                if (err instanceof SpyTicketPermissionError) return reply.status(403).send({ error: err.message });
+                throw err;
+            }
+        }
+
+        // Assinatura "*Nome:*" (config "Ocultar nome do atendente no chat"):
+        // só entra se a empresa tiver a permissão ligada e o atendente não
+        // tiver pedido pra ocultar naquele envio específico (flag por request,
+        // decidida no client conforme o modo temporário/permanente escolhido).
+        let outgoingBody = body;
+        if (fromMe && !hideName) {
+            const perms = await getCompanyPermissions(companyId);
+            if (perms.allow_show_name_on_chat) {
+                const [sender] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+                if (sender?.name) outgoingBody = withAttendantNamePrefix(body, sender.name);
+            }
+        }
+
+        const msg = await messageService.save(Number(id), contactId ?? null, outgoingBody, fromMe, companyId, { userId });
 
         if (fromMe) {
-            const ticket = await ticketService.get(Number(id), companyId);
             if (ticket) {
                 const contact = await contactService.findById(ticket.contact_id);
                 const { whatsappService } = await import('../whatsapp/whatsapp.service');
@@ -260,8 +328,8 @@ export const atendimentoController = {
                     // Com conexão no ticket, roteia por ela (bays ou API oficial);
                     // sem conexão, mantém o envio pela sessão padrão do bays.
                     const sending = connId
-                        ? whatsappService.sendTextToPhone(connId, contact.number, body)
-                        : whatsappService.sendMessage(contact.number, body);
+                        ? whatsappService.sendTextToPhone(connId, contact.number, outgoingBody)
+                        : whatsappService.sendMessage(contact.number, outgoingBody);
                     Promise.resolve(sending)
                         .then(async (result) => {
                             // Envio oficial devolve o wamid — grava para casar o ACK do webhook
@@ -279,7 +347,7 @@ export const atendimentoController = {
                         });
                 } else if (contact?.lid) {
                     // Contato username-only (sem número): responde roteando pelo LID
-                    whatsappService.sendMessageViaLid(contact.lid, body, connId).catch((err: Error) => {
+                    whatsappService.sendMessageViaLid(contact.lid, outgoingBody, connId).catch((err: Error) => {
                         console.error('[sendMessage] bays error (lid):', err.message);
                     });
                 } else {

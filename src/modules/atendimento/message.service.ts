@@ -3,6 +3,23 @@ import { db } from '../../database/client';
 import { atendimento_messages, tickets, AtMessage } from './atendimento.db.schema';
 import { emitToCompany } from '../../shared/socket';
 
+function escapeRegExp(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Prefixa `*Nome:*` na mensagem enviada por um atendente (config "Ocultar
+ * nome do atendente no chat") — ponto único usado por todo caminho de envio
+ * manual (digitação e mensagens rápidas passam pelo mesmo endpoint), pra não
+ * reescrever essa regra em mais de um lugar. Não duplica o prefixo se o
+ * texto já começar com ele (ex.: atendente reenviando algo já assinado).
+ */
+export function withAttendantNamePrefix(body: string, name: string): string {
+    const already = new RegExp(`^\\*${escapeRegExp(name)}:\\*`, 'i').test(body.trim());
+    if (already) return body;
+    return `*${name}:*\n${body}`;
+}
+
 export const messageService = {
     async save(
         ticketId: number,
@@ -39,6 +56,19 @@ export const messageService = {
             .where(eq(tickets.id, ticketId));
 
         emitToCompany(companyId, 'message:created', { message: msg, ticketId });
+
+        if (body && contactId !== null) {
+            try {
+                const { matchAndApplyAutomaticTags } = await import('../etiquetas/etiqueta.service');
+                await matchAndApplyAutomaticTags(companyId, contactId, body);
+            } catch (err) {
+                console.error(
+                    `[AutoTags] Falha ao aplicar etiquetas automáticas (ticket ${ticketId}):`,
+                    err instanceof Error ? err.message : err,
+                );
+            }
+        }
+
         return msg;
     },
 

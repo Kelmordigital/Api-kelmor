@@ -1,21 +1,23 @@
 import { eq, and, ne, inArray, isNull, desc, asc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../database/client';
-import { tickets, contacts, historic_tickets, userQueues, userConnections, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
+import { tickets, contacts, historic_tickets, ticket_spy_log, userQueues, userConnections, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 import { filaService } from '../filas/fila.service';
+import { attendantHasCapacity, AttendantLimitReachedError } from './attendant-capacity.service';
 
 // XP do mini-game de Conquistas: só quando o próprio fechamento é uma venda
 // (ticket.is_sale === 1 no momento em que o fechamento se efetiva). Fechar
 // sem venda, ou sem classificar, não soma nada — é um contador real
-// (users.xp), não recalculado a partir do histórico de tickets.
-const SALE_CLOSE_XP = 10;
-
-async function grantSaleXp(userId: string) {
-    await db.update(users).set({ xp: sql`${users.xp} + ${SALE_CLOSE_XP}` }).where(eq(users.id, userId));
+// (users.xp), não recalculado a partir do histórico de tickets. A quantidade
+// por venda é configurável pelo dono (company_permissions.sale_xp_amount).
+async function grantSaleXp(userId: string, companyId: string) {
+    const perms = await getCompanyPermissions(companyId);
+    if (!perms.gamification_enabled) return;
+    await db.update(users).set({ xp: sql`${users.xp} + ${perms.sale_xp_amount}` }).where(eq(users.id, userId));
 }
 
 export class AtendenteNaoElegivelError extends Error {
@@ -24,6 +26,62 @@ export class AtendenteNaoElegivelError extends Error {
 
 export class TransferenciaParaSiMesmoError extends Error {
     constructor() { super('Não é possível transferir o atendimento para o mesmo atendente.'); }
+}
+
+export class ReturnTicketPermissionError extends Error {
+    constructor() { super('O administrador definiu que você não pode devolver ou reabrir este atendimento.'); }
+}
+
+/** admin/superAdmin sempre podem; atendente comum depende de company_permissions.return_ticket. */
+async function ensureReturnTicketPermission(companyId: string, profileTag: string): Promise<void> {
+    if (profileTag === 'admin' || profileTag === 'superAdmin') return;
+    const perms = await getCompanyPermissions(companyId);
+    if (!perms.return_ticket) throw new ReturnTicketPermissionError();
+}
+
+export class SpyTicketPermissionError extends Error {
+    constructor() { super('Você não tem permissão para visualizar este atendimento.'); }
+}
+
+/**
+ * Gate de visualização de mensagens de um ticket.
+ * - status 2 (Aberta) de OUTRO atendente: só o dono ou admin/superAdmin (bypass,
+ *   mas ainda entra no log). "Permitir pré-visualização" (spy_ticket) NÃO dá
+ *   acesso aqui — não faz sentido "espiar" quem já está atendendo de verdade.
+ * - status 1 (Aguardando, sem dono): ler sem aceitar é o próprio conceito de
+ *   "espiar" deste sistema — precisa de spy_ticket ligado (admin bypassa).
+ * - demais status: sem gate.
+ * Toda vez que a checagem passa por causa do bypass/permissão (não é o fluxo
+ * normal de dono lendo o próprio ticket), registra em ticket_spy_log.
+ */
+export async function ensureCanViewTicketMessages(ticket: Ticket, userId: string, profileTag: string): Promise<void> {
+    const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
+
+    if (ticket.status_id === 2) {
+        if (!ticket.attendant_user_id || ticket.attendant_user_id === userId) return;
+        if (!isAdmin) throw new SpyTicketPermissionError();
+    } else if (ticket.status_id === 1) {
+        if (!isAdmin) {
+            const perms = await getCompanyPermissions(ticket.company_id);
+            if (!perms.spy_ticket) throw new SpyTicketPermissionError();
+        }
+    } else {
+        return;
+    }
+
+    await db.insert(ticket_spy_log).values({ company_id: ticket.company_id, ticket_id: ticket.id, user_id: userId });
+}
+
+/**
+ * "Espiar" só dá direito de LER — nunca de responder. Bloqueia o envio quando
+ * o ticket em atendimento (status 2) tem atendente diferente de quem está
+ * enviando, admin sempre pode (mesmo bypass usado no resto do sistema).
+ */
+export function ensureCanSendToTicket(ticket: Ticket, userId: string, profileTag: string): void {
+    if (ticket.status_id !== 2) return;
+    if (!ticket.attendant_user_id || ticket.attendant_user_id === userId) return;
+    if (profileTag === 'admin' || profileTag === 'superAdmin') return;
+    throw new SpyTicketPermissionError();
 }
 
 /**
@@ -187,6 +245,42 @@ export const ticketService = {
         return { ticket: created, created: true };
     },
 
+    /**
+     * Vincula uma mensagem enviada por FORA do atendimento humano (hoje: API
+     * transacional) ao histórico de conversa do contato. Reaproveita um ticket
+     * já aberto na mesma conexão (mesma regra de `findOpenTicket`, único ponto
+     * de decisão "isso ainda conta como conversa em aberto?" — não duplicar
+     * essa pergunta em cada canal de envio automatizado). Sem ticket aberto,
+     * cria um novo já FECHADO e sem atendente — só pra guardar o histórico,
+     * nunca entra em fila/bot, nunca aparece pra alguém aceitar.
+     */
+    async attachExternalMessage(
+        companyId: string,
+        contactId: number,
+        connectionId: number,
+        body: string,
+    ): Promise<Ticket> {
+        const existing = await this.findOpenTicket(companyId, contactId, connectionId);
+
+        let ticket = existing;
+        if (!ticket) {
+            const [created] = await db.insert(tickets).values({
+                company_id: companyId,
+                contact_id: contactId,
+                connection_id: connectionId,
+                status_id: 3,
+                origin: 'API',
+            }).returning();
+            ticket = created;
+            emitToCompany(companyId, 'ticket:created', { ticket });
+        }
+
+        const { messageService } = await import('./message.service');
+        await messageService.save(ticket.id, contactId, body, true, companyId, {});
+
+        return ticket;
+    },
+
     async get(ticketId: number, companyId: string): Promise<Ticket | null> {
         const [ticket] = await db.select().from(tickets)
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
@@ -341,6 +435,19 @@ export const ticketService = {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey)) throw new Error('Ticket já está sendo assumido por outro atendente');
 
+        const perms = await getCompanyPermissions(companyId);
+
+        // Serializa por atendente (não só por ticket): sem isso, dois aceites
+        // simultâneos de tickets DIFERENTES pelo mesmo atendente passariam na
+        // contagem do limite antes que qualquer um dos dois efetivasse — cada
+        // um vendo a contagem sem o outro ainda computado.
+        const attendantLockKey = `attendant-limit:${userId}`;
+        const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
+        if (!attendantLocked) {
+            releaseLock(lockKey);
+            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+        }
+
         try {
             const [current] = await db.select().from(tickets)
                 .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
@@ -348,20 +455,8 @@ export const ticketService = {
 
             if (!current) throw new Error('Ticket não encontrado');
 
-            // Verifica limite de atendimentos simultâneos por atendente
-            const perms = await getCompanyPermissions(companyId);
-            if (perms.limit_services_users) {
-                const [{ cnt }] = await db
-                    .select({ cnt: sql<number>`count(*)::int` })
-                    .from(tickets)
-                    .where(and(
-                        eq(tickets.attendant_user_id, userId),
-                        eq(tickets.status_id, 2),
-                        isNull(tickets.deleted_at),
-                    ));
-                if (cnt >= (perms.number_limit_services_users ?? 5)) {
-                    throw new Error('Limite de atendimentos simultâneos atingido');
-                }
+            if (!(await attendantHasCapacity(userId, perms))) {
+                throw new AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
             }
 
             // Update atômico condicional: só aplica se o ticket ainda estiver
@@ -395,6 +490,7 @@ export const ticketService = {
 
             return updated;
         } finally {
+            if (perms.limit_services_users) releaseLock(attendantLockKey);
             releaseLock(lockKey);
         }
     },
@@ -541,7 +637,9 @@ export const ticketService = {
     },
 
     /** Devolve o ticket para a fila (2 → 1). Zera o atendente. */
-    async returnToQueue(ticketId: number, userId: string, companyId: string): Promise<Ticket> {
+    async returnToQueue(ticketId: number, userId: string, companyId: string, profileTag: string): Promise<Ticket> {
+        await ensureReturnTicketPermission(companyId, profileTag);
+
         const [current] = await db.select().from(tickets)
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
             .limit(1);
@@ -566,40 +664,57 @@ export const ticketService = {
     },
 
     /** Reabre um ticket finalizado (3 → 2). Verifica se não há outro aberto para o mesmo contato. */
-    async reopen(ticketId: number, userId: string, companyId: string): Promise<Ticket> {
-        const [current] = await db.select().from(tickets)
-            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
-            .limit(1);
+    async reopen(ticketId: number, userId: string, companyId: string, profileTag: string): Promise<Ticket> {
+        await ensureReturnTicketPermission(companyId, profileTag);
 
-        if (!current) throw new Error('Ticket não encontrado');
+        const perms = await getCompanyPermissions(companyId);
+        const attendantLockKey = `attendant-limit:${userId}`;
+        const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
+        if (!attendantLocked) {
+            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+        }
 
-        // Verifica se já existe outro ticket aberto para o mesmo contato+conexão
-        const [alreadyOpen] = await db.select({ id: tickets.id }).from(tickets)
-            .where(and(
-                eq(tickets.company_id, companyId),
-                eq(tickets.contact_id, current.contact_id),
-                inArray(tickets.status_id, [1, 2]),
-                isNull(tickets.deleted_at),
-            ))
-            .limit(1);
+        try {
+            const [current] = await db.select().from(tickets)
+                .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+                .limit(1);
 
-        if (alreadyOpen) throw new Error('Já existe um ticket aberto para este contato');
+            if (!current) throw new Error('Ticket não encontrado');
 
-        await db.insert(historic_tickets).values({
-            ticket_id: ticketId,
-            user_id: userId,
-            status_id_init: current.status_id,
-            status_id_end: 2,
-        });
+            // Verifica se já existe outro ticket aberto para o mesmo contato+conexão
+            const [alreadyOpen] = await db.select({ id: tickets.id }).from(tickets)
+                .where(and(
+                    eq(tickets.company_id, companyId),
+                    eq(tickets.contact_id, current.contact_id),
+                    inArray(tickets.status_id, [1, 2]),
+                    isNull(tickets.deleted_at),
+                ))
+                .limit(1);
 
-        const [updated] = await db
-            .update(tickets)
-            .set({ status_id: 2, attendant_user_id: userId, closed_by_user_id: null, updated_at: new Date() })
-            .where(eq(tickets.id, ticketId))
-            .returning();
+            if (alreadyOpen) throw new Error('Já existe um ticket aberto para este contato');
 
-        emitToCompany(companyId, 'ticket:updated', { ticket: updated });
-        return updated;
+            if (!(await attendantHasCapacity(userId, perms))) {
+                throw new AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
+            }
+
+            await db.insert(historic_tickets).values({
+                ticket_id: ticketId,
+                user_id: userId,
+                status_id_init: current.status_id,
+                status_id_end: 2,
+            });
+
+            const [updated] = await db
+                .update(tickets)
+                .set({ status_id: 2, attendant_user_id: userId, closed_by_user_id: null, updated_at: new Date() })
+                .where(eq(tickets.id, ticketId))
+                .returning();
+
+            emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+            return updated;
+        } finally {
+            if (perms.limit_services_users) releaseLock(attendantLockKey);
+        }
     },
 
     /** Transfere o ticket para outro atendente dentro de uma fila. Cria mensagem interna de transferência. */
@@ -612,55 +727,70 @@ export const ticketService = {
     ): Promise<Ticket> {
         if (fromUserId === toUserId) throw new TransferenciaParaSiMesmoError();
 
-        const [current] = await db.select().from(tickets)
-            .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
-            .limit(1);
+        const perms = await getCompanyPermissions(companyId);
+        const attendantLockKey = `attendant-limit:${toUserId}`;
+        const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
+        if (!attendantLocked) {
+            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+        }
 
-        if (!current) throw new Error('Ticket não encontrado');
+        try {
+            const [current] = await db.select().from(tickets)
+                .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
+                .limit(1);
 
-        const eligible = await filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
-        if (!eligible.some((u) => u.id === toUserId)) throw new AtendenteNaoElegivelError();
+            if (!current) throw new Error('Ticket não encontrado');
 
-        const [fromUser] = await db.select({ name: users.name }).from(users).where(eq(users.id, fromUserId)).limit(1);
-        const [toUser]   = await db.select({ name: users.name }).from(users).where(eq(users.id, toUserId)).limit(1);
+            const eligible = await filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
+            if (!eligible.some((u) => u.id === toUserId)) throw new AtendenteNaoElegivelError();
 
-        if (!toUser) throw new Error('Atendente destino não encontrado');
+            if (!(await attendantHasCapacity(toUserId, perms))) {
+                throw new AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
+            }
 
-        await db.insert(historic_tickets).values({
-            ticket_id: ticketId,
-            user_id: fromUserId,
-            status_id_init: current.status_id,
-            status_id_end: 2,
-        });
+            const [fromUser] = await db.select({ name: users.name }).from(users).where(eq(users.id, fromUserId)).limit(1);
+            const [toUser]   = await db.select({ name: users.name }).from(users).where(eq(users.id, toUserId)).limit(1);
 
-        const set: Partial<typeof tickets.$inferInsert> = {
-            attendant_user_id: toUserId,
-            is_transfer: 1,
-            status_id: 2,
-            updated_at: new Date(),
-            queue_id: queueId,
-        };
+            if (!toUser) throw new Error('Atendente destino não encontrado');
 
-        const [updated] = await db
-            .update(tickets)
-            .set(set)
-            .where(eq(tickets.id, ticketId))
-            .returning();
+            await db.insert(historic_tickets).values({
+                ticket_id: ticketId,
+                user_id: fromUserId,
+                status_id_init: current.status_id,
+                status_id_end: 2,
+            });
 
-        const fromName = fromUser?.name ?? 'Atendente anterior';
-        await db.insert(atendimento_messages).values({
-            ticket_id: ticketId,
-            body: `Atendimento transferido de *${fromName}* para *${toUser.name}*`,
-            from_me: true,
-            user_id: fromUserId,
-        });
+            const set: Partial<typeof tickets.$inferInsert> = {
+                attendant_user_id: toUserId,
+                is_transfer: 1,
+                status_id: 2,
+                updated_at: new Date(),
+                queue_id: queueId,
+            };
 
-        emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+            const [updated] = await db
+                .update(tickets)
+                .set(set)
+                .where(eq(tickets.id, ticketId))
+                .returning();
 
-        // Mensagem de transferência para o cliente (fire-and-forget)
-        this._sendTransferMessage(updated, companyId, fromUser?.name, toUser.name).catch(() => {});
+            const fromName = fromUser?.name ?? 'Atendente anterior';
+            await db.insert(atendimento_messages).values({
+                ticket_id: ticketId,
+                body: `Atendimento transferido de *${fromName}* para *${toUser.name}*`,
+                from_me: true,
+                user_id: fromUserId,
+            });
 
-        return updated;
+            emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+
+            // Mensagem de transferência para o cliente (fire-and-forget)
+            this._sendTransferMessage(updated, companyId, fromUser?.name, toUser.name).catch(() => {});
+
+            return updated;
+        } finally {
+            if (perms.limit_services_users) releaseLock(attendantLockKey);
+        }
     },
 
     async _sendTransferMessage(
@@ -751,7 +881,7 @@ export const ticketService = {
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
             .returning();
 
-        if (current.is_sale === 1) await grantSaleXp(userId);
+        if (current.is_sale === 1) await grantSaleXp(userId, companyId);
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
 
@@ -825,7 +955,7 @@ export const ticketService = {
             .set({ status_id: 3, updated_at: new Date() })
             .where(eq(tickets.id, ticketId));
 
-        if (current.is_sale === 1 && current.closed_by_user_id) await grantSaleXp(current.closed_by_user_id);
+        if (current.is_sale === 1 && current.closed_by_user_id) await grantSaleXp(current.closed_by_user_id, companyId);
 
         emitToCompany(companyId, 'ticket:closed', { ticketId });
     },

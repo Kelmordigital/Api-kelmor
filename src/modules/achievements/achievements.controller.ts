@@ -1,12 +1,19 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { achievementsService, InvalidMissionKeyError } from './achievements.service';
+import { achievementsService, InvalidMissionKeyError, GamificationDisabledError } from './achievements.service';
 
 export const achievementsController = {
 
     async getProgress(req: FastifyRequest, reply: FastifyReply) {
         const companyId = req.user.company_id!;
-        const progress = await achievementsService.getProgress(req.user.id, companyId);
-        return reply.send(progress);
+        try {
+            const progress = await achievementsService.getProgress(req.user.id, companyId);
+            return reply.send(progress);
+        } catch (err) {
+            if (err instanceof GamificationDisabledError) {
+                return reply.status(403).send({ error: err.message });
+            }
+            throw err;
+        }
     },
 
     async complete(req: FastifyRequest, reply: FastifyReply) {
@@ -23,6 +30,9 @@ export const achievementsController = {
         } catch (err) {
             if (err instanceof InvalidMissionKeyError) {
                 return reply.status(400).send({ error: err.message });
+            }
+            if (err instanceof GamificationDisabledError) {
+                return reply.status(403).send({ error: err.message });
             }
             throw err;
         }

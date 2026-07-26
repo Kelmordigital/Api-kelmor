@@ -120,6 +120,18 @@ export const historic_tickets = pgTable('at_historic_tickets', {
     created_at: timestamp('created_at').defaultNow(),
 });
 
+// Log de auditoria: sempre que alguém que NÃO é o atendente do ticket visualiza
+// as mensagens dele (toggle "Permitir pré-visualização do ticket" / spy_ticket).
+// Gravado independente de ser admin (bypassa a permissão) ou atendente comum
+// (precisa da permissão ligada) — "quem espiou o quê" importa nos dois casos.
+export const ticket_spy_log = pgTable('at_ticket_spy_log', {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    ticket_id: bigint('ticket_id', { mode: 'number' }).notNull(),
+    user_id: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    created_at: timestamp('created_at').defaultNow(),
+});
+
 // ── Saúde das conexões WhatsApp ───────────────────────────────────────────────
 export const connection_health = pgTable('at_connection_health', {
     connection_id:        bigint('connection_id', { mode: 'number' }).primaryKey().references(() => connections.id, { onDelete: 'cascade' }),

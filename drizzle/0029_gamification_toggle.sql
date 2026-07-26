@@ -1,0 +1,1 @@
+ALTER TABLE "company_permissions" ADD COLUMN "gamification_enabled" boolean DEFAULT true NOT NULL;

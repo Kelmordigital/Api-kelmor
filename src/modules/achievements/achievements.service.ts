@@ -3,6 +3,7 @@ import { db } from '../../database/client';
 import { userAchievementProgress } from './achievements.db.schema';
 import { tickets } from '../atendimento/atendimento.db.schema';
 import { users } from '../auth/auth.schema';
+import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 
 // Catálogo das 6 missões do piloto. Título/tela/ícone de cada uma vivem no
 // frontend (conteúdo estático do produto) — aqui só validamos a chave.
@@ -21,6 +22,13 @@ export class InvalidMissionKeyError extends Error {
     constructor(key: string) {
         super(`Chave de missão desconhecida: ${key}`);
         this.name = 'InvalidMissionKeyError';
+    }
+}
+
+export class GamificationDisabledError extends Error {
+    constructor() {
+        super('A experiência gamer (Conquistas/XP) está desativada para esta empresa.');
+        this.name = 'GamificationDisabledError';
     }
 }
 
@@ -58,6 +66,9 @@ function calcPatente(completedCount: number): string {
 export const achievementsService = {
 
     async getProgress(userId: string, companyId: string): Promise<AchievementProgress> {
+        const perms = await getCompanyPermissions(companyId);
+        if (!perms.gamification_enabled) throw new GamificationDisabledError();
+
         const [missionRows, [{ closedTicketsCount }], [userRow]] = await Promise.all([
             db.select({ mission_key: userAchievementProgress.mission_key })
                 .from(userAchievementProgress)
@@ -144,6 +155,9 @@ export const achievementsService = {
         if (!isMissionKey(missionKey)) {
             throw new InvalidMissionKeyError(missionKey);
         }
+
+        const perms = await getCompanyPermissions(companyId);
+        if (!perms.gamification_enabled) throw new GamificationDisabledError();
 
         await db.insert(userAchievementProgress)
             .values({ user_id: userId, company_id: companyId, mission_key: missionKey })

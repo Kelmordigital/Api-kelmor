@@ -23,6 +23,7 @@ export const meuPerfilService = {
                 profile_tag: profiles.tag,
                 profile_name: profiles.name,
                 avatar_url: userAvatars.url,
+                hide_name_active: users.hide_name_active,
             })
             .from(users)
             .innerJoin(profiles, eq(users.profile_id, profiles.id))
@@ -51,10 +52,21 @@ export const meuPerfilService = {
         return { queues: queueList, connections: connectionList };
     },
 
-    async updateProfile(userId: string, payload: { nickname?: string | null; queue_ids?: number[]; connection_ids?: number[] }) {
+    async updateProfile(userId: string, payload: {
+        nickname?: string | null;
+        queue_ids?: number[];
+        connection_ids?: number[];
+        hide_name_active?: boolean;
+    }) {
         if (payload.nickname !== undefined) {
             await db.update(users)
                 .set({ nickname: payload.nickname?.trim() || null, updated_at: new Date() })
+                .where(eq(users.id, userId));
+        }
+
+        if (payload.hide_name_active !== undefined) {
+            await db.update(users)
+                .set({ hide_name_active: payload.hide_name_active, updated_at: new Date() })
                 .where(eq(users.id, userId));
         }
 

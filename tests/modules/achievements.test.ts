@@ -9,8 +9,10 @@ import { contacts, tickets } from '../../src/modules/atendimento/atendimento.db.
 import {
     achievementsService,
     InvalidMissionKeyError,
+    GamificationDisabledError,
     MISSION_KEYS,
 } from '../../src/modules/achievements/achievements.service';
+import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
 import { runSeed } from '../../src/database/seed';
 import { buildApp } from '../../src/shared/server';
 
@@ -363,5 +365,86 @@ describe('Partida completa: Aprendiz → Explorador → Aventureiro → Mestre �
         expect(body.closed_tickets_count).toBe(25);
 
         await app.close();
+    });
+});
+
+describe('Chave-mestra: gamification_enabled (Configurações Gerais)', () => {
+    let gateUserId: string;
+    let gateCompanyId: string;
+
+    beforeAll(async () => {
+        const [profile] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.tag, 'user'));
+        const [co] = await db.insert(companies)
+            .values({ name: `Empresa Gate ${SUFFIX}`, status: true })
+            .returning({ id: companies.id });
+        gateCompanyId = co.id;
+
+        const [u] = await db.insert(users).values({
+            name: 'Usuário Gate', email: `achievements-gate-${SUFFIX}@test.com`,
+            password_hash: hashSync('senha123', 10),
+            profile_id: profile.id, company_id: gateCompanyId,
+            email_verified: true, is_approved: true,
+        }).returning({ id: users.id });
+        gateUserId = u.id;
+    });
+
+    it('com a experiência gamer ligada (padrão), getProgress funciona normalmente', async () => {
+        const p = await achievementsService.getProgress(gateUserId, gateCompanyId);
+        expect(p.patente).toBe('Aprendiz');
+    });
+
+    it('desligando gamification_enabled, getProgress lança GamificationDisabledError', async () => {
+        await db.insert(companyPermissions)
+            .values({ company_id: gateCompanyId, gamification_enabled: false })
+            .onConflictDoUpdate({ target: companyPermissions.company_id, set: { gamification_enabled: false } });
+
+        await expect(
+            achievementsService.getProgress(gateUserId, gateCompanyId)
+        ).rejects.toBeInstanceOf(GamificationDisabledError);
+    });
+
+    it('desligado, completeMission também lança GamificationDisabledError', async () => {
+        await expect(
+            achievementsService.completeMission(gateUserId, gateCompanyId, MISSION_KEYS[0])
+        ).rejects.toBeInstanceOf(GamificationDisabledError);
+    });
+
+    it('desligado, getCompanyProgress (usado pela tela de Usuários) continua funcionando — não trava a listagem de usuários', async () => {
+        const map = await achievementsService.getCompanyProgress(gateCompanyId, [gateUserId]);
+        expect(map[gateUserId].patente).toBe('Aprendiz');
+    });
+
+    it('desligado, GET /achievements/progress retorna 403 via HTTP', async () => {
+        const [adminProfile] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.tag, 'admin'));
+        await db.update(users).set({ profile_id: adminProfile.id }).where(eq(users.id, gateUserId));
+
+        await db.update(companyPermissions)
+            .set({ gamification_enabled: false })
+            .where(eq(companyPermissions.company_id, gateCompanyId));
+
+        const app = buildApp();
+        await app.ready();
+        const login = await app.inject({
+            method: 'POST', url: '/api/v1/auth/login',
+            payload: { email: `achievements-gate-${SUFFIX}@test.com`, password: 'senha123' },
+        });
+        const token = JSON.parse(login.body).access_token;
+
+        const res = await app.inject({
+            method: 'GET', url: '/api/v1/achievements/progress',
+            headers: { authorization: `Bearer ${token}` },
+        });
+        expect(res.statusCode).toBe(403);
+
+        await app.close();
+    });
+
+    it('religando gamification_enabled, getProgress volta a funcionar', async () => {
+        await db.update(companyPermissions)
+            .set({ gamification_enabled: true })
+            .where(eq(companyPermissions.company_id, gateCompanyId));
+
+        const p = await achievementsService.getProgress(gateUserId, gateCompanyId);
+        expect(p.patente).toBe('Aprendiz');
     });
 });
