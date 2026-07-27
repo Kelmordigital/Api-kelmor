@@ -168,7 +168,10 @@ export function buildApp() {
     // das rotas de gestão da chave é feito por-rota dentro de api-messages.routes.ts.
     app.register(apiMessagesRoutes, { prefix: '/api/v1' });
     app.register(adminOnly(agendaRoutes), { prefix: '/api/v1/agenda' });
-    app.register(adminOnly(configuracaoGeralRoutes), { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    // configuracaoGeralRoutes NÃO usa adminOnly: GET é liberado pra qualquer
+    // usuário autenticado (useCompanyPermissions precisa disso pro app inteiro),
+    // o gating admin do PUT é feito por-rota dentro de configuracao-geral.routes.ts.
+    app.register(configuracaoGeralRoutes, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
     app.register(adminOnly(reportsRoutes),       { prefix: '/api/v1/reports' });
     app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
