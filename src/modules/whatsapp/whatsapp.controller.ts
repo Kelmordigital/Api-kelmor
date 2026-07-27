@@ -25,12 +25,30 @@ async function getCompanyConnectionId(req: FastifyRequest): Promise<number> {
 
 export const whatsappController = {
 
-    // ── Status da sessão padrão ─────────────────────────────────────────────
-    // Usa a primeira conexão cadastrada da empresa (não hardcoded session 1)
-
+    // ── Status da tela de Atendimento ────────────────────────────────────────
+    // A empresa pode ter várias conexões (cada ticket já roteia pela sua
+    // própria connection_id); essa checagem só decide se a tela de
+    // Atendimento mostra a lista de tickets ou o bloqueio "WhatsApp
+    // desconectado" — então "conectado" aqui precisa significar "pelo menos
+    // uma das conexões está online", não só a primeira cadastrada (antes,
+    // com 2 conexões e só a 1ª desconectada, a tela travava mesmo com a
+    // 2ª conectada e tickets de verdade esperando).
     async getStatus(req: FastifyRequest, reply: FastifyReply) {
-        const id = await getCompanyConnectionId(req);
-        const result = await whatsappService.getStatus(id);
+        const companyId = req.user?.company_id;
+        if (companyId) {
+            const conns = await db.select({ id: connections.id })
+                .from(connections)
+                .where(eq(connections.company_id, companyId))
+                .orderBy(connections.id);
+
+            if (conns.length > 0) {
+                const results = await Promise.all(conns.map(c => whatsappService.getStatus(c.id)));
+                const connected = results.find(r => r.status === 'connected');
+                return reply.send(connected ?? results[0]);
+            }
+        }
+
+        const result = await whatsappService.getStatus(Number(env.BAYS_SESSION_ID));
         return reply.send(result);
     },
 
