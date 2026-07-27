@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { companies } from '../companies/company.db.schema';
 import { companyPermissions, companyEmailNotify } from './configuracao-geral.db.schema';
+import { emitToCompany } from '../../shared/socket';
 
 export interface ConfiguracaoGeralPayload {
     // Mensagens
@@ -145,6 +146,12 @@ export const configuracaoGeralService = {
                     .values(uniqueEmails.map(email => ({ company_id: companyId, email })));
             }
         }
+
+        // Sem isso, quem já estava com o CRM aberto (qualquer aba/usuário da
+        // empresa) só veria a mudança de permissão depois do staleTime padrão
+        // do React Query (5min) ou de um refresh manual — toggles como
+        // "Permitir pré-visualização do ticket" pareceriam não fazer efeito.
+        emitToCompany(companyId, 'company_permissions:updated', {});
 
         return this.get(companyId);
     },
