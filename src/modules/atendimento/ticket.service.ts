@@ -3,6 +3,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../database/client';
 import { tickets, contacts, historic_tickets, ticket_spy_log, userQueues, userConnections, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
+import { profiles } from '../profiles/profile.db.schema';
 import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
@@ -1225,10 +1226,11 @@ export const ticketService = {
 
     // ── Atendentes da empresa ─────────────────────────────────────────────────
 
-    async listAttendants(companyId: string): Promise<{ id: string; name: string; email: string }[]> {
+    async listAttendants(companyId: string): Promise<{ id: string; name: string; email: string; profile_tag: string }[]> {
         return db
-            .select({ id: users.id, name: users.name, email: users.email })
+            .select({ id: users.id, name: users.name, email: users.email, profile_tag: profiles.tag })
             .from(users)
+            .innerJoin(profiles, eq(users.profile_id, profiles.id))
             .where(and(eq(users.company_id, companyId), eq(users.is_approved, true)))
             .orderBy(users.name);
     },

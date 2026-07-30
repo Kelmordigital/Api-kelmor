@@ -69,6 +69,19 @@ export const crm_keywords = pgTable('at_crm_keywords', {
     created_at: timestamp('created_at').defaultNow(),
 });
 
+// Nota manual na timeline de interações do lead (painel do CRM). Sem
+// updated_at/deleted_at — registro de histórico imutável, mesmo espírito do
+// "atendimento fechado é definitivo". Visível pra qualquer usuário da empresa
+// que abrir o contato, não só pra quem escreveu.
+export const crm_contact_notes = pgTable('crm_contact_notes', {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    contact_id: bigint('contact_id', { mode: 'number' }).notNull().references(() => contacts.id, { onDelete: 'cascade' }),
+    user_id: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body').notNull(),
+    created_at: timestamp('created_at').defaultNow(),
+});
+
 export const tickets = pgTable('at_tickets', {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -161,6 +174,7 @@ export type Queue = typeof queues.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
 export type CrmSalesReason = typeof crm_sales_reasons.$inferSelect;
 export type CrmKeyword = typeof crm_keywords.$inferSelect;
+export type CrmContactNote = typeof crm_contact_notes.$inferSelect;
 export type Ticket = typeof tickets.$inferSelect;
 export type AtMessage = typeof atendimento_messages.$inferSelect;
 export type HistoricTicket = typeof historic_tickets.$inferSelect;

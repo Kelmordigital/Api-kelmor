@@ -57,6 +57,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.get('/dashboard/recent', auth, atendimentoController.dashRecent);
     app.get('/dashboard/top-attendants', auth, atendimentoController.dashTopAttendants);
     app.get('/dashboard/channels', auth, atendimentoController.dashChannels);
+    app.get('/dashboard/tickets-by-connection', auth, atendimentoController.dashTicketsByConnection);
 
     // CRM reasons CRUD
     app.get('/reasons', auth, atendimentoController.listReasons);

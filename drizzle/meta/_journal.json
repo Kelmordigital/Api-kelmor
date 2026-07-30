@@ -246,6 +246,13 @@
       "when": 1785080595730,
       "tag": "0034_woozy_ikaris",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785277213867,
+      "tag": "0035_magenta_barracuda",
+      "breakpoints": true
     }
   ]
 }

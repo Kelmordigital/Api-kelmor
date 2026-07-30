@@ -7,13 +7,39 @@ import {
 import { AttendantLimitReachedError } from './attendant-capacity.service';
 import { messageService, withAttendantNamePrefix } from './message.service';
 import { users } from '../auth/auth.schema';
-import { dashboardService, parsePeriod } from './dashboard.service';
+import { dashboardService, parsePeriod, parseDashboardFilter, DateRangeTooLargeError, DashboardScope } from './dashboard.service';
 import { produtoService } from '../produtos/produto.service';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 import { agendamentoMensagensService, TicketSemConexaoError } from '../agendamento-mensagens/agendamento-mensagens.service';
 import { db } from '../../database/client';
 import { companies } from '../companies/company.db.schema';
 import { eq } from 'drizzle-orm';
+
+/**
+ * Lê e valida o filtro do dashboard (período/datas/conexão/fila/usuário) e resolve o attendantId:
+ * atendente comum é sempre travado nos próprios números, admin pode escolher via query.
+ * Retorna null (e já responde 400) quando o intervalo de datas exceder o limite.
+ */
+function getDashboardScope(req: FastifyRequest, reply: FastifyReply): DashboardScope | null {
+    try {
+        const parsed = parseDashboardFilter(req.query as Record<string, unknown>);
+        const { profile_tag, id: userId } = req.user;
+        return {
+            period:       parsed.period,
+            startDate:    parsed.startDate,
+            endDate:      parsed.endDate,
+            connectionId: parsed.connectionId,
+            queueId:      parsed.queueId,
+            attendantId:  profile_tag === 'user' ? userId : parsed.attendantUserId,
+        };
+    } catch (err) {
+        if (err instanceof DateRangeTooLargeError) {
+            reply.status(400).send({ error: err.message });
+            return null;
+        }
+        throw err;
+    }
+}
 
 export const atendimentoController = {
 
@@ -428,26 +454,30 @@ export const atendimentoController = {
     // ────── Analytics de vendas ──────
 
     async dashboardNotSalesByConnection(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
-        const data = await dashboardService.notSalesByConnection(req.user.company_id!, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const data = await dashboardService.notSalesByConnection(req.user.company_id!, scope);
         return reply.send(data);
     },
 
     async dashboardNotSalesByChannel(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
-        const data = await dashboardService.notSalesByChannel(req.user.company_id!, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const data = await dashboardService.notSalesByChannel(req.user.company_id!, scope);
         return reply.send(data);
     },
 
     async dashboardSalesByConnection(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
-        const data = await dashboardService.salesByConnection(req.user.company_id!, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const data = await dashboardService.salesByConnection(req.user.company_id!, scope);
         return reply.send(data);
     },
 
     async dashboardSalesByChannel(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate: string; endDate: string };
-        const data = await dashboardService.salesByChannel(req.user.company_id!, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const data = await dashboardService.salesByChannel(req.user.company_id!, scope);
         return reply.send(data);
     },
 
@@ -465,70 +495,69 @@ export const atendimentoController = {
     // ────── Novos endpoints de dashboard por período ──────
 
     async dashKpis(req: FastifyRequest, reply: FastifyReply) {
-        const { period: raw } = req.query as { period?: string };
-        const period = parsePeriod(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'superAdmin') {
-            return reply.send(await dashboardService.getSuperAdminStats(period));
+            const { period: raw } = req.query as { period?: string };
+            return reply.send(await dashboardService.getSuperAdminStats(parsePeriod(raw)));
         }
 
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboardService.getKpis(company_id!, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getKpis(company_id!, scope));
     },
 
     async dashGraph(req: FastifyRequest, reply: FastifyReply) {
-        const { period: raw } = req.query as { period?: string };
-        const period = parsePeriod(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'superAdmin') {
-            return reply.send(await dashboardService.getSuperAdminGraph(period));
+            const { period: raw } = req.query as { period?: string };
+            return reply.send(await dashboardService.getSuperAdminGraph(parsePeriod(raw)));
         }
 
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboardService.getGraph(company_id!, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getGraph(company_id!, scope));
     },
 
     async dashFunnel(req: FastifyRequest, reply: FastifyReply) {
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'superAdmin') {
             return reply.send(await dashboardService.getSuperAdminFunnel());
         }
 
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboardService.getFunnel(company_id!, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getFunnel(company_id!, scope));
     },
 
     async dashMovimentos(req: FastifyRequest, reply: FastifyReply) {
-        const { period: raw } = req.query as { period?: string };
-        const period = parsePeriod(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'superAdmin') {
             return reply.send([]);
         }
 
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboardService.getMovimentos(company_id!, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getMovimentos(company_id!, scope));
     },
 
     async dashRecent(req: FastifyRequest, reply: FastifyReply) {
         const { limit } = req.query as { limit?: string };
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'superAdmin') {
             return reply.send(await dashboardService.getSuperAdminRecent());
         }
 
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboardService.getRecent(company_id!, Number(limit ?? 5), attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getRecent(company_id!, Number(limit ?? 5), scope));
     },
 
     async dashTopAttendants(req: FastifyRequest, reply: FastifyReply) {
-        const { period: raw } = req.query as { period?: string };
-        const period = parsePeriod(raw);
         const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'user') {
@@ -538,20 +567,33 @@ export const atendimentoController = {
             return reply.send([]);
         }
 
-        return reply.send(await dashboardService.getTopAttendants(company_id, period));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getTopAttendants(company_id, scope));
     },
 
     async dashChannels(req: FastifyRequest, reply: FastifyReply) {
-        const { period: raw } = req.query as { period?: string };
-        const period = parsePeriod(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
 
         if (profile_tag === 'superAdmin' || !company_id) {
             return reply.send([]);
         }
 
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboardService.getChannelsByPeriod(company_id, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getChannelsByPeriod(company_id, scope));
+    },
+
+    async dashTicketsByConnection(req: FastifyRequest, reply: FastifyReply) {
+        const { profile_tag, company_id } = req.user;
+
+        if (profile_tag === 'superAdmin' || !company_id) {
+            return reply.send([]);
+        }
+
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getTicketsByConnection(company_id, scope));
     },
 
     // ────── Financeiro ──────

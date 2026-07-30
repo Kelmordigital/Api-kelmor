@@ -37,6 +37,7 @@ import { apiMessagesRoutes } from '../modules/api-messages/api-messages.routes';
 import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
 import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
+import { crmTimelineRoutes } from '../modules/crm/crm-timeline.routes';
 import { superadminRoutes } from '../modules/superadmin/superadmin.routes';
 import { recordHttpRequest } from '../modules/monitoring/monitoring.metrics';
 import { monitoringRoutes } from '../modules/monitoring/monitoring.routes';
@@ -176,6 +177,7 @@ export function buildApp() {
     app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
     app.register(crmConfigRoutes, { prefix: '/api/v1/crm' });
+    app.register(crmTimelineRoutes, { prefix: '/api/v1' });
     app.register(superadminRoutes, { prefix: '/api/v1/superadmin' });
 
     // Webhook da API Oficial do WhatsApp (Cloud API) — chamado pela META.
