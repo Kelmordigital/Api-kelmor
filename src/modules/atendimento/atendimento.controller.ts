@@ -3,7 +3,12 @@ import { contactService } from './contact.service';
 import {
     ticketService, AtendenteNaoElegivelError, TransferenciaParaSiMesmoError, ReturnTicketPermissionError,
     ensureCanViewTicketMessages, ensureCanSendToTicket, SpyTicketPermissionError,
+    FunilDestinoInvalidoError, FunilMovimentoNaoAutorizadoError,
 } from './ticket.service';
+import {
+    funilStageService, FunilStageProtegidaError, FunilStageNomeDuplicadoError,
+    FunilStageComTicketsError, FunilStageNaoEncontradaError,
+} from './funil-stage.service';
 import { AttendantLimitReachedError } from './attendant-capacity.service';
 import { messageService, withAttendantNamePrefix } from './message.service';
 import { users } from '../auth/auth.schema';
@@ -254,7 +259,7 @@ export const atendimentoController = {
             phone?: string;
             email?: string;
             notes?: string;
-            funil_stage?: string;
+            funil_stage_id?: number;
         };
         const card = await ticketService.createFunilLead(companyId, payload);
         return reply.status(201).send(card);
@@ -266,12 +271,82 @@ export const atendimentoController = {
         return reply.send(cards);
     },
 
+    async listFunilStages(req: FastifyRequest, reply: FastifyReply) {
+        const stages = await funilStageService.listStages(req.user.company_id!);
+        return reply.send(stages);
+    },
+
+    async createFunilStage(req: FastifyRequest, reply: FastifyReply) {
+        const { name, color } = req.body as { name?: string; color?: string };
+        if (!name?.trim()) return reply.status(400).send({ error: 'name obrigatório' });
+        try {
+            const stage = await funilStageService.createStage(req.user.company_id!, name.trim(), color?.trim() || 'bg-blue-500');
+            return reply.status(201).send(stage);
+        } catch (err) {
+            if (err instanceof FunilStageNomeDuplicadoError) return reply.status(409).send({ error: err.message });
+            throw err;
+        }
+    },
+
     async updateFunilStage(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const { stage } = req.body as { stage: string };
-        if (!stage) return reply.status(400).send({ error: 'stage obrigatório' });
-        const ticket = await ticketService.updateFunilStage(Number(id), stage, req.user.company_id!);
-        return reply.send(ticket);
+        const { name, color } = req.body as { name?: string; color?: string };
+        try {
+            const stage = await funilStageService.updateStage(Number(id), req.user.company_id!, {
+                name: name?.trim() || undefined,
+                color: color?.trim() || undefined,
+            });
+            return reply.send(stage);
+        } catch (err) {
+            if (err instanceof FunilStageNaoEncontradaError) return reply.status(404).send({ error: err.message });
+            if (err instanceof FunilStageProtegidaError) return reply.status(403).send({ error: err.message });
+            if (err instanceof FunilStageNomeDuplicadoError) return reply.status(409).send({ error: err.message });
+            throw err;
+        }
+    },
+
+    async deleteFunilStage(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        try {
+            await funilStageService.deleteStage(Number(id), req.user.company_id!);
+            return reply.status(204).send();
+        } catch (err) {
+            if (err instanceof FunilStageNaoEncontradaError) return reply.status(404).send({ error: err.message });
+            if (err instanceof FunilStageProtegidaError) return reply.status(403).send({ error: err.message });
+            if (err instanceof FunilStageComTicketsError) return reply.status(409).send({ error: err.message });
+            throw err;
+        }
+    },
+
+    async reorderFunilStages(req: FastifyRequest, reply: FastifyReply) {
+        const { orderedIds } = req.body as { orderedIds?: number[] };
+        if (!Array.isArray(orderedIds)) return reply.status(400).send({ error: 'orderedIds obrigatório' });
+        await funilStageService.reorderStages(req.user.company_id!, orderedIds);
+        return reply.send({ ok: true });
+    },
+
+    async getFunilAnalytics(req: FastifyRequest, reply: FastifyReply) {
+        const { period } = req.query as { period?: string };
+        const funnel = await funilStageService.getConversionFunnel(req.user.company_id!, parsePeriod(period));
+        return reply.send(funnel);
+    },
+
+    async moveTicketFunilStage(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const { destinationStageId } = req.body as { destinationStageId?: number };
+        if (!destinationStageId) return reply.status(400).send({ error: 'destinationStageId obrigatório' });
+        try {
+            const ticket = await ticketService.moveTicketFunilStage(
+                Number(id), destinationStageId, req.user.id, req.user.company_id!, req.user.profile_tag,
+            );
+            return reply.send(ticket);
+        } catch (err) {
+            if (err instanceof FunilDestinoInvalidoError) return reply.status(409).send({ error: err.message });
+            if (err instanceof FunilMovimentoNaoAutorizadoError) return reply.status(403).send({ error: err.message });
+            if (err instanceof ReturnTicketPermissionError) return reply.status(403).send({ error: err.message });
+            if (err instanceof AttendantLimitReachedError) return reply.status(409).send({ error: err.message });
+            throw err;
+        }
     },
 
     async registerSale(req: FastifyRequest, reply: FastifyReply) {
@@ -464,6 +539,20 @@ export const atendimentoController = {
         const scope = getDashboardScope(req, reply);
         if (!scope) return;
         const data = await dashboardService.notSalesByChannel(req.user.company_id!, scope);
+        return reply.send(data);
+    },
+
+    async dashboardNotSalesByReason(req: FastifyRequest, reply: FastifyReply) {
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const data = await dashboardService.notSalesByReason(req.user.company_id!, scope);
+        return reply.send(data);
+    },
+
+    async dashboardNotSalesByReasonOverTime(req: FastifyRequest, reply: FastifyReply) {
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const data = await dashboardService.notSalesByReasonOverTime(req.user.company_id!, scope);
         return reply.send(data);
     },
 

@@ -82,6 +82,24 @@ export const crm_contact_notes = pgTable('crm_contact_notes', {
     created_at: timestamp('created_at').defaultNow(),
 });
 
+// Etapas do quadro Kanban (Funil de atendimento), configuráveis por empresa.
+// "Aguardando" e "Finalizado" são as duas protegidas (is_waiting_stage/
+// is_finished_stage) — no máximo uma de cada por empresa, nunca editáveis/
+// excluíveis pela UI. As etapas do meio são livres, criadas/reordenadas pela
+// própria empresa (ver docs/superpowers/specs/2026-07-30-kanban-funil-design.md).
+export const funil_stages = pgTable('funil_stages', {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 100 }).notNull(),
+    color: varchar('color', { length: 50 }).notNull().default('bg-blue-500'),
+    position: integer('position').notNull().default(0),
+    is_waiting_stage: boolean('is_waiting_stage').notNull().default(false),
+    is_finished_stage: boolean('is_finished_stage').notNull().default(false),
+    created_at: timestamp('created_at').defaultNow(),
+});
+
+export type FunilStage = typeof funil_stages.$inferSelect;
+
 export const tickets = pgTable('at_tickets', {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
@@ -103,9 +121,23 @@ export const tickets = pgTable('at_tickets', {
     pinned: integer('pinned').default(0),        // 1 = fixado no topo
     is_transfer: integer('is_transfer').default(0), // 1 = foi transferido
     funil_stage: varchar('funil_stage', { length: 50 }).notNull().default('novos_leads'),
+    funil_stage_id: bigint('funil_stage_id', { mode: 'number' }).references(() => funil_stages.id, { onDelete: 'set null' }),
     created_at: timestamp('created_at').defaultNow(),
     updated_at: timestamp('updated_at').defaultNow(),
     deleted_at: timestamp('deleted_at'),
+});
+
+// Histórico de entrada em cada etapa do funil, pra alimentar o gráfico de
+// conversão (visão "Funil" do Kanban). Só passa a existir a partir de quando
+// essa feature foi criada — sem backfill de dados antigos. Uma linha por
+// entrada real na etapa (criação do ticket = entrada em Aguardando, e cada
+// vez que moveTicketFunilStage efetiva uma troca de etapa).
+export const funil_stage_history = pgTable('funil_stage_history', {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    company_id: uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+    ticket_id: bigint('ticket_id', { mode: 'number' }).notNull().references(() => tickets.id, { onDelete: 'cascade' }),
+    funil_stage_id: bigint('funil_stage_id', { mode: 'number' }).notNull().references(() => funil_stages.id, { onDelete: 'cascade' }),
+    entered_at: timestamp('entered_at').defaultNow(),
 });
 
 export const atendimento_messages = pgTable('at_messages', {

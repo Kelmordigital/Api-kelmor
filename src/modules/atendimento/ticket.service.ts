@@ -9,6 +9,7 @@ import { emitToCompany } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 import { filaService } from '../filas/fila.service';
 import { attendantHasCapacity, AttendantLimitReachedError } from './attendant-capacity.service';
+import { funilStageService } from './funil-stage.service';
 
 // XP do mini-game de Conquistas: só quando o próprio fechamento é uma venda
 // (ticket.is_sale === 1 no momento em que o fechamento se efetiva). Fechar
@@ -133,13 +134,20 @@ export async function ticketVisibilityCondition(
 
 export interface FunilCard {
     id: number;
-    funil_stage: string;
+    funil_stage_id: number;
     contact_id: number;
     contact_name: string;
     contact_number: string | null;
     contact_profile_pic_url: string | null;
     status_id: number;
+    attendant_user_id: string | null;
     created_at: Date | null;
+}
+
+export class FunilDestinoInvalidoError extends Error {}
+
+export class FunilMovimentoNaoAutorizadoError extends Error {
+    constructor() { super('Só quem está atendendo (ou um admin) pode mover este card entre colunas.'); }
 }
 
 // Status IDs considerados "ativos" — nova mensagem entra no ticket existente
@@ -232,6 +240,16 @@ export const ticketService = {
             .returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket: created });
+
+        // Alimenta o gráfico de conversão do Kanban (visão "Funil") — só grava
+        // pra empresas com o toggle ligado, senão toda empresa (mesmo sem usar
+        // Kanban) ganharia etapas provisionadas e histórico crescendo à toa.
+        const perms = await getCompanyPermissions(companyId);
+        if (perms.active_kanban) {
+            const stages = await funilStageService.listStages(companyId);
+            const waitingStage = stages.find((s) => s.is_waiting_stage)!;
+            await funilStageService.recordStageEntry(companyId, created.id, waitingStage.id);
+        }
 
         // Sem bot ativo: se a conexão tiver exatamente 1 fila ativa vinculada,
         // o ticket já nasce roteado pra ela (mesma lógica do nó "Transferir" do bot).
@@ -1075,7 +1093,7 @@ export const ticketService = {
         phone?: string;
         email?: string;
         notes?: string;
-        funil_stage?: string;
+        funil_stage_id?: number;
     }): Promise<FunilCard> {
         const { contactService } = await import('./contact.service');
 
@@ -1103,26 +1121,33 @@ export const ticketService = {
             contact = created;
         }
 
-        const stage = payload.funil_stage || 'novos_leads';
+        const stages = await funilStageService.listStages(companyId);
+        const middleStages = stages.filter((s) => !s.is_waiting_stage && !s.is_finished_stage);
+        const chosenStageId = payload.funil_stage_id ?? middleStages[0].id;
+
         const [ticket] = await db.insert(tickets).values({
             company_id: companyId,
             contact_id: contact.id,
             status_id: 1,
-            funil_stage: stage,
+            funil_stage_id: chosenStageId,
             origin: 'funil_manual',
             ocurrence: payload.notes?.trim() || null,
         }).returning();
 
         emitToCompany(companyId, 'ticket:created', { ticket });
 
+        const waitingStage = stages.find((s) => s.is_waiting_stage)!;
+        await funilStageService.recordStageEntry(companyId, ticket.id, waitingStage.id);
+
         return {
             id: ticket.id,
-            funil_stage: stage,
+            funil_stage_id: funilStageService.resolveEffectiveStageId(ticket, stages),
             contact_id: contact.id,
             contact_name: contact.name,
             contact_number: contact.number ?? null,
             contact_profile_pic_url: contact.profile_pic_url ?? null,
             status_id: 1,
+            attendant_user_id: null,
             created_at: ticket.created_at,
         };
     },
@@ -1130,8 +1155,10 @@ export const ticketService = {
     async getFunilCards(companyId: string, search?: string): Promise<FunilCard[]> {
         const conditions: ReturnType<typeof eq>[] = [
             eq(tickets.company_id, companyId),
-            inArray(tickets.status_id, [1, 2]) as any,
             isNull(tickets.deleted_at),
+            // Finalizado some do quadro 24h depois de fechar — sem isso a coluna
+            // só cresce pra sempre com todo ticket já fechado da empresa.
+            or(ne(tickets.status_id, 3), gte(tickets.updated_at, sql`now() - interval '24 hours'`)) as any,
         ];
 
         if (search) {
@@ -1148,35 +1175,99 @@ export const ticketService = {
             conditions.push(inArray(tickets.contact_id, ids) as any);
         }
 
-        return db
-            .select({
-                id: tickets.id,
-                funil_stage: tickets.funil_stage,
-                contact_id: tickets.contact_id,
-                contact_name: contacts.name,
-                contact_number: contacts.number,
-                contact_profile_pic_url: contacts.profile_pic_url,
-                status_id: tickets.status_id,
-                created_at: tickets.created_at,
-            })
-            .from(tickets)
-            .leftJoin(contacts, eq(tickets.contact_id, contacts.id))
-            .where(and(...conditions))
-            .orderBy(desc(tickets.created_at)) as Promise<FunilCard[]>;
+        const [stages, rows] = await Promise.all([
+            funilStageService.listStages(companyId),
+            db
+                .select({
+                    id: tickets.id,
+                    funil_stage_id: tickets.funil_stage_id,
+                    contact_id: tickets.contact_id,
+                    contact_name: contacts.name,
+                    contact_number: contacts.number,
+                    contact_profile_pic_url: contacts.profile_pic_url,
+                    status_id: tickets.status_id,
+                    attendant_user_id: tickets.attendant_user_id,
+                    created_at: tickets.created_at,
+                })
+                .from(tickets)
+                .leftJoin(contacts, eq(tickets.contact_id, contacts.id))
+                .where(and(...conditions))
+                .orderBy(desc(tickets.created_at)),
+        ]);
+
+        return rows.map((row) => ({
+            ...row,
+            funil_stage_id: funilStageService.resolveEffectiveStageId(row, stages),
+        })) as FunilCard[];
     },
 
-    async updateFunilStage(ticketId: number, stage: string, companyId: string): Promise<Ticket> {
-        const VALID_STAGES = ['novos_leads', 'primeiro_contato', 'agendado', 'atendimento', 'convertido'];
-        if (!VALID_STAGES.includes(stage)) throw new Error('Etapa inválida');
-
-        const [updated] = await db
-            .update(tickets)
-            .set({ funil_stage: stage, updated_at: new Date() })
+    /**
+     * Árvore de decisão do drag-and-drop do Kanban: reaproveita assignAttendant/
+     * reopen/returnToQueue (cada um já com suas próprias checagens de permissão/
+     * capacidade) — mover um card sempre dispara a ação real de negócio
+     * equivalente, nunca só um valor visual. Finalizado nunca é destino válido
+     * aqui: fechar exige a classificação de venda (fluxo separado, ver CrmModal).
+     */
+    async moveTicketFunilStage(
+        ticketId: number,
+        destinationStageId: number,
+        userId: string,
+        companyId: string,
+        profileTag: string,
+    ): Promise<Ticket> {
+        const [current] = await db.select().from(tickets)
             .where(and(eq(tickets.id, ticketId), eq(tickets.company_id, companyId)))
-            .returning();
+            .limit(1);
+        if (!current) throw new Error('Ticket não encontrado');
 
-        if (!updated) throw new Error('Ticket não encontrado');
-        emitToCompany(companyId, 'ticket:funil_stage_updated', { ticketId, stage });
+        const stages = await funilStageService.listStages(companyId);
+        const destination = stages.find((s) => s.id === destinationStageId);
+        if (!destination) throw new FunilDestinoInvalidoError('Etapa de destino não encontrada.');
+
+        const originStageId = funilStageService.resolveEffectiveStageId(current, stages);
+        if (originStageId === destinationStageId) return current;
+
+        if (destination.is_finished_stage) {
+            throw new FunilDestinoInvalidoError('Fechar o atendimento pelo Kanban exige classificar a venda — use o fluxo de fechamento.');
+        }
+
+        if (current.status_id === 3 && destination.is_waiting_stage) {
+            throw new FunilDestinoInvalidoError('Reabra o atendimento antes de devolver para a fila.');
+        }
+
+        if (current.status_id === 3) {
+            const reopened = await this.reopen(ticketId, userId, companyId, profileTag);
+            const [updated] = await db.update(tickets).set({ funil_stage_id: destinationStageId })
+                .where(eq(tickets.id, ticketId)).returning();
+            await funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
+            return updated ?? reopened;
+        }
+
+        if (current.status_id === 1 || current.status_id === 9) {
+            const accepted = await this.assignAttendant(ticketId, userId, companyId);
+            const [updated] = await db.update(tickets).set({ funil_stage_id: destinationStageId })
+                .where(eq(tickets.id, ticketId)).returning();
+            await funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
+            return updated ?? accepted;
+        }
+
+        if (destination.is_waiting_stage) {
+            const returned = await this.returnToQueue(ticketId, userId, companyId, profileTag);
+            await funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
+            return returned;
+        }
+
+        const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
+        if (current.attendant_user_id !== userId && !isAdmin) {
+            throw new FunilMovimentoNaoAutorizadoError();
+        }
+
+        const [updated] = await db.update(tickets)
+            .set({ funil_stage_id: destinationStageId, updated_at: new Date() })
+            .where(eq(tickets.id, ticketId))
+            .returning();
+        emitToCompany(companyId, 'ticket:updated', { ticket: updated });
+        await funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
         return updated;
     },
 

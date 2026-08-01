@@ -48,6 +48,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.get('/dashboard/sales-by-channel',        auth, atendimentoController.dashboardSalesByChannel);
     app.get('/dashboard/not-sales-by-connection', auth, atendimentoController.dashboardNotSalesByConnection);
     app.get('/dashboard/not-sales-by-channel',    auth, atendimentoController.dashboardNotSalesByChannel);
+    app.get('/dashboard/not-sales-by-reason',     auth, atendimentoController.dashboardNotSalesByReason);
+    app.get('/dashboard/not-sales-by-reason-over-time', auth, atendimentoController.dashboardNotSalesByReasonOverTime);
 
     // Dashboard por período (novos)
     app.get('/dashboard/kpis', auth, atendimentoController.dashKpis);
@@ -66,7 +68,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     // Funil Kanban de atendimento
     app.get('/funil/cards',               auth, atendimentoController.getFunilCards);
     app.post('/funil/leads',              auth, atendimentoController.createFunilLead);
-    app.patch('/tickets/:id/funil-stage', auth, atendimentoController.updateFunilStage);
+    app.patch('/tickets/:id/funil-stage', auth, atendimentoController.moveTicketFunilStage);
+
+    app.get('/funil/stages',           auth, atendimentoController.listFunilStages);
+    app.post('/funil/stages',          auth, atendimentoController.createFunilStage);
+    app.put('/funil/stages/reorder',   auth, atendimentoController.reorderFunilStages);
+    app.put('/funil/stages/:id',       auth, atendimentoController.updateFunilStage);
+    app.delete('/funil/stages/:id',    auth, atendimentoController.deleteFunilStage);
+    app.get('/funil/analytics',        auth, atendimentoController.getFunilAnalytics);
 
     // Financeiro
     app.get('/financeiro/kpis',      auth, atendimentoController.financeiroKpis);

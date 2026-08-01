@@ -114,12 +114,12 @@ export const dashboardService = {
         const { start, end } = resolveInterval(scope);
         return db
             .select({
-                label: connections.name,
+                label: sql<string>`coalesce(${connections.name}, 'Sem conexão')`,
                 total: sql<number>`count(*)::int`,
                 totalEmVendas: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)`,
             })
             .from(tickets)
-            .innerJoin(connections, eq(connections.id, tickets.connection_id))
+            .leftJoin(connections, eq(connections.id, tickets.connection_id))
             .where(and(
                 eq(tickets.company_id, companyId),
                 eq(tickets.is_sale, 1),
@@ -138,11 +138,11 @@ export const dashboardService = {
         const { start, end } = resolveInterval(scope);
         return db
             .select({
-                label: connections.name,
+                label: sql<string>`coalesce(${connections.name}, 'Sem conexão')`,
                 total: sql<number>`count(*)::int`,
             })
             .from(tickets)
-            .innerJoin(connections, eq(connections.id, tickets.connection_id))
+            .leftJoin(connections, eq(connections.id, tickets.connection_id))
             .where(and(
                 eq(tickets.company_id, companyId),
                 eq(tickets.is_sale, 0),
@@ -177,6 +177,107 @@ export const dashboardService = {
             ))
             .groupBy(tickets.origin)
             .orderBy(sql`count(*) desc`);
+    },
+
+    async notSalesByReason(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
+        return db
+            .select({
+                label: sql<string>`coalesce(${crm_sales_reasons.reason}, 'Sem motivo')`,
+                total: sql<number>`count(*)::int`,
+            })
+            .from(tickets)
+            .leftJoin(crm_sales_reasons, eq(crm_sales_reasons.id, tickets.reasons_id))
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.is_sale, 0),
+                eq(tickets.status_id, 3),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
+            ))
+            .groupBy(crm_sales_reasons.id, crm_sales_reasons.reason)
+            .orderBy(sql`count(*) desc`);
+    },
+
+    /**
+     * Pivotado ao longo do tempo (mesma granularidade do gráfico "Novos
+     * Contatos" — hora/dia da semana/dia do mês/mês — ver getGraph) pra
+     * alimentar o gráfico empilhado por motivo. `updated_at` (não
+     * `created_at`) porque o que importa aqui é quando a não-venda aconteceu
+     * (fechamento), igual às outras queries de not-sales desta empresa.
+     */
+    async notSalesByReasonOverTime(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
+        const period = scope.period;
+        const exact = Boolean(scope.startDate && scope.endDate);
+
+        const slotCol = exact
+            ? sql<string>`DATE(${tickets.updated_at})::text`
+            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${tickets.updated_at})::int`
+            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${tickets.updated_at})::int`
+            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.updated_at})::int`
+                                 : sql<number>`EXTRACT(MONTH FROM ${tickets.updated_at})::int`;
+
+        const rows = await db
+            .select({
+                slot:   slotCol,
+                reason: sql<string>`coalesce(${crm_sales_reasons.reason}, 'Sem motivo')`,
+                total:  sql<number>`count(*)::int`,
+            })
+            .from(tickets)
+            .leftJoin(crm_sales_reasons, eq(crm_sales_reasons.id, tickets.reasons_id))
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.is_sale, 0),
+                eq(tickets.status_id, 3),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
+            ))
+            .groupBy(slotCol, crm_sales_reasons.id, crm_sales_reasons.reason);
+
+        const reasons = [...new Set(rows.map((r) => r.reason))];
+
+        let slots: Array<{ slot: string | number; label: string }>;
+        if (exact && scope.startDate && scope.endDate) {
+            slots = [];
+            const cursor = new Date(`${scope.startDate}T00:00:00`);
+            const rangeEnd = new Date(`${scope.endDate}T00:00:00`);
+            while (cursor <= rangeEnd) {
+                const iso = cursor.toISOString().slice(0, 10);
+                slots.push({ slot: iso, label: `${iso.slice(8, 10)}/${iso.slice(5, 7)}` });
+                cursor.setDate(cursor.getDate() + 1);
+            }
+        } else if (period === 'day') {
+            slots = Array.from({ length: 24 }, (_, i) => ({ slot: i, label: `${i}h` }));
+        } else if (period === 'week') {
+            const WEEK_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+            slots = WEEK_LABELS.map((label, i) => ({ slot: i + 1, label })); // ISODOW: 1=Seg..7=Dom
+        } else if (period === 'month') {
+            const now = new Date();
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            slots = Array.from({ length: daysInMonth }, (_, i) => ({ slot: i + 1, label: String(i + 1).padStart(2, '0') }));
+        } else {
+            const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            slots = MONTH_LABELS.map((label, i) => ({ slot: i + 1, label }));
+        }
+
+        const buckets = slots.map(({ slot, label }) => {
+            const bucket: Record<string, number | string> = { slot, label, total: 0 };
+            for (const name of reasons) bucket[name] = 0;
+            for (const row of rows.filter((r) => r.slot === slot)) {
+                bucket[row.reason] = row.total;
+                (bucket.total as number) += row.total;
+            }
+            return bucket;
+        });
+
+        return { reasons, buckets };
     },
 
     async salesByChannel(companyId: string, scope: DashboardScope) {
@@ -436,11 +537,11 @@ export const dashboardService = {
         const { start, end } = resolveInterval(scope);
 
         return db.select({
-            label: connections.name,
+            label: sql<string>`coalesce(${connections.name}, 'Sem conexão')`,
             total: sql<number>`count(*)::int`,
         })
         .from(tickets)
-        .innerJoin(connections, eq(connections.id, tickets.connection_id))
+        .leftJoin(connections, eq(connections.id, tickets.connection_id))
         .where(and(
             eq(tickets.company_id, companyId),
             isNull(tickets.deleted_at),
