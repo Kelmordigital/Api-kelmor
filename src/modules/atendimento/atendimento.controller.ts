@@ -570,6 +570,14 @@ export const atendimentoController = {
         return reply.send(data);
     },
 
+    async dashboardTopCustomers(req: FastifyRequest, reply: FastifyReply) {
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        const { limit } = req.query as { limit?: string };
+        const data = await dashboardService.topCustomers(req.user.company_id!, scope, limit ? Number(limit) : undefined);
+        return reply.send(data);
+    },
+
     async listReasons(req: FastifyRequest, reply: FastifyReply) {
         const data = await dashboardService.listReasons(req.user.company_id!);
         return reply.send(data);

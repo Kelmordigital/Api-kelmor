@@ -303,6 +303,33 @@ export const dashboardService = {
             .orderBy(sql`count(*) desc`);
     },
 
+    /** Top clientes por valor gasto no período — card "Maiores clientes" do AdminDashboard. */
+    async topCustomers(companyId: string, scope: DashboardScope, limit = 5) {
+        const { start, end } = resolveInterval(scope);
+        return db
+            .select({
+                contactId: tickets.contact_id,
+                name: contacts.name,
+                pedidos: sql<number>`count(*)::int`,
+                total: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)`,
+            })
+            .from(tickets)
+            .innerJoin(contacts, eq(contacts.id, tickets.contact_id))
+            .where(and(
+                eq(tickets.company_id, companyId),
+                eq(tickets.is_sale, 1),
+                eq(tickets.status_id, 3),
+                eq(tickets.service_not_made, 0),
+                isNull(tickets.deleted_at),
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
+            ))
+            .groupBy(tickets.contact_id, contacts.name)
+            .orderBy(sql`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0) desc`)
+            .limit(limit);
+    },
+
     async listReasons(companyId: string) {
         return db.select().from(crm_sales_reasons).where(eq(crm_sales_reasons.company_id, companyId));
     },

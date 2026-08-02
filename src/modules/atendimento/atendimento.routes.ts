@@ -46,6 +46,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     // Analytics de vendas (AdminDashboard)
     app.get('/dashboard/sales-by-connection',     auth, atendimentoController.dashboardSalesByConnection);
     app.get('/dashboard/sales-by-channel',        auth, atendimentoController.dashboardSalesByChannel);
+    app.get('/dashboard/top-customers',           auth, atendimentoController.dashboardTopCustomers);
     app.get('/dashboard/not-sales-by-connection', auth, atendimentoController.dashboardNotSalesByConnection);
     app.get('/dashboard/not-sales-by-channel',    auth, atendimentoController.dashboardNotSalesByChannel);
     app.get('/dashboard/not-sales-by-reason',     auth, atendimentoController.dashboardNotSalesByReason);
