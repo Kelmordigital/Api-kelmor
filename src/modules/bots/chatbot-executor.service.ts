@@ -445,6 +445,16 @@ function triggerMatches(startNode: BotNode, userMessage: string): boolean {
     return keywords.some(k => msg.includes(k));
 }
 
+/** Fluxo travou no meio da execução: marca a conversa como erro em vez de deixá-la presa em silêncio. */
+async function markError(conversationId: number, err: unknown): Promise<void> {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[ChatbotExecutor] Fluxo falhou:', err);
+    await botsRepository.updateConversation(conversationId, {
+        status: 'error',
+        error_message: message.slice(0, 500),
+    }).catch((e: Error) => console.error('[ChatbotExecutor] Falha ao registrar erro:', e.message));
+}
+
 export const chatbotExecutorService = {
     async execute(
         companyId: string, connectionId: number, phone: string, userMessage: string,
@@ -503,8 +513,12 @@ export const chatbotExecutorService = {
                 });
 
                 const envr: ExecEnv = { companyId, connectionId, phone, ticketId, contactId, botId: bot.id, ctx: baseCtx };
-                const { ended } = await walk(startNode.id, nodeMap, envr, bot, conversation.id);
-                if (ended) await botsRepository.updateConversation(conversation.id, { status: 'ended' });
+                try {
+                    const { ended } = await walk(startNode.id, nodeMap, envr, bot, conversation.id);
+                    if (ended) await botsRepository.updateConversation(conversation.id, { status: 'ended' });
+                } catch (err) {
+                    await markError(conversation.id, err);
+                }
                 return;
             }
 
@@ -517,16 +531,20 @@ export const chatbotExecutorService = {
             const ctx: Context = { ...baseCtx, ...parseContext(conversation.context) };
             const envr: ExecEnv = { companyId, connectionId, phone, ticketId, contactId, botId: bot.id, ctx };
 
-            const { nextId, stay } = await resolveReply(currentNode, userMessage, envr);
+            try {
+                const { nextId, stay } = await resolveReply(currentNode, userMessage, envr);
 
-            if (stay) {
-                await botsRepository.updateConversation(conversation.id, { context: JSON.stringify(ctx) });
-                return;
+                if (stay) {
+                    await botsRepository.updateConversation(conversation.id, { context: JSON.stringify(ctx) });
+                    return;
+                }
+                if (!nextId) return;
+
+                const { ended } = await walk(nextId, nodeMap, envr, bot, conversation.id);
+                if (ended) await botsRepository.updateConversation(conversation.id, { status: 'ended' });
+            } catch (err) {
+                await markError(conversation.id, err);
             }
-            if (!nextId) return;
-
-            const { ended } = await walk(nextId, nodeMap, envr, bot, conversation.id);
-            if (ended) await botsRepository.updateConversation(conversation.id, { status: 'ended' });
 
         } catch (err) {
             console.error('[ChatbotExecutor] Erro ao processar mensagem:', err);

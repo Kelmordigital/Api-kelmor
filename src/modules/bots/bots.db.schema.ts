@@ -55,8 +55,9 @@ export const bot_conversations = pgTable('at_bot_conversations', {
     company_id:      uuid('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
     contact_phone:   varchar('contact_phone', { length: 30 }).notNull(),
     current_node_id: varchar('current_node_id', { length: 36 }),
-    status:          varchar('status', { length: 20 }).default('active').notNull(), // active|ended
+    status:          varchar('status', { length: 20 }).default('active').notNull(), // active|ended|error
     context:         text('context'), // JSON: variáveis capturadas no fluxo ({{nome}}, etc.)
+    error_message:   text('error_message'), // preenchido quando status='error' — exceção que travou o fluxo
     started_at:      timestamp('started_at').defaultNow(),
     updated_at:      timestamp('updated_at').defaultNow(),
 });

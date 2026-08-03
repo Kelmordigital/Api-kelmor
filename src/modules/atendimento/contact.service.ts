@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { db } from '../../database/client';
 import { contacts, tickets, atendimento_messages, Contact } from './atendimento.db.schema';
 import { researchHistorics } from '../pesquisas/pesquisa.db.schema';
+import { etiquetas, contactEtiquetas, Etiqueta } from '../etiquetas/etiqueta.db.schema';
 import { emitToCompany } from '../../shared/socket';
 
 // Status IDs de ticket considerados "abertos" (pendente/em atendimento)
@@ -252,7 +253,7 @@ export const contactService = {
     async listReport(
         companyId: string,
         params: { search?: string; limit?: number; offset?: number }
-    ): Promise<{ contacts: Contact[]; total: number }> {
+    ): Promise<{ contacts: (Contact & { tags: Etiqueta[] })[]; total: number }> {
         const { search, limit = 50, offset = 0 } = params;
 
         const where = search
@@ -280,7 +281,26 @@ export const contactService = {
                 .where(where),
         ]);
 
-        return { contacts: list, total: countRows[0]?.count ?? 0 };
+        // Etiquetas em lote pros contatos da página atual — evita N+1.
+        const ids = list.map(c => String(c.id));
+        const tagRows = ids.length
+            ? await db
+                  .select({ contact_id: contactEtiquetas.contact_id, etiqueta: etiquetas })
+                  .from(contactEtiquetas)
+                  .innerJoin(etiquetas, eq(contactEtiquetas.etiqueta_id, etiquetas.id))
+                  .where(inArray(contactEtiquetas.contact_id, ids))
+            : [];
+
+        const tagsByContact = new Map<string, Etiqueta[]>();
+        for (const row of tagRows) {
+            const arr = tagsByContact.get(row.contact_id) ?? [];
+            arr.push(row.etiqueta);
+            tagsByContact.set(row.contact_id, arr);
+        }
+
+        const withTags = list.map(c => ({ ...c, tags: tagsByContact.get(String(c.id)) ?? [] }));
+
+        return { contacts: withTags, total: countRows[0]?.count ?? 0 };
     },
 
     async exportExcel(companyId: string, search?: string): Promise<Buffer> {

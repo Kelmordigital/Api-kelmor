@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '../../database/client';
 import {
     bots, bot_nodes, bot_conversations,
@@ -101,5 +101,19 @@ export const botsRepository = {
         await db.update(bot_conversations)
             .set({ ...data, updated_at: new Date() })
             .where(eq(bot_conversations.id, id));
+    },
+
+    async countActiveConversations(companyId: string): Promise<number> {
+        const [row] = await db
+            .select({ count: sql<number>`cast(count(*) as int)` })
+            .from(bot_conversations)
+            .where(and(eq(bot_conversations.company_id, companyId), eq(bot_conversations.status, 'active')));
+        return row?.count ?? 0;
+    },
+
+    async findConversationsSince(companyId: string, since: Date): Promise<BotConversation[]> {
+        return db.select().from(bot_conversations)
+            .where(and(eq(bot_conversations.company_id, companyId), gte(bot_conversations.started_at, since)))
+            .orderBy(desc(bot_conversations.started_at));
     },
 };

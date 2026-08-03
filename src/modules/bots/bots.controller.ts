@@ -16,6 +16,11 @@ export const botsController = {
         return reply.send(await botsService.list(companyId));
     },
 
+    async stats(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
+        return reply.send(await botsService.getStats(companyId));
+    },
+
     async create(req: FastifyRequest, reply: FastifyReply) {
         const companyId = req.user.company_id!;
         const body = req.body as any;

@@ -102,4 +102,66 @@ export const botsService = {
             queue_id:     n.queue_id ?? null,
         })));
     },
+
+    /**
+     * Mini dashboard da tela de Automações: contagens de fluxos, execuções
+     * (bot_conversations) dos últimos 7 dias por dia, e execuções recentes.
+     */
+    async getStats(companyId: string) {
+        const bots = await botsRepository.findByCompany(companyId);
+
+        const byTrigger: Record<string, number> = {};
+        for (const b of bots) {
+            const key = b.trigger_type ?? 'welcome';
+            byTrigger[key] = (byTrigger[key] ?? 0) + 1;
+        }
+
+        const since = new Date();
+        since.setDate(since.getDate() - 6);
+        since.setHours(0, 0, 0, 0);
+
+        const [conversations, inProgressCount] = await Promise.all([
+            botsRepository.findConversationsSince(companyId, since),
+            botsRepository.countActiveConversations(companyId),
+        ]);
+
+        const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        const buckets = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(since);
+            d.setDate(d.getDate() + i);
+            return { date: d.toISOString().split('T')[0], label: DOW[d.getDay()], count: 0 };
+        });
+        const byDate = new Map(buckets.map(b => [b.date, b]));
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        let todayCount = 0;
+        let errorCount = 0;
+        for (const c of conversations) {
+            const dateStr = new Date(c.started_at!).toISOString().split('T')[0];
+            const bucket = byDate.get(dateStr);
+            if (bucket) bucket.count++;
+            if (dateStr === todayStr) todayCount++;
+            if (c.status === 'error') errorCount++;
+        }
+
+        const botNameById = new Map(bots.map(b => [b.id, b.name]));
+        const recentExecutions = conversations.slice(0, 8).map(c => ({
+            bot_name:      botNameById.get(c.bot_id) ?? 'Fluxo removido',
+            started_at:    c.started_at!.toISOString(),
+            status:        c.status,
+            error_message: c.error_message ?? null,
+        }));
+
+        return {
+            active_bots:        bots.filter(b => b.active).length,
+            total_bots:         bots.length,
+            today_count:        todayCount,
+            in_progress_count:  inProgressCount,
+            error_count:        errorCount,
+            last_7_days_count:  conversations.length,
+            by_trigger:         byTrigger,
+            executions_by_day:  buckets,
+            recent_executions:  recentExecutions,
+        };
+    },
 };

@@ -204,6 +204,17 @@ export const whatsappController = {
         return reply.send({ ok: true });
     },
 
+    // POST /api/v1/whatsapp/connections/:id/pairing-code
+    async requestPairingCode(req: FastifyRequest, reply: FastifyReply) {
+        const { id } = req.params as { id: string };
+        const { phoneNumber } = req.body as { phoneNumber?: string };
+        if (!phoneNumber) {
+            return reply.status(400).send({ error: 'phoneNumber é obrigatório' });
+        }
+        await whatsappService.requestPairingCode(Number(id), phoneNumber);
+        return reply.status(202).send({ message: 'Código de pareamento solicitado.' });
+    },
+
     // ── Chats & mensagens ───────────────────────────────────────────────────
 
     async getChats(req: FastifyRequest, reply: FastifyReply) {
@@ -272,7 +283,7 @@ export const whatsappController = {
 
     async connectionUpdate(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const body = req.body as { type: string; qrCode?: string; serializedId?: string; code?: number; reason?: string };
+        const body = req.body as { type: string; qrCode?: string; pairingCode?: string; serializedId?: string; code?: number; reason?: string };
         await whatsappService.handleConnectionUpdate(Number(id), body);
         return reply.send({ ok: true });
     },

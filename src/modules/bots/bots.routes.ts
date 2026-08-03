@@ -6,6 +6,7 @@ export async function botsRoutes(app: FastifyInstance) {
     const auth = { preHandler: authMiddleware };
 
     app.get('/',                     auth, botsController.list);
+    app.get('/stats',                auth, botsController.stats);
     app.post('/',                    auth, botsController.create);
     app.put('/:id',                  auth, botsController.update);
     app.delete('/:id',               auth, botsController.remove);

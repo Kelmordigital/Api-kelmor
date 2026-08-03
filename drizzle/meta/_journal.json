@@ -267,6 +267,13 @@
       "when": 1785462953352,
       "tag": "0037_narrow_night_nurse",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785720146328,
+      "tag": "0038_bot_conversation_error_message",
+      "breakpoints": true
     }
   ]
 }

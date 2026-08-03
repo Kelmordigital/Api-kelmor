@@ -16,6 +16,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
     app.get('/connections/:id/status',           { preHandler: authMiddleware }, whatsappController.getConnectionStatus);
     app.post('/connections/:id/connect',         { preHandler: authMiddleware }, whatsappController.connectConnection);
     app.delete('/connections/:id/disconnect',    { preHandler: authMiddleware }, whatsappController.disconnectConnection);
+    app.post('/connections/:id/pairing-code',    { preHandler: authMiddleware }, whatsappController.requestPairingCode);
     app.post('/connections/:id/web-token',       { preHandler: authMiddleware }, whatsappController.generateWebToken);
     app.get('/connections/:id/fingerprint',      { preHandler: authMiddleware }, whatsappController.checkConnectionFingerprint);
 

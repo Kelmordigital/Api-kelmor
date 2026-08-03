@@ -1,0 +1,1 @@
+ALTER TABLE "at_bot_conversations" ADD COLUMN "error_message" text;

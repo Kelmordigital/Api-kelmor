@@ -12,8 +12,9 @@ const QR_TTL     = 180;           // 3 minutes
 
 // ── Redis keys por sessão ────────────────────────────────────────────────────
 
-function statusKey(id: number | string) { return `wa:status:${id}`; }
-function qrKey(id: number | string)     { return `wa:qr:${id}`; }
+function statusKey(id: number | string)  { return `wa:status:${id}`; }
+function qrKey(id: number | string)      { return `wa:qr:${id}`; }
+function pairingKey(id: number | string) { return `wa:pairing:${id}`; }
 function convKey(phone: string)          { return `wa:conv:${phone}`; }
 function convsSetKey()                   { return 'wa:conv_phones'; }
 
@@ -114,7 +115,7 @@ export const whatsappService = {
 
     // ── Status & Connection ─────────────────────────────────────────────────
 
-    async getStatus(connectionId?: number): Promise<{ status: string; qr?: string }> {
+    async getStatus(connectionId?: number): Promise<{ status: string; qr?: string; pairingCode?: string }> {
         const id = connectionId ?? Number(SESSION_ID);
         const redis = getRedisClient();
 
@@ -144,7 +145,11 @@ export const whatsappService = {
             }
             return { status: 'qr_ready', qr: qr ?? undefined };
         }
-        if (cached === 'loading_qr' || cached === 'reconnecting' || cached === 'needs_reauth') {
+        if (cached === 'pairing_ready') {
+            const pairingCode = await redis?.get(pairingKey(id)) ?? undefined;
+            return { status: 'pairing_ready', pairingCode: pairingCode ?? undefined };
+        }
+        if (cached === 'loading_qr' || cached === 'loading_pairing' || cached === 'reconnecting' || cached === 'needs_reauth') {
             return { status: cached };
         }
 
@@ -287,6 +292,17 @@ export const whatsappService = {
         }
     },
 
+    async requestPairingCode(connectionId: number, phoneNumber: string): Promise<void> {
+        const id = connectionId;
+        const redis = getRedisClient();
+
+        const payload = { phoneNumber, groups: false, company_id: 1, connection_name: `session-${id}` };
+
+        await baysDelete(`/session/delete/${id}`).catch(() => {});
+        await baysPost(`/session/pairing-code/${id}`, payload);
+        if (redis) await redis.set(statusKey(id), 'loading_pairing', 'EX', STATUS_TTL);
+    },
+
     async disconnect(connectionId?: number): Promise<void> {
         const id = connectionId ?? Number(SESSION_ID);
         const redis = getRedisClient();
@@ -302,6 +318,7 @@ export const whatsappService = {
     async handleConnectionUpdate(connectionId: number, data: {
         type: string;
         qrCode?: string;
+        pairingCode?: string;
         serializedId?: string;
         code?: number;
         reason?: string;
@@ -315,9 +332,15 @@ export const whatsappService = {
             await redis.set(statusKey(id), 'qr_ready', 'EX', STATUS_TTL);
             console.log(`[WA:${id}] QR code received from bays`);
 
+        } else if (data.type === 'pairing-code' && data.pairingCode) {
+            await redis.set(pairingKey(id), data.pairingCode, 'EX', QR_TTL);
+            await redis.set(statusKey(id), 'pairing_ready', 'EX', STATUS_TTL);
+            console.log(`[WA:${id}] Pairing code received from bays`);
+
         } else if (data.type === 'connected') {
             await redis.set(statusKey(id), 'connected', 'EX', STATUS_TTL);
             await redis.del(qrKey(id));
+            await redis.del(pairingKey(id));
             // Reseta circuit breaker e lock de reconexão
             await redis.del(`wa:consec_401:${id}`).catch(() => {});
             await redis.del(`wa:reconnect_lock:${id}`).catch(() => {});
@@ -359,6 +382,7 @@ export const whatsappService = {
         } else if (data.type === 'disconnected') {
             await redis.set(statusKey(id), 'disconnected', 'EX', STATUS_TTL);
             await redis.del(qrKey(id));
+            await redis.del(pairingKey(id));
 
             const { connections } = await import('../atendimento/atendimento.db.schema');
             const { eq } = await import('drizzle-orm');
