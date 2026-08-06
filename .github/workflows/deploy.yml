@@ -21,10 +21,20 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test
       TEST_DATABASE_URL: postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test
+      REDIS_URL: redis://localhost:6379
       BAYS_URL: http://bays-nao-existe-no-ci.invalid
       JWT_SECRET: ci_dummy_jwt_secret_com_mais_de_32_caracteres
       REFRESH_SECRET: ci_dummy_refresh_secret_com_mais_de_32_chars
