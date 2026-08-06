@@ -1,85 +1,76 @@
-name: Deploy API-04
+name: CI/CD API-04
 
 on:
   push:
     branches: [main]
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kelmor
+          POSTGRES_PASSWORD: kelmor123
+          POSTGRES_DB: efacil_db_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test
+      TEST_DATABASE_URL: postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test
+      BAYS_URL: http://bays-nao-existe-no-ci.invalid
+      JWT_SECRET: ci_dummy_jwt_secret_com_mais_de_32_caracteres
+      REFRESH_SECRET: ci_dummy_refresh_secret_com_mais_de_32_chars
+      ADMIN_SECRET: ci_dummy_admin_secret_16
+      WEBHOOK_SECRET: ci_dummy_webhook_secret_16
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
+      - run: npm install
+      - run: npm run db:migrate:test
+      - run: npm test
 
-      - name: Instalar dependencias
-        run: npm install
-
-      - name: Build TypeScript
-        run: npm run build
-
-      - name: Atualizar codigo no servidor
-        uses: appleboy/ssh-action@v1.0.3
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
         with:
-          host: 178.156.131.101
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd /Kelmor/API-04 && git fetch origin main && git clean -fd dist && git reset --hard origin/main
-
-      - name: Copiar dist para o servidor
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: 178.156.131.101
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "dist/"
-          target: "/Kelmor/API-04/"
-
-      - name: Build e deploy no servidor
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: 178.156.131.101
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd /Kelmor/API-04 && docker compose up -d --build --force-recreate
-
-      - name: Notificar Discord - Sucesso
-        if: success()
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build e push
         run: |
-          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "embeds": [{
-                "title": "✅ Deploy concluído — API-04",
-                "color": 3066993,
-                "fields": [
-                  {"name": "Commit", "value": "'"${{ github.event.head_commit.message }}"'", "inline": false},
-                  {"name": "Autor", "value": "'"${{ github.actor }}"'", "inline": true},
-                  {"name": "Branch", "value": "'"${{ github.ref_name }}"'", "inline": true}
-                ],
-                "footer": {"text": "Kelmor Deploy"}
-              }]
-            }'
+          docker build -t ghcr.io/kelmordigital/api-04:${{ github.sha }} -t ghcr.io/kelmordigital/api-04:latest .
+          docker push ghcr.io/kelmordigital/api-04:${{ github.sha }}
+          docker push ghcr.io/kelmordigital/api-04:latest
 
-      - name: Notificar Discord - Falha
-        if: failure()
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Conectar no cluster
+        run: doctl kubernetes cluster kubeconfig save kelmor
+      - name: Atualizar imagem no Deployment
         run: |
-          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "embeds": [{
-                "title": "❌ Deploy FALHOU — API-04",
-                "color": 15158332,
-                "fields": [
-                  {"name": "Commit", "value": "'"${{ github.event.head_commit.message }}"'", "inline": false},
-                  {"name": "Autor", "value": "'"${{ github.actor }}"'", "inline": true},
-                  {"name": "Logs", "value": "[Ver aqui]('"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"')", "inline": true}
-                ],
-                "footer": {"text": "Kelmor Deploy"}
-              }]
-            }'
+          kubectl set image deployment/api-04 api-04=ghcr.io/kelmordigital/api-04:${{ github.sha }} -n prod
+          kubectl rollout status deployment/api-04 -n prod
+ 
