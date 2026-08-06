@@ -37,7 +37,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm install
-      - run: npm run db:migrate:test
+      - run: npm run db:migrate:test > migrate.log 2>&1 || (cat migrate.log && exit 1)
       - run: npm test
 
   build-and-push:
