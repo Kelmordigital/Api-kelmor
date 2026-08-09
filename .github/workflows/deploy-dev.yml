@@ -1,0 +1,84 @@
+name: CI/CD API-04 (dev)
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kelmor
+          POSTGRES_PASSWORD: kelmor123
+          POSTGRES_DB: efacil_db_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test
+      TEST_DATABASE_URL: postgresql://kelmor:kelmor123@localhost:5433/efacil_db_test
+      REDIS_URL: redis://localhost:6379
+      BAYS_URL: http://bays-nao-existe-no-ci.invalid
+      JWT_SECRET: ci_dummy_jwt_secret_com_mais_de_32_caracteres
+      REFRESH_SECRET: ci_dummy_refresh_secret_com_mais_de_32_chars
+      ADMIN_SECRET: ci_dummy_admin_secret_16
+      WEBHOOK_SECRET: ci_dummy_webhook_secret_16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm install
+      - run: npm run db:migrate:test > migrate.log 2>&1 || (cat migrate.log && exit 1)
+      - run: npm test
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build e push
+        run: |
+          docker build -t ghcr.io/kelmordigital/api-04:dev-${{ github.sha }} .
+          docker push ghcr.io/kelmordigital/api-04:dev-${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Conectar no cluster
+        run: doctl kubernetes cluster kubeconfig save kelmor
+      - name: Atualizar imagem no Deployment (dev)
+        run: |
+          kubectl set image deployment/api-04 api-04=ghcr.io/kelmordigital/api-04:dev-${{ github.sha }} -n dev
+          kubectl rollout status deployment/api-04 -n dev
