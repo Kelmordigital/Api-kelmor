@@ -70,5 +70,17 @@ exports.botsRepository = {
             .set({ ...data, updated_at: new Date() })
             .where((0, drizzle_orm_1.eq)(bots_db_schema_1.bot_conversations.id, id));
     },
+    async countActiveConversations(companyId) {
+        const [row] = await client_1.db
+            .select({ count: (0, drizzle_orm_1.sql) `cast(count(*) as int)` })
+            .from(bots_db_schema_1.bot_conversations)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(bots_db_schema_1.bot_conversations.company_id, companyId), (0, drizzle_orm_1.eq)(bots_db_schema_1.bot_conversations.status, 'active')));
+        return row?.count ?? 0;
+    },
+    async findConversationsSince(companyId, since) {
+        return client_1.db.select().from(bots_db_schema_1.bot_conversations)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(bots_db_schema_1.bot_conversations.company_id, companyId), (0, drizzle_orm_1.gte)(bots_db_schema_1.bot_conversations.started_at, since)))
+            .orderBy((0, drizzle_orm_1.desc)(bots_db_schema_1.bot_conversations.started_at));
+    },
 };
 //# sourceMappingURL=bots.repository.js.map

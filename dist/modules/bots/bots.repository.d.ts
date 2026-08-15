@@ -13,5 +13,7 @@ export declare const botsRepository: {
     findActiveConversation(companyId: string, botId: number, phone: string): Promise<BotConversation | undefined>;
     createConversation(data: Omit<typeof bot_conversations.$inferInsert, "id" | "started_at" | "updated_at">): Promise<BotConversation>;
     updateConversation(id: number, data: Partial<typeof bot_conversations.$inferInsert>): Promise<void>;
+    countActiveConversations(companyId: string): Promise<number>;
+    findConversationsSince(companyId: string, since: Date): Promise<BotConversation[]>;
 };
 //# sourceMappingURL=bots.repository.d.ts.map

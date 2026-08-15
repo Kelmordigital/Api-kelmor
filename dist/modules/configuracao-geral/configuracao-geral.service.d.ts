@@ -41,13 +41,17 @@ export interface ConfiguracaoGeralPayload {
     hide_name_indefinitely?: boolean;
     hide_send_no_goodbyemsg?: boolean;
     allow_show_name_on_chat?: boolean;
+    api_messages?: boolean;
     create_ticket_api_msg?: boolean;
     notify_by_email_connection?: boolean;
+    notify_emails?: string[];
     active_crm?: boolean;
     active_kanban?: boolean;
     group_ticket?: boolean;
     google_contacts_auto_sync?: boolean;
     restrict_access_user_historic_tickets?: boolean;
+    gamification_enabled?: boolean;
+    sale_xp_amount?: number;
 }
 /**
  * Retorna a linha de permissões da empresa, criando-a com os defaults do schema
@@ -108,9 +112,12 @@ export declare function getCompanyPermissions(companyId: string): Promise<{
     notify_by_email_connection: boolean;
     active_crm: boolean;
     google_contacts_auto_sync: boolean;
+    gamification_enabled: boolean;
+    sale_xp_amount: number;
 }>;
 export declare const configuracaoGeralService: {
     get(companyId: string): Promise<{
+        notify_emails: string[];
         id: number;
         created_at: Date | null;
         updated_at: Date | null;
@@ -164,11 +171,14 @@ export declare const configuracaoGeralService: {
         notify_by_email_connection: boolean;
         active_crm: boolean;
         google_contacts_auto_sync: boolean;
+        gamification_enabled: boolean;
+        sale_xp_amount: number;
         init_message: string | null;
         end_message: string | null;
         transfer_message: string | null;
     }>;
     update(companyId: string, payload: ConfiguracaoGeralPayload): Promise<{
+        notify_emails: string[];
         id: number;
         created_at: Date | null;
         updated_at: Date | null;
@@ -222,6 +232,8 @@ export declare const configuracaoGeralService: {
         notify_by_email_connection: boolean;
         active_crm: boolean;
         google_contacts_auto_sync: boolean;
+        gamification_enabled: boolean;
+        sale_xp_amount: number;
         init_message: string | null;
         end_message: string | null;
         transfer_message: string | null;

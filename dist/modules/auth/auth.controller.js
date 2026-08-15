@@ -6,10 +6,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.authController = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const zod_1 = require("zod");
+const drizzle_orm_1 = require("drizzle-orm");
 const auth_repository_1 = require("./auth.repository");
 const jwt_1 = require("../../config/jwt");
 const redis_1 = require("../../config/redis");
 const totp_service_1 = require("./totp.service");
+const client_1 = require("../../database/client");
+const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
 const loginSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
     password: zod_1.z.string().min(1),
@@ -68,6 +71,8 @@ async function issueSession(user, reply) {
             company_id: user.company_id,
             finance: user.finance,
             totp_enabled: user.totp_enabled,
+            avatar_url: user.avatar_url,
+            hide_name_active: user.hide_name_active,
         },
     });
 }
@@ -141,6 +146,12 @@ exports.authController = {
         if (!user) {
             return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
         }
+        // Quantas filas/conexões o usuário tem atribuídas — usado no front para
+        // avisar o atendente quando ele não recebe/enxerga atendimentos.
+        const [qCount, cCount] = await Promise.all([
+            client_1.db.select({ n: (0, drizzle_orm_1.sql) `count(*)::int` }).from(atendimento_db_schema_1.userQueues).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.user_id, user.id)),
+            client_1.db.select({ n: (0, drizzle_orm_1.sql) `count(*)::int` }).from(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.user_id, user.id)),
+        ]);
         return reply.send({
             id: user.id,
             name: user.name,
@@ -152,6 +163,10 @@ exports.authController = {
             is_approved: user.is_approved,
             finance: user.finance,
             totp_enabled: user.totp_enabled,
+            avatar_url: user.avatar_url,
+            hide_name_active: user.hide_name_active,
+            queue_count: qCount[0]?.n ?? 0,
+            connection_count: cCount[0]?.n ?? 0,
         });
     },
     async register(req, reply) {

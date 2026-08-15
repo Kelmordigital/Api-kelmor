@@ -26,17 +26,45 @@ async function getCompanyConnectionId(req) {
     return Number(env_1.env.BAYS_SESSION_ID);
 }
 exports.whatsappController = {
-    // ── Status da sessão padrão ─────────────────────────────────────────────
-    // Usa a primeira conexão cadastrada da empresa (não hardcoded session 1)
+    // ── Status da tela de Atendimento ────────────────────────────────────────
+    // A empresa pode ter várias conexões (cada ticket já roteia pela sua
+    // própria connection_id); essa checagem só decide se a tela de
+    // Atendimento mostra a lista de tickets ou o bloqueio "WhatsApp
+    // desconectado" — então "conectado" aqui precisa significar "pelo menos
+    // uma das conexões está online", não só a primeira cadastrada (antes,
+    // com 2 conexões e só a 1ª desconectada, a tela travava mesmo com a
+    // 2ª conectada e tickets de verdade esperando).
     async getStatus(req, reply) {
-        const id = await getCompanyConnectionId(req);
-        const result = await whatsapp_service_1.whatsappService.getStatus(id);
+        const companyId = req.user?.company_id;
+        if (companyId) {
+            const conns = await client_1.db.select({ id: atendimento_db_schema_1.connections.id })
+                .from(atendimento_db_schema_1.connections)
+                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId))
+                .orderBy(atendimento_db_schema_1.connections.id);
+            if (conns.length > 0) {
+                const results = await Promise.all(conns.map(c => whatsapp_service_1.whatsappService.getStatus(c.id)));
+                const connected = results.find(r => r.status === 'connected');
+                return reply.send(connected ?? results[0]);
+            }
+        }
+        const result = await whatsapp_service_1.whatsappService.getStatus(Number(env_1.env.BAYS_SESSION_ID));
         return reply.send(result);
     },
     async connect(req, reply) {
         const id = await getCompanyConnectionId(req);
         await whatsapp_service_1.whatsappService.connect(id);
         return reply.status(202).send({ message: 'Conexão iniciada. Aguardando QR Code...' });
+    },
+    // ── Importar sessão (fingerprint do navegador) ──────────────────────────
+    async generateWebToken(req, reply) {
+        const { id } = req.params;
+        const result = await whatsapp_service_1.whatsappService.generateWebToken(Number(id));
+        return reply.send(result);
+    },
+    async checkConnectionFingerprint(req, reply) {
+        const { id } = req.params;
+        const result = await whatsapp_service_1.whatsappService.checkFingerprint(Number(id));
+        return reply.send(result);
     },
     async disconnect(req, reply) {
         const id = await getCompanyConnectionId(req);
@@ -148,6 +176,16 @@ exports.whatsappController = {
         await whatsapp_service_1.whatsappService.disconnect(Number(id));
         return reply.send({ ok: true });
     },
+    // POST /api/v1/whatsapp/connections/:id/pairing-code
+    async requestPairingCode(req, reply) {
+        const { id } = req.params;
+        const { phoneNumber } = req.body;
+        if (!phoneNumber) {
+            return reply.status(400).send({ error: 'phoneNumber é obrigatório' });
+        }
+        await whatsapp_service_1.whatsappService.requestPairingCode(Number(id), phoneNumber);
+        return reply.status(202).send({ message: 'Código de pareamento solicitado.' });
+    },
     // ── Chats & mensagens ───────────────────────────────────────────────────
     async getChats(req, reply) {
         const { page = '1', limit = '100' } = req.query;
@@ -252,6 +290,16 @@ exports.whatsappController = {
                 error: message,
             });
         }
+    },
+    // ── Extensão de importação de sessão ────────────────────────────────────
+    async downloadExtension(_req, reply) {
+        const response = await fetch(`${env_1.env.BAYS_URL}/session/extension-download`, {
+            headers: { secretkey: env_1.env.BAYS_SECRET_KEY },
+        });
+        const buffer = Buffer.from(await response.arrayBuffer());
+        reply.header('Content-Type', 'application/zip');
+        reply.header('Content-Disposition', 'attachment; filename="kelmor-conecao-extension.zip"');
+        return reply.send(buffer);
     },
     // ── Health ──────────────────────────────────────────────────────────────
     async getHealth(_req, reply) {

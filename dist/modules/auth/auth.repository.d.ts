@@ -10,12 +10,15 @@ export type UserWithProfile = {
     is_approved: boolean;
     finance: boolean;
     totp_enabled: boolean;
+    avatar_url: string | null;
+    hide_name_active: boolean;
 };
 export declare const authRepository: {
     findByEmailWithProfile(email: string): Promise<UserWithProfile | null>;
     findByEmail(email: string): Promise<{
         id: string;
         name: string;
+        nickname: string | null;
         email: string;
         password_hash: string;
         profile_id: number;
@@ -26,12 +29,15 @@ export declare const authRepository: {
         totp_secret: string | null;
         totp_enabled: boolean;
         totp_recovery_codes: unknown;
+        xp: number;
+        hide_name_active: boolean;
         created_at: Date | null;
         updated_at: Date | null;
     }>;
     findById(id: string): Promise<{
         id: string;
         name: string;
+        nickname: string | null;
         email: string;
         password_hash: string;
         profile_id: number;
@@ -42,6 +48,8 @@ export declare const authRepository: {
         totp_secret: string | null;
         totp_enabled: boolean;
         totp_recovery_codes: unknown;
+        xp: number;
+        hide_name_active: boolean;
         created_at: Date | null;
         updated_at: Date | null;
     }>;
@@ -61,6 +69,7 @@ export declare const authRepository: {
         name: string;
         created_at: Date | null;
         updated_at: Date | null;
+        nickname: string | null;
         email: string;
         password_hash: string;
         profile_id: number;
@@ -71,6 +80,8 @@ export declare const authRepository: {
         totp_secret: string | null;
         totp_enabled: boolean;
         totp_recovery_codes: unknown;
+        xp: number;
+        hide_name_active: boolean;
     }>;
     approveUser(userId: string): Promise<{
         id: string;

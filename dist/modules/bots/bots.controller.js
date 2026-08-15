@@ -17,6 +17,10 @@ exports.botsController = {
         const companyId = req.user.company_id;
         return reply.send(await bots_service_1.botsService.list(companyId));
     },
+    async stats(req, reply) {
+        const companyId = req.user.company_id;
+        return reply.send(await bots_service_1.botsService.getStats(companyId));
+    },
     async create(req, reply) {
         const companyId = req.user.company_id;
         const body = req.body;

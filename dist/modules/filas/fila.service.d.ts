@@ -40,6 +40,7 @@ export declare const filaService: {
     eligibleUsers(companyId: string, queueId: number, connectionId: number): Promise<{
         id: string;
         name: string;
+        nickname: string | null;
         email: string;
     }[]>;
     create(companyId: string, payload: {

@@ -9,6 +9,7 @@ const exceljs_1 = __importDefault(require("exceljs"));
 const client_1 = require("../../database/client");
 const atendimento_db_schema_1 = require("./atendimento.db.schema");
 const pesquisa_db_schema_1 = require("../pesquisas/pesquisa.db.schema");
+const etiqueta_db_schema_1 = require("../etiquetas/etiqueta.db.schema");
 const socket_1 = require("../../shared/socket");
 // Status IDs de ticket considerados "abertos" (pendente/em atendimento)
 const OPEN_STATUSES = [1, 2];
@@ -240,7 +241,23 @@ exports.contactService = {
                 .from(atendimento_db_schema_1.contacts)
                 .where(where),
         ]);
-        return { contacts: list, total: countRows[0]?.count ?? 0 };
+        // Etiquetas em lote pros contatos da página atual — evita N+1.
+        const ids = list.map(c => String(c.id));
+        const tagRows = ids.length
+            ? await client_1.db
+                .select({ contact_id: etiqueta_db_schema_1.contactEtiquetas.contact_id, etiqueta: etiqueta_db_schema_1.etiquetas })
+                .from(etiqueta_db_schema_1.contactEtiquetas)
+                .innerJoin(etiqueta_db_schema_1.etiquetas, (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.etiqueta_id, etiqueta_db_schema_1.etiquetas.id))
+                .where((0, drizzle_orm_1.inArray)(etiqueta_db_schema_1.contactEtiquetas.contact_id, ids))
+            : [];
+        const tagsByContact = new Map();
+        for (const row of tagRows) {
+            const arr = tagsByContact.get(row.contact_id) ?? [];
+            arr.push(row.etiqueta);
+            tagsByContact.set(row.contact_id, arr);
+        }
+        const withTags = list.map(c => ({ ...c, tags: tagsByContact.get(String(c.id)) ?? [] }));
+        return { contacts: withTags, total: countRows[0]?.count ?? 0 };
     },
     async exportExcel(companyId, search) {
         const where = search

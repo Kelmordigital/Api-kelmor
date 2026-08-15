@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.etiquetaService = void 0;
+exports.matchAndApplyAutomaticTags = matchAndApplyAutomaticTags;
 const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
 const etiqueta_db_schema_1 = require("./etiqueta.db.schema");
+const configuracao_geral_db_schema_1 = require("../configuracao-geral/configuracao-geral.db.schema");
 exports.etiquetaService = {
     async list(companyId) {
         return client_1.db
@@ -90,4 +92,45 @@ exports.etiquetaService = {
         return rows.map(r => r.etiqueta);
     },
 };
+/**
+ * Etiquetamento automático: casa o texto de uma mensagem contra as regras
+ * (at_automatic_tag_rules) cadastradas pela empresa. Cada regra tem uma
+ * lista de variações de palavra-chave separadas por vírgula (ex: "fralda,
+ * frauda, fraldinha") — qualquer uma delas ativa a regra — e pode apontar
+ * para múltiplas etiquetas. Idempotente via ON CONFLICT DO NOTHING em
+ * aplicarAoContato.
+ */
+async function matchAndApplyAutomaticTags(companyId, contactId, messageText) {
+    const [perm] = await client_1.db
+        .select({ enable_automatic_tags: configuracao_geral_db_schema_1.companyPermissions.enable_automatic_tags })
+        .from(configuracao_geral_db_schema_1.companyPermissions)
+        .where((0, drizzle_orm_1.eq)(configuracao_geral_db_schema_1.companyPermissions.company_id, companyId))
+        .limit(1);
+    if (!perm?.enable_automatic_tags)
+        return;
+    const rules = await client_1.db
+        .select()
+        .from(etiqueta_db_schema_1.automaticTagRules)
+        .where((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.automaticTagRules.company_id, companyId));
+    if (!rules.length)
+        return;
+    const lowerText = messageText.toLowerCase();
+    const matchedRuleIds = rules
+        .filter(rule => rule.keywords
+        .split(',')
+        .map((k) => k.trim().toLowerCase())
+        .filter(Boolean)
+        .some((kw) => lowerText.includes(kw)))
+        .map(rule => rule.id);
+    if (!matchedRuleIds.length)
+        return;
+    const tagRows = await client_1.db
+        .select({ etiqueta_id: etiqueta_db_schema_1.automaticTagRuleTags.etiqueta_id })
+        .from(etiqueta_db_schema_1.automaticTagRuleTags)
+        .where((0, drizzle_orm_1.inArray)(etiqueta_db_schema_1.automaticTagRuleTags.rule_id, matchedRuleIds));
+    const uniqueTagIds = [...new Set(tagRows.map(r => r.etiqueta_id))];
+    for (const etiquetaId of uniqueTagIds) {
+        await exports.etiquetaService.aplicarAoContato(String(contactId), etiquetaId, companyId);
+    }
+}
 //# sourceMappingURL=etiqueta.service.js.map

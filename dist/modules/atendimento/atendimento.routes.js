@@ -15,6 +15,8 @@ async function atendimentoRoutes(app) {
     app.put('/tickets/:id/reopen', auth, atendimento_controller_1.atendimentoController.reopen);
     app.put('/tickets/:id/transfer', auth, atendimento_controller_1.atendimentoController.transfer);
     app.put('/tickets/:id/pin', auth, atendimento_controller_1.atendimentoController.togglePin);
+    app.post('/tickets/:id/schedule-message', auth, atendimento_controller_1.atendimentoController.scheduleMessage);
+    app.get('/tickets/:id/scheduled-messages', auth, atendimento_controller_1.atendimentoController.listScheduledMessages);
     app.post('/tickets/:id/close', auth, atendimento_controller_1.atendimentoController.closeTicket);
     app.post('/tickets/:id/research', auth, atendimento_controller_1.atendimentoController.closeTicketWithResearch);
     app.get('/tickets/:id/research-available', auth, atendimento_controller_1.atendimentoController.researchAvailable);
@@ -37,8 +39,11 @@ async function atendimentoRoutes(app) {
     // Analytics de vendas (AdminDashboard)
     app.get('/dashboard/sales-by-connection', auth, atendimento_controller_1.atendimentoController.dashboardSalesByConnection);
     app.get('/dashboard/sales-by-channel', auth, atendimento_controller_1.atendimentoController.dashboardSalesByChannel);
+    app.get('/dashboard/top-customers', auth, atendimento_controller_1.atendimentoController.dashboardTopCustomers);
     app.get('/dashboard/not-sales-by-connection', auth, atendimento_controller_1.atendimentoController.dashboardNotSalesByConnection);
     app.get('/dashboard/not-sales-by-channel', auth, atendimento_controller_1.atendimentoController.dashboardNotSalesByChannel);
+    app.get('/dashboard/not-sales-by-reason', auth, atendimento_controller_1.atendimentoController.dashboardNotSalesByReason);
+    app.get('/dashboard/not-sales-by-reason-over-time', auth, atendimento_controller_1.atendimentoController.dashboardNotSalesByReasonOverTime);
     // Dashboard por período (novos)
     app.get('/dashboard/kpis', auth, atendimento_controller_1.atendimentoController.dashKpis);
     app.get('/dashboard/graph', auth, atendimento_controller_1.atendimentoController.dashGraph);
@@ -47,13 +52,20 @@ async function atendimentoRoutes(app) {
     app.get('/dashboard/recent', auth, atendimento_controller_1.atendimentoController.dashRecent);
     app.get('/dashboard/top-attendants', auth, atendimento_controller_1.atendimentoController.dashTopAttendants);
     app.get('/dashboard/channels', auth, atendimento_controller_1.atendimentoController.dashChannels);
+    app.get('/dashboard/tickets-by-connection', auth, atendimento_controller_1.atendimentoController.dashTicketsByConnection);
     // CRM reasons CRUD
     app.get('/reasons', auth, atendimento_controller_1.atendimentoController.listReasons);
     app.post('/reasons', auth, atendimento_controller_1.atendimentoController.createReason);
     // Funil Kanban de atendimento
     app.get('/funil/cards', auth, atendimento_controller_1.atendimentoController.getFunilCards);
     app.post('/funil/leads', auth, atendimento_controller_1.atendimentoController.createFunilLead);
-    app.patch('/tickets/:id/funil-stage', auth, atendimento_controller_1.atendimentoController.updateFunilStage);
+    app.patch('/tickets/:id/funil-stage', auth, atendimento_controller_1.atendimentoController.moveTicketFunilStage);
+    app.get('/funil/stages', auth, atendimento_controller_1.atendimentoController.listFunilStages);
+    app.post('/funil/stages', auth, atendimento_controller_1.atendimentoController.createFunilStage);
+    app.put('/funil/stages/reorder', auth, atendimento_controller_1.atendimentoController.reorderFunilStages);
+    app.put('/funil/stages/:id', auth, atendimento_controller_1.atendimentoController.updateFunilStage);
+    app.delete('/funil/stages/:id', auth, atendimento_controller_1.atendimentoController.deleteFunilStage);
+    app.get('/funil/analytics', auth, atendimento_controller_1.atendimentoController.getFunilAnalytics);
     // Financeiro
     app.get('/financeiro/kpis', auth, atendimento_controller_1.atendimentoController.financeiroKpis);
     app.get('/financeiro/evolucao', auth, atendimento_controller_1.atendimentoController.financeiroEvolucao);

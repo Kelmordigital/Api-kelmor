@@ -15,15 +15,13 @@ exports.etiquetaController = {
     },
     async create(req, reply) {
         const companyId = req.user.company_id;
-        const { name, color, icon, keyword_trigger, keyword_type } = req.body;
+        const { name, color, icon } = req.body;
         if (!name?.trim())
             return reply.status(400).send({ error: 'name é obrigatório' });
         const row = await etiqueta_service_1.etiquetaService.create(companyId, {
             name: name.trim(),
             color: color ?? '#6366f1',
             icon: icon ?? 'tag',
-            keyword_trigger: keyword_trigger ?? null,
-            keyword_type: keyword_type ?? 'contains',
         });
         return reply.status(201).send(row);
     },

@@ -10,33 +10,41 @@ const client_1 = require("../../database/client");
 const auth_schema_1 = require("../auth/auth.schema");
 const profile_db_schema_1 = require("../profiles/profile.db.schema");
 const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
+const meu_perfil_db_schema_1 = require("../meu-perfil/meu-perfil.db.schema");
+const achievements_service_1 = require("../achievements/achievements.service");
 exports.usuarioService = {
     async list(companyId) {
         const userList = await client_1.db
             .select({
             id: auth_schema_1.users.id,
             name: auth_schema_1.users.name,
+            nickname: auth_schema_1.users.nickname,
             email: auth_schema_1.users.email,
             profile_id: auth_schema_1.users.profile_id,
             profile_tag: profile_db_schema_1.profiles.tag,
             profile_name: profile_db_schema_1.profiles.name,
             is_approved: auth_schema_1.users.is_approved,
             created_at: auth_schema_1.users.created_at,
+            avatar_url: meu_perfil_db_schema_1.userAvatars.url,
         })
             .from(auth_schema_1.users)
             .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))
+            .leftJoin(meu_perfil_db_schema_1.userAvatars, (0, drizzle_orm_1.eq)(meu_perfil_db_schema_1.userAvatars.user_id, auth_schema_1.users.id))
             .where((0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId));
         if (userList.length === 0)
             return [];
         const userIds = userList.map((u) => u.id);
-        const [queueAssocs, connAssocs] = await Promise.all([
+        const [queueAssocs, connAssocs, progressByUser] = await Promise.all([
             client_1.db.select().from(atendimento_db_schema_1.userQueues).where((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.userQueues.user_id, userIds)),
             client_1.db.select().from(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.userConnections.user_id, userIds)),
+            achievements_service_1.achievementsService.getCompanyProgress(companyId, userIds),
         ]);
         return userList.map((u) => ({
             ...u,
             queue_ids: queueAssocs.filter((q) => q.user_id === u.id).map((q) => q.queue_id),
             connection_ids: connAssocs.filter((c) => c.user_id === u.id).map((c) => c.connection_id),
+            patente: progressByUser[u.id]?.patente ?? 'Aprendiz',
+            patente_sub_level: progressByUser[u.id]?.sub_level ?? null,
         }));
     },
     async create(companyId, payload) {

@@ -49,6 +49,10 @@ const envSchema = zod_1.z.object({
     GOOGLE_CLIENT_ID: zod_1.z.string().default(''),
     GOOGLE_CLIENT_SECRET: zod_1.z.string().default(''),
     GOOGLE_REDIRECT_URI: zod_1.z.string().default('http://localhost:3000/api/v1/integracoes/google/callback'),
+    // Resend (envio de e-mail transacional — ex: alerta de queda de conexão)
+    RESEND_API_KEY: zod_1.z.string().optional(),
+    RESEND_FROM_EMAIL: zod_1.z.string().default('alertas@kelmorevolution.online'),
+    RESEND_FROM_NAME: zod_1.z.string().default('Kelmor Atendimento'),
     // RabbitMQ (barramento de eventos com o bays). Desligado por padrão →
     // recebimento por HTTP webhook (fallback garantido).
     USE_RABBITMQ: zod_1.z.string().default('false').transform((v) => v === 'true'),

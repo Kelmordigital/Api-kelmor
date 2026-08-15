@@ -39,6 +39,30 @@ export declare const botsService: {
         x: number;
     }[]>;
     syncNodes(botId: number, companyId: string, nodes: NodeInput[]): Promise<void>;
+    /**
+     * Mini dashboard da tela de Automações: contagens de fluxos, execuções
+     * (bot_conversations) dos últimos 7 dias por dia, e execuções recentes.
+     */
+    getStats(companyId: string): Promise<{
+        active_bots: number;
+        total_bots: number;
+        today_count: number;
+        in_progress_count: number;
+        error_count: number;
+        last_7_days_count: number;
+        by_trigger: Record<string, number>;
+        executions_by_day: {
+            date: string;
+            label: string;
+            count: number;
+        }[];
+        recent_executions: {
+            bot_name: string;
+            started_at: string;
+            status: string;
+            error_message: string | null;
+        }[];
+    }>;
 };
 export {};
 //# sourceMappingURL=bots.service.d.ts.map

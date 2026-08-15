@@ -1,1 +1,1 @@
-{"version":3,"file":"etiqueta.routes.d.ts","sourceRoot":"","sources":["../../../src/modules/etiquetas/etiqueta.routes.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,eAAe,EAAE,MAAM,SAAS,CAAC;AAI1C,wBAAsB,eAAe,CAAC,GAAG,EAAE,eAAe,iBAUzD"}
+{"version":3,"file":"etiqueta.routes.d.ts","sourceRoot":"","sources":["../../../src/modules/etiquetas/etiqueta.routes.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,eAAe,EAAE,MAAM,SAAS,CAAC;AAK1C,wBAAsB,eAAe,CAAC,GAAG,EAAE,eAAe,iBAezD"}

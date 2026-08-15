@@ -23,6 +23,8 @@ export declare const env: {
     GOOGLE_CLIENT_ID: string;
     GOOGLE_CLIENT_SECRET: string;
     GOOGLE_REDIRECT_URI: string;
+    RESEND_FROM_EMAIL: string;
+    RESEND_FROM_NAME: string;
     USE_RABBITMQ: boolean;
     RABBITMQ_URL: string;
     RABBITMQ_PORT1: number;
@@ -42,5 +44,6 @@ export declare const env: {
     GRAFANA_PROM_URL?: string | undefined;
     GRAFANA_PROM_USER?: string | undefined;
     GRAFANA_PROM_TOKEN?: string | undefined;
+    RESEND_API_KEY?: string | undefined;
 };
 //# sourceMappingURL=env.d.ts.map

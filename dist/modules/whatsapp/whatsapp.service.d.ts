@@ -2,12 +2,24 @@ export declare const whatsappService: {
     getStatus(connectionId?: number): Promise<{
         status: string;
         qr?: string;
+        pairingCode?: string;
+    }>;
+    generateWebToken(connectionId: number): Promise<{
+        success: boolean;
+        token: string;
+    }>;
+    checkFingerprint(connectionId: number): Promise<{
+        success: boolean;
+        hasFingerprint: boolean;
+        hasWsHeaders: boolean;
     }>;
     connect(connectionId?: number): Promise<void>;
+    requestPairingCode(connectionId: number, phoneNumber: string): Promise<void>;
     disconnect(connectionId?: number): Promise<void>;
     handleConnectionUpdate(connectionId: number, data: {
         type: string;
         qrCode?: string;
+        pairingCode?: string;
         serializedId?: string;
         code?: number;
         reason?: string;

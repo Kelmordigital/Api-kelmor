@@ -1,4 +1,5 @@
 import { Contact } from './atendimento.db.schema';
+import { Etiqueta } from '../etiquetas/etiqueta.db.schema';
 export declare const contactService: {
     /**
      * Resolve (ou cria) o contato canônico a partir de qualquer combinação de
@@ -58,7 +59,9 @@ export declare const contactService: {
         limit?: number;
         offset?: number;
     }): Promise<{
-        contacts: Contact[];
+        contacts: (Contact & {
+            tags: Etiqueta[];
+        })[];
         total: number;
     }>;
     exportExcel(companyId: string, search?: string): Promise<Buffer>;

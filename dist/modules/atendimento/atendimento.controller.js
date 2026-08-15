@@ -36,13 +36,43 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.atendimentoController = void 0;
 const contact_service_1 = require("./contact.service");
 const ticket_service_1 = require("./ticket.service");
+const funil_stage_service_1 = require("./funil-stage.service");
+const attendant_capacity_service_1 = require("./attendant-capacity.service");
 const message_service_1 = require("./message.service");
+const auth_schema_1 = require("../auth/auth.schema");
 const dashboard_service_1 = require("./dashboard.service");
 const produto_service_1 = require("../produtos/produto.service");
 const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const agendamento_mensagens_service_1 = require("../agendamento-mensagens/agendamento-mensagens.service");
 const client_1 = require("../../database/client");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const drizzle_orm_1 = require("drizzle-orm");
+/**
+ * Lê e valida o filtro do dashboard (período/datas/conexão/fila/usuário) e resolve o attendantId:
+ * atendente comum é sempre travado nos próprios números, admin pode escolher via query.
+ * Retorna null (e já responde 400) quando o intervalo de datas exceder o limite.
+ */
+function getDashboardScope(req, reply) {
+    try {
+        const parsed = (0, dashboard_service_1.parseDashboardFilter)(req.query);
+        const { profile_tag, id: userId } = req.user;
+        return {
+            period: parsed.period,
+            startDate: parsed.startDate,
+            endDate: parsed.endDate,
+            connectionId: parsed.connectionId,
+            queueId: parsed.queueId,
+            attendantId: profile_tag === 'user' ? userId : parsed.attendantUserId,
+        };
+    }
+    catch (err) {
+        if (err instanceof dashboard_service_1.DateRangeTooLargeError) {
+            reply.status(400).send({ error: err.message });
+            return null;
+        }
+        throw err;
+    }
+}
 exports.atendimentoController = {
     async listTickets(req, reply) {
         const companyId = req.user.company_id;
@@ -121,20 +151,47 @@ exports.atendimentoController = {
         const { id } = req.params;
         const companyId = req.user.company_id;
         const userId = req.user.id;
-        const ticket = await ticket_service_1.ticketService.assignAttendant(Number(id), userId, companyId);
-        return reply.send(ticket);
+        try {
+            const ticket = await ticket_service_1.ticketService.assignAttendant(Number(id), userId, companyId);
+            return reply.send(ticket);
+        }
+        catch (err) {
+            if (err instanceof attendant_capacity_service_1.AttendantLimitReachedError) {
+                return reply.status(409).send({ error: err.message });
+            }
+            throw err;
+        }
     },
     async returnToQueue(req, reply) {
         const { id } = req.params;
         const companyId = req.user.company_id;
-        const ticket = await ticket_service_1.ticketService.returnToQueue(Number(id), req.user.id, companyId);
-        return reply.send(ticket);
+        try {
+            const ticket = await ticket_service_1.ticketService.returnToQueue(Number(id), req.user.id, companyId, req.user.profile_tag);
+            return reply.send(ticket);
+        }
+        catch (err) {
+            if (err instanceof ticket_service_1.ReturnTicketPermissionError) {
+                return reply.status(403).send({ error: err.message });
+            }
+            throw err;
+        }
     },
     async reopen(req, reply) {
         const { id } = req.params;
         const companyId = req.user.company_id;
-        const ticket = await ticket_service_1.ticketService.reopen(Number(id), req.user.id, companyId);
-        return reply.send(ticket);
+        try {
+            const ticket = await ticket_service_1.ticketService.reopen(Number(id), req.user.id, companyId, req.user.profile_tag);
+            return reply.send(ticket);
+        }
+        catch (err) {
+            if (err instanceof attendant_capacity_service_1.AttendantLimitReachedError) {
+                return reply.status(409).send({ error: err.message });
+            }
+            if (err instanceof ticket_service_1.ReturnTicketPermissionError) {
+                return reply.status(403).send({ error: err.message });
+            }
+            throw err;
+        }
     },
     async transfer(req, reply) {
         const { id } = req.params;
@@ -149,11 +206,40 @@ exports.atendimentoController = {
             return reply.send(ticket);
         }
         catch (err) {
-            if (err instanceof ticket_service_1.AtendenteNaoElegivelError || err instanceof ticket_service_1.TransferenciaParaSiMesmoError) {
+            if (err instanceof ticket_service_1.AtendenteNaoElegivelError || err instanceof ticket_service_1.TransferenciaParaSiMesmoError
+                || err instanceof attendant_capacity_service_1.AttendantLimitReachedError) {
                 return reply.status(409).send({ error: err.message });
             }
             throw err;
         }
+    },
+    async scheduleMessage(req, reply) {
+        const { id } = req.params;
+        const companyId = req.user.company_id;
+        const { message, send_date } = req.body;
+        if (!message?.trim())
+            return reply.status(400).send({ error: 'message obrigatório' });
+        if (!send_date)
+            return reply.status(400).send({ error: 'send_date obrigatório' });
+        try {
+            const row = await agendamento_mensagens_service_1.agendamentoMensagensService.create(companyId, Number(id), req.user.id, {
+                message: message.trim(),
+                send_date,
+            });
+            return reply.status(201).send(row);
+        }
+        catch (err) {
+            if (err instanceof agendamento_mensagens_service_1.TicketSemConexaoError) {
+                return reply.status(400).send({ error: err.message });
+            }
+            throw err;
+        }
+    },
+    async listScheduledMessages(req, reply) {
+        const { id } = req.params;
+        const companyId = req.user.company_id;
+        const rows = await agendamento_mensagens_service_1.agendamentoMensagensService.listByTicketContact(companyId, Number(id));
+        return reply.send(rows);
     },
     async togglePin(req, reply) {
         const { id } = req.params;
@@ -181,13 +267,92 @@ exports.atendimentoController = {
         const cards = await ticket_service_1.ticketService.getFunilCards(req.user.company_id, search);
         return reply.send(cards);
     },
+    async listFunilStages(req, reply) {
+        const stages = await funil_stage_service_1.funilStageService.listStages(req.user.company_id);
+        return reply.send(stages);
+    },
+    async createFunilStage(req, reply) {
+        const { name, color } = req.body;
+        if (!name?.trim())
+            return reply.status(400).send({ error: 'name obrigatório' });
+        try {
+            const stage = await funil_stage_service_1.funilStageService.createStage(req.user.company_id, name.trim(), color?.trim() || 'bg-blue-500');
+            return reply.status(201).send(stage);
+        }
+        catch (err) {
+            if (err instanceof funil_stage_service_1.FunilStageNomeDuplicadoError)
+                return reply.status(409).send({ error: err.message });
+            throw err;
+        }
+    },
     async updateFunilStage(req, reply) {
         const { id } = req.params;
-        const { stage } = req.body;
-        if (!stage)
-            return reply.status(400).send({ error: 'stage obrigatório' });
-        const ticket = await ticket_service_1.ticketService.updateFunilStage(Number(id), stage, req.user.company_id);
-        return reply.send(ticket);
+        const { name, color } = req.body;
+        try {
+            const stage = await funil_stage_service_1.funilStageService.updateStage(Number(id), req.user.company_id, {
+                name: name?.trim() || undefined,
+                color: color?.trim() || undefined,
+            });
+            return reply.send(stage);
+        }
+        catch (err) {
+            if (err instanceof funil_stage_service_1.FunilStageNaoEncontradaError)
+                return reply.status(404).send({ error: err.message });
+            if (err instanceof funil_stage_service_1.FunilStageProtegidaError)
+                return reply.status(403).send({ error: err.message });
+            if (err instanceof funil_stage_service_1.FunilStageNomeDuplicadoError)
+                return reply.status(409).send({ error: err.message });
+            throw err;
+        }
+    },
+    async deleteFunilStage(req, reply) {
+        const { id } = req.params;
+        try {
+            await funil_stage_service_1.funilStageService.deleteStage(Number(id), req.user.company_id);
+            return reply.status(204).send();
+        }
+        catch (err) {
+            if (err instanceof funil_stage_service_1.FunilStageNaoEncontradaError)
+                return reply.status(404).send({ error: err.message });
+            if (err instanceof funil_stage_service_1.FunilStageProtegidaError)
+                return reply.status(403).send({ error: err.message });
+            if (err instanceof funil_stage_service_1.FunilStageComTicketsError)
+                return reply.status(409).send({ error: err.message });
+            throw err;
+        }
+    },
+    async reorderFunilStages(req, reply) {
+        const { orderedIds } = req.body;
+        if (!Array.isArray(orderedIds))
+            return reply.status(400).send({ error: 'orderedIds obrigatório' });
+        await funil_stage_service_1.funilStageService.reorderStages(req.user.company_id, orderedIds);
+        return reply.send({ ok: true });
+    },
+    async getFunilAnalytics(req, reply) {
+        const { period } = req.query;
+        const funnel = await funil_stage_service_1.funilStageService.getConversionFunnel(req.user.company_id, (0, dashboard_service_1.parsePeriod)(period));
+        return reply.send(funnel);
+    },
+    async moveTicketFunilStage(req, reply) {
+        const { id } = req.params;
+        const { destinationStageId } = req.body;
+        if (!destinationStageId)
+            return reply.status(400).send({ error: 'destinationStageId obrigatório' });
+        try {
+            const ticket = await ticket_service_1.ticketService.moveTicketFunilStage(Number(id), destinationStageId, req.user.id, req.user.company_id, req.user.profile_tag);
+            return reply.send(ticket);
+        }
+        catch (err) {
+            if (err instanceof ticket_service_1.FunilDestinoInvalidoError)
+                return reply.status(409).send({ error: err.message });
+            if (err instanceof ticket_service_1.FunilMovimentoNaoAutorizadoError)
+                return reply.status(403).send({ error: err.message });
+            if (err instanceof ticket_service_1.ReturnTicketPermissionError)
+                return reply.status(403).send({ error: err.message });
+            if (err instanceof attendant_capacity_service_1.AttendantLimitReachedError)
+                return reply.status(409).send({ error: err.message });
+            throw err;
+        }
     },
     async registerSale(req, reply) {
         const { id } = req.params;
@@ -199,6 +364,17 @@ exports.atendimentoController = {
     async listMessages(req, reply) {
         const { id } = req.params;
         const companyId = req.user.company_id;
+        const ticket = await ticket_service_1.ticketService.get(Number(id), companyId);
+        if (!ticket)
+            return reply.status(404).send({ error: 'Ticket não encontrado' });
+        try {
+            await (0, ticket_service_1.ensureCanViewTicketMessages)(ticket, req.user.id, req.user.profile_tag);
+        }
+        catch (err) {
+            if (err instanceof ticket_service_1.SpyTicketPermissionError)
+                return reply.status(403).send({ error: err.message });
+            throw err;
+        }
         const msgs = await message_service_1.messageService.list(Number(id), companyId);
         return reply.send(msgs);
     },
@@ -206,10 +382,40 @@ exports.atendimentoController = {
         const { id } = req.params;
         const companyId = req.user.company_id;
         const userId = req.user.id;
-        const { body, fromMe = true, contactId } = req.body;
-        const msg = await message_service_1.messageService.save(Number(id), contactId ?? null, body, fromMe, companyId, { userId });
+        const { body, fromMe = true, contactId, hideName = false } = req.body;
+        // Ticket ainda Pendente(1)/Bot(9) = ninguém aceitou de fato — mandar
+        // mensagem não pode ser um jeito de "atender" por trás do aceite (que é
+        // onde o limite de atendimentos simultâneos é verificado). Sem isso, o
+        // limite vira decorativo: basta não clicar em Aceitar e digitar direto.
+        const ticket = fromMe ? await ticket_service_1.ticketService.get(Number(id), companyId) : null;
+        if (fromMe && ticket && (ticket.status_id === 1 || ticket.status_id === 9)) {
+            return reply.status(409).send({ error: 'Aceite o atendimento antes de enviar mensagens.' });
+        }
+        if (fromMe && ticket) {
+            try {
+                (0, ticket_service_1.ensureCanSendToTicket)(ticket, userId, req.user.profile_tag);
+            }
+            catch (err) {
+                if (err instanceof ticket_service_1.SpyTicketPermissionError)
+                    return reply.status(403).send({ error: err.message });
+                throw err;
+            }
+        }
+        // Assinatura "*Nome:*" (config "Ocultar nome do atendente no chat"):
+        // só entra se a empresa tiver a permissão ligada e o atendente não
+        // tiver pedido pra ocultar naquele envio específico (flag por request,
+        // decidida no client conforme o modo temporário/permanente escolhido).
+        let outgoingBody = body;
+        if (fromMe && !hideName) {
+            const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+            if (perms.allow_show_name_on_chat) {
+                const [sender] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, userId)).limit(1);
+                if (sender?.name)
+                    outgoingBody = (0, message_service_1.withAttendantNamePrefix)(body, sender.name);
+            }
+        }
+        const msg = await message_service_1.messageService.save(Number(id), contactId ?? null, outgoingBody, fromMe, companyId, { userId });
         if (fromMe) {
-            const ticket = await ticket_service_1.ticketService.get(Number(id), companyId);
             if (ticket) {
                 const contact = await contact_service_1.contactService.findById(ticket.contact_id);
                 const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp/whatsapp.service')));
@@ -218,8 +424,8 @@ exports.atendimentoController = {
                     // Com conexão no ticket, roteia por ela (bays ou API oficial);
                     // sem conexão, mantém o envio pela sessão padrão do bays.
                     const sending = connId
-                        ? whatsappService.sendTextToPhone(connId, contact.number, body)
-                        : whatsappService.sendMessage(contact.number, body);
+                        ? whatsappService.sendTextToPhone(connId, contact.number, outgoingBody)
+                        : whatsappService.sendMessage(contact.number, outgoingBody);
                     Promise.resolve(sending)
                         .then(async (result) => {
                         // Envio oficial devolve o wamid — grava para casar o ACK do webhook
@@ -239,7 +445,7 @@ exports.atendimentoController = {
                 }
                 else if (contact?.lid) {
                     // Contato username-only (sem número): responde roteando pelo LID
-                    whatsappService.sendMessageViaLid(contact.lid, body, connId).catch((err) => {
+                    whatsappService.sendMessageViaLid(contact.lid, outgoingBody, connId).catch((err) => {
                         console.error('[sendMessage] bays error (lid):', err.message);
                     });
                 }
@@ -299,23 +505,53 @@ exports.atendimentoController = {
     },
     // ────── Analytics de vendas ──────
     async dashboardNotSalesByConnection(req, reply) {
-        const { startDate, endDate } = req.query;
-        const data = await dashboard_service_1.dashboardService.notSalesByConnection(req.user.company_id, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const data = await dashboard_service_1.dashboardService.notSalesByConnection(req.user.company_id, scope);
         return reply.send(data);
     },
     async dashboardNotSalesByChannel(req, reply) {
-        const { startDate, endDate } = req.query;
-        const data = await dashboard_service_1.dashboardService.notSalesByChannel(req.user.company_id, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const data = await dashboard_service_1.dashboardService.notSalesByChannel(req.user.company_id, scope);
+        return reply.send(data);
+    },
+    async dashboardNotSalesByReason(req, reply) {
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const data = await dashboard_service_1.dashboardService.notSalesByReason(req.user.company_id, scope);
+        return reply.send(data);
+    },
+    async dashboardNotSalesByReasonOverTime(req, reply) {
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const data = await dashboard_service_1.dashboardService.notSalesByReasonOverTime(req.user.company_id, scope);
         return reply.send(data);
     },
     async dashboardSalesByConnection(req, reply) {
-        const { startDate, endDate } = req.query;
-        const data = await dashboard_service_1.dashboardService.salesByConnection(req.user.company_id, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const data = await dashboard_service_1.dashboardService.salesByConnection(req.user.company_id, scope);
         return reply.send(data);
     },
     async dashboardSalesByChannel(req, reply) {
-        const { startDate, endDate } = req.query;
-        const data = await dashboard_service_1.dashboardService.salesByChannel(req.user.company_id, startDate, endDate);
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const data = await dashboard_service_1.dashboardService.salesByChannel(req.user.company_id, scope);
+        return reply.send(data);
+    },
+    async dashboardTopCustomers(req, reply) {
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        const { limit } = req.query;
+        const data = await dashboard_service_1.dashboardService.topCustomers(req.user.company_id, scope, limit ? Number(limit) : undefined);
         return reply.send(data);
     },
     async listReasons(req, reply) {
@@ -329,55 +565,59 @@ exports.atendimentoController = {
     },
     // ────── Novos endpoints de dashboard por período ──────
     async dashKpis(req, reply) {
-        const { period: raw } = req.query;
-        const period = (0, dashboard_service_1.parsePeriod)(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin') {
-            return reply.send(await dashboard_service_1.dashboardService.getSuperAdminStats(period));
+            const { period: raw } = req.query;
+            return reply.send(await dashboard_service_1.dashboardService.getSuperAdminStats((0, dashboard_service_1.parsePeriod)(raw)));
         }
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getKpis(company_id, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getKpis(company_id, scope));
     },
     async dashGraph(req, reply) {
-        const { period: raw } = req.query;
-        const period = (0, dashboard_service_1.parsePeriod)(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin') {
-            return reply.send(await dashboard_service_1.dashboardService.getSuperAdminGraph(period));
+            const { period: raw } = req.query;
+            return reply.send(await dashboard_service_1.dashboardService.getSuperAdminGraph((0, dashboard_service_1.parsePeriod)(raw)));
         }
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getGraph(company_id, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getGraph(company_id, scope));
     },
     async dashFunnel(req, reply) {
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin') {
             return reply.send(await dashboard_service_1.dashboardService.getSuperAdminFunnel());
         }
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getFunnel(company_id, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getFunnel(company_id, scope));
     },
     async dashMovimentos(req, reply) {
-        const { period: raw } = req.query;
-        const period = (0, dashboard_service_1.parsePeriod)(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin') {
             return reply.send([]);
         }
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getMovimentos(company_id, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getMovimentos(company_id, scope));
     },
     async dashRecent(req, reply) {
         const { limit } = req.query;
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin') {
             return reply.send(await dashboard_service_1.dashboardService.getSuperAdminRecent());
         }
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getRecent(company_id, Number(limit ?? 5), attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getRecent(company_id, Number(limit ?? 5), scope));
     },
     async dashTopAttendants(req, reply) {
-        const { period: raw } = req.query;
-        const period = (0, dashboard_service_1.parsePeriod)(raw);
         const { profile_tag, company_id } = req.user;
         if (profile_tag === 'user') {
             return reply.status(403).send({ error: 'Forbidden' });
@@ -385,53 +625,61 @@ exports.atendimentoController = {
         if (profile_tag === 'superAdmin' || !company_id) {
             return reply.send([]);
         }
-        return reply.send(await dashboard_service_1.dashboardService.getTopAttendants(company_id, period));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getTopAttendants(company_id, scope));
     },
     async dashChannels(req, reply) {
-        const { period: raw } = req.query;
-        const period = (0, dashboard_service_1.parsePeriod)(raw);
-        const { profile_tag, company_id, id: userId } = req.user;
+        const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin' || !company_id) {
             return reply.send([]);
         }
-        const attendantId = profile_tag === 'user' ? userId : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getChannelsByPeriod(company_id, period, attendantId));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getChannelsByPeriod(company_id, scope));
+    },
+    async dashTicketsByConnection(req, reply) {
+        const { profile_tag, company_id } = req.user;
+        if (profile_tag === 'superAdmin' || !company_id) {
+            return reply.send([]);
+        }
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getTicketsByConnection(company_id, scope));
     },
     // ────── Financeiro ──────
     async financeiroKpis(req, reply) {
-        const { startDate, endDate } = req.query;
-        const companyId = req.user.company_id;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end = endDate ? new Date(endDate) : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroKpis(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroKpis(req.user.company_id, scope));
     },
     async financeiroEvolucao(req, reply) {
-        const { startDate, endDate } = req.query;
-        const companyId = req.user.company_id;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end = endDate ? new Date(endDate) : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroEvolucao(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroEvolucao(req.user.company_id, scope));
     },
     async financeiroOrigens(req, reply) {
-        const { startDate, endDate } = req.query;
-        const companyId = req.user.company_id;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end = endDate ? new Date(endDate) : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroOrigens(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroOrigens(req.user.company_id, scope));
     },
     async financeiroHistorico(req, reply) {
-        const { startDate, endDate } = req.query;
-        const companyId = req.user.company_id;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end = endDate ? new Date(endDate) : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroHistorico(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroHistorico(req.user.company_id, scope));
     },
     async financeiroPerdas(req, reply) {
-        const { startDate, endDate } = req.query;
-        const companyId = req.user.company_id;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end = endDate ? new Date(endDate) : undefined;
-        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroPerdas(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getFinanceiroPerdas(req.user.company_id, scope));
     },
 };
 //# sourceMappingURL=atendimento.controller.js.map

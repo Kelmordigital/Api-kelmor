@@ -8,8 +8,13 @@ export * from '../modules/etiquetas/etiqueta.db.schema';
 export * from '../modules/pesquisas/pesquisa.db.schema';
 export * from '../modules/campanhas/campanha.db.schema';
 export * from '../modules/produtos/produto.db.schema';
+export * from '../modules/cupons/cupom.db.schema';
 export * from '../modules/agenda/agenda.db.schema';
 export * from '../modules/tarefas/tarefas.db.schema';
 export * from '../modules/integracoes/integracao.db.schema';
 export * from '../modules/configuracao-geral/configuracao-geral.db.schema';
+export * from '../modules/agendamento-mensagens/agendamento-mensagens.db.schema';
+export * from '../modules/meu-perfil/meu-perfil.db.schema';
+export * from '../modules/achievements/achievements.db.schema';
+export * from '../modules/api-messages/api-messages.db.schema';
 //# sourceMappingURL=shema.d.ts.map

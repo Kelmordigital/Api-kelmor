@@ -1,27 +1,65 @@
 export type Period = 'day' | 'week' | 'month' | 'year';
 export declare function parsePeriod(raw: unknown): Period;
+export declare class DateRangeTooLargeError extends Error {
+    constructor();
+}
+/** Escopo completo de um pedido de dashboard: período (preset OU datas exatas) + conexão/fila/atendente. */
+export interface DashboardScope {
+    period: Period;
+    startDate?: string;
+    endDate?: string;
+    connectionId?: number;
+    queueId?: number;
+    attendantId?: string;
+}
+/** Lê e valida os parâmetros de filtro comuns a todos os endpoints de dashboard. */
+export declare function parseDashboardFilter(query: Record<string, unknown>): Omit<DashboardScope, 'attendantId'> & {
+    attendantUserId?: string;
+};
 export declare function getInterval(period: Period): {
     start: Date;
     end: Date;
 };
 export declare const dashboardService: {
-    salesByConnection(companyId: string, startDate: string, endDate: string): Promise<{
+    salesByConnection(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         total: number;
         totalEmVendas: number;
     }[]>;
-    notSalesByConnection(companyId: string, startDate: string, endDate: string): Promise<{
+    notSalesByConnection(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         total: number;
     }[]>;
-    notSalesByChannel(companyId: string, startDate: string, endDate: string): Promise<{
+    notSalesByChannel(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         total: number;
     }[]>;
-    salesByChannel(companyId: string, startDate: string, endDate: string): Promise<{
+    notSalesByReason(companyId: string, scope: DashboardScope): Promise<{
+        label: string;
+        total: number;
+    }[]>;
+    /**
+     * Pivotado ao longo do tempo (mesma granularidade do gráfico "Novos
+     * Contatos" — hora/dia da semana/dia do mês/mês — ver getGraph) pra
+     * alimentar o gráfico empilhado por motivo. `updated_at` (não
+     * `created_at`) porque o que importa aqui é quando a não-venda aconteceu
+     * (fechamento), igual às outras queries de not-sales desta empresa.
+     */
+    notSalesByReasonOverTime(companyId: string, scope: DashboardScope): Promise<{
+        reasons: string[];
+        buckets: Record<string, string | number>[];
+    }>;
+    salesByChannel(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         total: number;
         totalEmVendas: number;
+    }[]>;
+    /** Top clientes por valor gasto no período — card "Maiores clientes" do AdminDashboard. */
+    topCustomers(companyId: string, scope: DashboardScope, limit?: number): Promise<{
+        contactId: number;
+        name: string;
+        pedidos: number;
+        total: number;
     }[]>;
     listReasons(companyId: string): Promise<{
         id: number;
@@ -35,7 +73,7 @@ export declare const dashboardService: {
         color: string | null;
         reason: string;
     }>;
-    getKpis(companyId: string, period: Period, attendantId?: string): Promise<{
+    getKpis(companyId: string, scope: DashboardScope): Promise<{
         novasConversas: number;
         novasConversasTotal: number;
         conversasAtivas: number;
@@ -45,35 +83,40 @@ export declare const dashboardService: {
         resolvidos: number;
         naFila: number;
     }>;
-    getGraph(companyId: string, period: Period, attendantId?: string): Promise<{
+    getGraph(companyId: string, scope: DashboardScope): Promise<{
         period: Period;
         data: {
-            slot: number;
+            slot: string | number;
             total: number;
         }[];
     }>;
-    getMovimentos(companyId: string, period: Period, attendantId?: string): Promise<{
+    getMovimentos(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         value: number;
         color: string;
     }[]>;
-    getFunnel(companyId: string, attendantId?: string): Promise<{
+    getFunnel(companyId: string, scope: Pick<DashboardScope, "attendantId" | "connectionId" | "queueId">): Promise<{
         name: string;
         value: number;
         color: string;
     }[]>;
-    getRecent(companyId: string, limit?: number, attendantId?: string): Promise<{
+    getRecent(companyId: string, limit: number, scope: Pick<DashboardScope, "attendantId" | "connectionId" | "queueId">): Promise<{
         id: number;
         nome: string;
         telefone: string | null;
         data: Date | null;
     }[]>;
-    getTopAttendants(companyId: string, period: Period): Promise<{
+    getTopAttendants(companyId: string, scope: Pick<DashboardScope, "period" | "startDate" | "endDate" | "connectionId" | "queueId">): Promise<{
         id: string;
         name: string;
         total: number;
     }[]>;
-    getChannelsByPeriod(companyId: string, period: Period, attendantId?: string): Promise<{
+    getChannelsByPeriod(companyId: string, scope: DashboardScope): Promise<{
+        label: string;
+        total: number;
+    }[]>;
+    /** Quantidade de atendimentos (qualquer status, venda ou não) agrupados por conexão. */
+    getTicketsByConnection(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         total: number;
     }[]>;
@@ -103,7 +146,7 @@ export declare const dashboardService: {
         data: Date | null;
     }[]>;
     _salePriceCast(): import("drizzle-orm").SQL<number>;
-    getFinanceiroKpis(companyId: string, start?: Date, end?: Date): Promise<{
+    getFinanceiroKpis(companyId: string, scope: DashboardScope): Promise<{
         receitaTotal: number;
         totalVendas: number;
         ticketMedio: number;
@@ -114,17 +157,17 @@ export declare const dashboardService: {
         receitaUnica: number;
         totalAtendimentos: number;
     }>;
-    getFinanceiroEvolucao(companyId: string, start?: Date, end?: Date): Promise<{
+    getFinanceiroEvolucao(companyId: string, scope: DashboardScope): Promise<{
         dia: string;
         receita: number;
         vendas: number;
     }[]>;
-    getFinanceiroOrigens(companyId: string, start?: Date, end?: Date): Promise<{
+    getFinanceiroOrigens(companyId: string, scope: DashboardScope): Promise<{
         origem: string;
         receita: number;
         vendas: number;
     }[]>;
-    getFinanceiroHistorico(companyId: string, start?: Date, end?: Date): Promise<{
+    getFinanceiroHistorico(companyId: string, scope: DashboardScope): Promise<{
         id: number;
         contactName: string | null;
         contactNumber: string | null;
@@ -132,7 +175,7 @@ export declare const dashboardService: {
         origin: string | null;
         closedAt: Date | null;
     }[]>;
-    getFinanceiroPerdas(companyId: string, start?: Date, end?: Date): Promise<{
+    getFinanceiroPerdas(companyId: string, scope: DashboardScope): Promise<{
         id: number;
         contactName: string | null;
         contactNumber: string | null;

@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.dashboardService = void 0;
+exports.dashboardService = exports.DateRangeTooLargeError = void 0;
 exports.parsePeriod = parsePeriod;
+exports.parseDashboardFilter = parseDashboardFilter;
 exports.getInterval = getInterval;
 const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
@@ -11,6 +12,51 @@ const company_db_schema_1 = require("../companies/company.db.schema");
 const VALID_PERIODS = ['day', 'week', 'month', 'year'];
 function parsePeriod(raw) {
     return VALID_PERIODS.includes(raw) ? raw : 'week';
+}
+class DateRangeTooLargeError extends Error {
+    constructor() { super('O intervalo de datas selecionado é maior que 45 dias.'); }
+}
+exports.DateRangeTooLargeError = DateRangeTooLargeError;
+const MAX_DATE_RANGE_DAYS = 45;
+/** Lê e valida os parâmetros de filtro comuns a todos os endpoints de dashboard. */
+function parseDashboardFilter(query) {
+    const period = parsePeriod(query.period);
+    const startDate = typeof query.startDate === 'string' && query.startDate ? query.startDate : undefined;
+    const endDate = typeof query.endDate === 'string' && query.endDate ? query.endDate : undefined;
+    if (startDate && endDate) {
+        const days = (new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86_400_000;
+        if (days < 0 || days > MAX_DATE_RANGE_DAYS)
+            throw new DateRangeTooLargeError();
+    }
+    const connectionId = query.connectionId ? Number(query.connectionId) : undefined;
+    const queueId = query.queueId ? Number(query.queueId) : undefined;
+    const attendantUserId = typeof query.attendantUserId === 'string' && query.attendantUserId ? query.attendantUserId : undefined;
+    return {
+        period,
+        startDate,
+        endDate,
+        connectionId: connectionId && !Number.isNaN(connectionId) ? connectionId : undefined,
+        queueId: queueId && !Number.isNaN(queueId) ? queueId : undefined,
+        attendantUserId,
+    };
+}
+/** Condições extras (conexão/fila/atendente) compartilhadas por todas as queries de dashboard. */
+function scopeConditions(scope) {
+    return [
+        scope.attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, scope.attendantId) : undefined,
+        scope.connectionId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.connection_id, scope.connectionId) : undefined,
+        scope.queueId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.queue_id, scope.queueId) : undefined,
+    ];
+}
+/** Resolve o intervalo real: datas exatas (quando presentes) têm prioridade sobre o preset de período. */
+function resolveInterval(scope) {
+    if (scope.startDate && scope.endDate) {
+        return {
+            start: new Date(`${scope.startDate}T00:00:00`),
+            end: new Date(`${scope.endDate}T23:59:59.999`),
+        };
+    }
+    return getInterval(scope.period);
 }
 const TICKET_STATUS = {
     1: { name: 'Na Fila', color: '#f97316' },
@@ -48,47 +94,128 @@ function getInterval(period) {
     }
     return { start, end };
 }
-function dateRange(start, end) {
-    return (0, drizzle_orm_1.and)((0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, new Date(start)), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, new Date(end)));
-}
 exports.dashboardService = {
-    async salesByConnection(companyId, startDate, endDate) {
+    async salesByConnection(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
-            label: atendimento_db_schema_1.connections.name,
+            label: (0, drizzle_orm_1.sql) `coalesce(${atendimento_db_schema_1.connections.name}, 'Sem conexão')`,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
             totalEmVendas: (0, drizzle_orm_1.sql) `COALESCE(SUM(CAST(REPLACE(REPLACE(${atendimento_db_schema_1.tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .innerJoin(atendimento_db_schema_1.connections, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.tickets.connection_id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), dateRange(startDate, endDate)))
+            .leftJoin(atendimento_db_schema_1.connections, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.tickets.connection_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.connections.name)
             .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
     },
-    async notSalesByConnection(companyId, startDate, endDate) {
+    async notSalesByConnection(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
-            label: atendimento_db_schema_1.connections.name,
+            label: (0, drizzle_orm_1.sql) `coalesce(${atendimento_db_schema_1.connections.name}, 'Sem conexão')`,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .innerJoin(atendimento_db_schema_1.connections, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.tickets.connection_id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), dateRange(startDate, endDate)))
+            .leftJoin(atendimento_db_schema_1.connections, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.tickets.connection_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.connections.name)
             .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
     },
-    async notSalesByChannel(companyId, startDate, endDate) {
+    async notSalesByChannel(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
             label: (0, drizzle_orm_1.sql) `COALESCE(${atendimento_db_schema_1.tickets.origin}, 'Base de contatos')`,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), dateRange(startDate, endDate)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.tickets.origin)
             .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
     },
-    async salesByChannel(companyId, startDate, endDate) {
+    async notSalesByReason(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        return client_1.db
+            .select({
+            label: (0, drizzle_orm_1.sql) `coalesce(${atendimento_db_schema_1.crm_sales_reasons.reason}, 'Sem motivo')`,
+            total: (0, drizzle_orm_1.sql) `count(*)::int`,
+        })
+            .from(atendimento_db_schema_1.tickets)
+            .leftJoin(atendimento_db_schema_1.crm_sales_reasons, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.crm_sales_reasons.id, atendimento_db_schema_1.tickets.reasons_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
+            .groupBy(atendimento_db_schema_1.crm_sales_reasons.id, atendimento_db_schema_1.crm_sales_reasons.reason)
+            .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
+    },
+    /**
+     * Pivotado ao longo do tempo (mesma granularidade do gráfico "Novos
+     * Contatos" — hora/dia da semana/dia do mês/mês — ver getGraph) pra
+     * alimentar o gráfico empilhado por motivo. `updated_at` (não
+     * `created_at`) porque o que importa aqui é quando a não-venda aconteceu
+     * (fechamento), igual às outras queries de not-sales desta empresa.
+     */
+    async notSalesByReasonOverTime(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        const period = scope.period;
+        const exact = Boolean(scope.startDate && scope.endDate);
+        const slotCol = exact
+            ? (0, drizzle_orm_1.sql) `DATE(${atendimento_db_schema_1.tickets.updated_at})::text`
+            : period === 'day' ? (0, drizzle_orm_1.sql) `EXTRACT(HOUR FROM ${atendimento_db_schema_1.tickets.updated_at})::int`
+                : period === 'week' ? (0, drizzle_orm_1.sql) `EXTRACT(ISODOW FROM ${atendimento_db_schema_1.tickets.updated_at})::int`
+                    : period === 'month' ? (0, drizzle_orm_1.sql) `EXTRACT(DAY FROM ${atendimento_db_schema_1.tickets.updated_at})::int`
+                        : (0, drizzle_orm_1.sql) `EXTRACT(MONTH FROM ${atendimento_db_schema_1.tickets.updated_at})::int`;
+        const rows = await client_1.db
+            .select({
+            slot: slotCol,
+            reason: (0, drizzle_orm_1.sql) `coalesce(${atendimento_db_schema_1.crm_sales_reasons.reason}, 'Sem motivo')`,
+            total: (0, drizzle_orm_1.sql) `count(*)::int`,
+        })
+            .from(atendimento_db_schema_1.tickets)
+            .leftJoin(atendimento_db_schema_1.crm_sales_reasons, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.crm_sales_reasons.id, atendimento_db_schema_1.tickets.reasons_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
+            .groupBy(slotCol, atendimento_db_schema_1.crm_sales_reasons.id, atendimento_db_schema_1.crm_sales_reasons.reason);
+        const reasons = [...new Set(rows.map((r) => r.reason))];
+        let slots;
+        if (exact && scope.startDate && scope.endDate) {
+            slots = [];
+            const cursor = new Date(`${scope.startDate}T00:00:00`);
+            const rangeEnd = new Date(`${scope.endDate}T00:00:00`);
+            while (cursor <= rangeEnd) {
+                const iso = cursor.toISOString().slice(0, 10);
+                slots.push({ slot: iso, label: `${iso.slice(8, 10)}/${iso.slice(5, 7)}` });
+                cursor.setDate(cursor.getDate() + 1);
+            }
+        }
+        else if (period === 'day') {
+            slots = Array.from({ length: 24 }, (_, i) => ({ slot: i, label: `${i}h` }));
+        }
+        else if (period === 'week') {
+            const WEEK_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+            slots = WEEK_LABELS.map((label, i) => ({ slot: i + 1, label })); // ISODOW: 1=Seg..7=Dom
+        }
+        else if (period === 'month') {
+            const now = new Date();
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            slots = Array.from({ length: daysInMonth }, (_, i) => ({ slot: i + 1, label: String(i + 1).padStart(2, '0') }));
+        }
+        else {
+            const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            slots = MONTH_LABELS.map((label, i) => ({ slot: i + 1, label }));
+        }
+        const buckets = slots.map(({ slot, label }) => {
+            const bucket = { slot, label, total: 0 };
+            for (const name of reasons)
+                bucket[name] = 0;
+            for (const row of rows.filter((r) => r.slot === slot)) {
+                bucket[row.reason] = row.total;
+                bucket.total += row.total;
+            }
+            return bucket;
+        });
+        return { reasons, buckets };
+    },
+    async salesByChannel(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
             label: (0, drizzle_orm_1.sql) `COALESCE(${atendimento_db_schema_1.tickets.origin}, 'Base de contatos')`,
@@ -96,9 +223,26 @@ exports.dashboardService = {
             totalEmVendas: (0, drizzle_orm_1.sql) `COALESCE(SUM(CAST(REPLACE(REPLACE(${atendimento_db_schema_1.tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), dateRange(startDate, endDate)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.tickets.origin)
             .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
+    },
+    /** Top clientes por valor gasto no período — card "Maiores clientes" do AdminDashboard. */
+    async topCustomers(companyId, scope, limit = 5) {
+        const { start, end } = resolveInterval(scope);
+        return client_1.db
+            .select({
+            contactId: atendimento_db_schema_1.tickets.contact_id,
+            name: atendimento_db_schema_1.contacts.name,
+            pedidos: (0, drizzle_orm_1.sql) `count(*)::int`,
+            total: (0, drizzle_orm_1.sql) `COALESCE(SUM(CAST(REPLACE(REPLACE(${atendimento_db_schema_1.tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)`,
+        })
+            .from(atendimento_db_schema_1.tickets)
+            .innerJoin(atendimento_db_schema_1.contacts, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.id, atendimento_db_schema_1.tickets.contact_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
+            .groupBy(atendimento_db_schema_1.tickets.contact_id, atendimento_db_schema_1.contacts.name)
+            .orderBy((0, drizzle_orm_1.sql) `COALESCE(SUM(CAST(REPLACE(REPLACE(${atendimento_db_schema_1.tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0) desc`)
+            .limit(limit);
     },
     async listReasons(companyId) {
         return client_1.db.select().from(atendimento_db_schema_1.crm_sales_reasons).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.crm_sales_reasons.company_id, companyId));
@@ -108,30 +252,31 @@ exports.dashboardService = {
         return r;
     },
     // ────── Novos métodos de dashboard ──────
-    async getKpis(companyId, period, attendantId) {
-        const { start, end } = getInterval(period);
+    async getKpis(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        const extra = scopeConditions(scope);
         const [newTickets] = await client_1.db.select({ total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.created_at, end)));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.created_at, end), ...extra));
         const [totalAll] = await client_1.db.select({ total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), ...extra));
         const [activeNow] = await client_1.db.select({ total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, [1, 2])));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, [1, 2]), ...extra));
         const [naFila] = await client_1.db.select({ total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 1)));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 1), scope.connectionId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.connection_id, scope.connectionId) : undefined, scope.queueId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.queue_id, scope.queueId) : undefined));
         const [resolved] = await client_1.db.select({ total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end)));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...extra));
         const msgs = await client_1.db.select({
             from_me: atendimento_db_schema_1.atendimento_messages.from_me,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.atendimento_messages)
             .innerJoin(atendimento_db_schema_1.tickets, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, atendimento_db_schema_1.atendimento_messages.ticket_id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.gte)(atendimento_db_schema_1.atendimento_messages.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.atendimento_messages.created_at, end)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.atendimento_messages.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.atendimento_messages.created_at, end), ...extra))
             .groupBy(atendimento_db_schema_1.atendimento_messages.from_me);
         const enviadas = msgs.find(m => m.from_me === true)?.total ?? 0;
         const recebidas = msgs.find(m => m.from_me === false)?.total ?? 0;
@@ -149,27 +294,33 @@ exports.dashboardService = {
             naFila: naFila?.total ?? 0,
         };
     },
-    async getGraph(companyId, period, attendantId) {
-        const { start, end } = getInterval(period);
-        const slotCol = period === 'day' ? (0, drizzle_orm_1.sql) `EXTRACT(HOUR FROM ${atendimento_db_schema_1.tickets.created_at})::int` :
-            period === 'week' ? (0, drizzle_orm_1.sql) `EXTRACT(ISODOW FROM ${atendimento_db_schema_1.tickets.created_at})::int` :
-                period === 'month' ? (0, drizzle_orm_1.sql) `EXTRACT(DAY FROM ${atendimento_db_schema_1.tickets.created_at})::int` :
-                    (0, drizzle_orm_1.sql) `EXTRACT(MONTH FROM ${atendimento_db_schema_1.tickets.created_at})::int`;
+    async getGraph(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        const period = scope.period;
+        // Data exata: agrupa por calendário (evita colidir "dia 20" de Jan com "dia 20" de Fev,
+        // que EXTRACT(DAY) causaria num intervalo de até 45 dias cruzando meses).
+        const exact = Boolean(scope.startDate && scope.endDate);
+        const slotCol = exact
+            ? (0, drizzle_orm_1.sql) `DATE(${atendimento_db_schema_1.tickets.created_at})::text`
+            : period === 'day' ? (0, drizzle_orm_1.sql) `EXTRACT(HOUR FROM ${atendimento_db_schema_1.tickets.created_at})::int`
+                : period === 'week' ? (0, drizzle_orm_1.sql) `EXTRACT(ISODOW FROM ${atendimento_db_schema_1.tickets.created_at})::int`
+                    : period === 'month' ? (0, drizzle_orm_1.sql) `EXTRACT(DAY FROM ${atendimento_db_schema_1.tickets.created_at})::int`
+                        : (0, drizzle_orm_1.sql) `EXTRACT(MONTH FROM ${atendimento_db_schema_1.tickets.created_at})::int`;
         const data = await client_1.db.select({ slot: slotCol, total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.created_at, end)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.created_at, end), ...scopeConditions(scope)))
             .groupBy(slotCol)
             .orderBy(slotCol);
         return { period, data };
     },
-    async getMovimentos(companyId, period, attendantId) {
-        const { start, end } = getInterval(period);
+    async getMovimentos(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         const rows = await client_1.db.select({
             status_id: atendimento_db_schema_1.tickets.status_id,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.tickets.status_id);
         return rows.map(r => ({
             label: TICKET_STATUS[r.status_id]?.name ?? `Status ${r.status_id}`,
@@ -177,13 +328,13 @@ exports.dashboardService = {
             color: TICKET_STATUS[r.status_id]?.color ?? '#94a3b8',
         }));
     },
-    async getFunnel(companyId, attendantId) {
+    async getFunnel(companyId, scope) {
         const rows = await client_1.db.select({
             status_id: atendimento_db_schema_1.tickets.status_id,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.tickets.status_id);
         return rows.map(r => ({
             name: TICKET_STATUS[r.status_id]?.name ?? `Status ${r.status_id}`,
@@ -191,7 +342,7 @@ exports.dashboardService = {
             color: TICKET_STATUS[r.status_id]?.color ?? '#94a3b8',
         }));
     },
-    async getRecent(companyId, limit = 5, attendantId) {
+    async getRecent(companyId, limit, scope) {
         return client_1.db.select({
             id: atendimento_db_schema_1.tickets.id,
             nome: atendimento_db_schema_1.contacts.name,
@@ -200,12 +351,12 @@ exports.dashboardService = {
         })
             .from(atendimento_db_schema_1.tickets)
             .innerJoin(atendimento_db_schema_1.contacts, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.id, atendimento_db_schema_1.tickets.contact_id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), ...scopeConditions(scope)))
             .orderBy((0, drizzle_orm_1.desc)(atendimento_db_schema_1.tickets.updated_at))
             .limit(limit);
     },
-    async getTopAttendants(companyId, period) {
-        const { start, end } = getInterval(period);
+    async getTopAttendants(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db.select({
             id: auth_schema_1.users.id,
             name: auth_schema_1.users.name,
@@ -213,20 +364,33 @@ exports.dashboardService = {
         })
             .from(atendimento_db_schema_1.tickets)
             .innerJoin(auth_schema_1.users, (0, drizzle_orm_1.eq)(auth_schema_1.users.id, atendimento_db_schema_1.tickets.attendant_user_id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), scope.connectionId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.connection_id, scope.connectionId) : undefined, scope.queueId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.queue_id, scope.queueId) : undefined))
             .groupBy(auth_schema_1.users.id, auth_schema_1.users.name)
             .orderBy((0, drizzle_orm_1.sql) `count(${atendimento_db_schema_1.tickets.id}) desc`)
             .limit(5);
     },
-    async getChannelsByPeriod(companyId, period, attendantId) {
-        const { start, end } = getInterval(period);
+    async getChannelsByPeriod(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db.select({
             label: (0, drizzle_orm_1.sql) `COALESCE(${atendimento_db_schema_1.tickets.origin}, 'Base de contatos')`,
             total: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), attendantId ? (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, attendantId) : undefined, (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end)))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.tickets.origin)
+            .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
+    },
+    /** Quantidade de atendimentos (qualquer status, venda ou não) agrupados por conexão. */
+    async getTicketsByConnection(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        return client_1.db.select({
+            label: (0, drizzle_orm_1.sql) `coalesce(${atendimento_db_schema_1.connections.name}, 'Sem conexão')`,
+            total: (0, drizzle_orm_1.sql) `count(*)::int`,
+        })
+            .from(atendimento_db_schema_1.tickets)
+            .leftJoin(atendimento_db_schema_1.connections, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.tickets.connection_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
+            .groupBy(atendimento_db_schema_1.connections.id, atendimento_db_schema_1.connections.name)
             .orderBy((0, drizzle_orm_1.sql) `count(*) desc`);
     },
     // ────── Métodos SuperAdmin ──────
@@ -283,8 +447,9 @@ exports.dashboardService = {
     _salePriceCast() {
         return (0, drizzle_orm_1.sql) `CAST(REPLACE(REPLACE(${atendimento_db_schema_1.tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))`;
     },
-    async getFinanceiroKpis(companyId, start, end) {
-        const base = (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), start ? (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start) : undefined, end ? (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end) : undefined);
+    async getFinanceiroKpis(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        const base = (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope));
         const [totalAtend] = await client_1.db
             .select({ total: (0, drizzle_orm_1.sql) `count(*)::int` })
             .from(atendimento_db_schema_1.tickets)
@@ -316,7 +481,8 @@ exports.dashboardService = {
             totalAtendimentos: totalFechados,
         };
     },
-    async getFinanceiroEvolucao(companyId, start, end) {
+    async getFinanceiroEvolucao(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
             dia: (0, drizzle_orm_1.sql) `DATE(${atendimento_db_schema_1.tickets.updated_at})::text`,
@@ -324,11 +490,12 @@ exports.dashboardService = {
             vendas: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), start ? (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start) : undefined, end ? (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end) : undefined))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy((0, drizzle_orm_1.sql) `DATE(${atendimento_db_schema_1.tickets.updated_at})`)
             .orderBy((0, drizzle_orm_1.sql) `DATE(${atendimento_db_schema_1.tickets.updated_at})`);
     },
-    async getFinanceiroOrigens(companyId, start, end) {
+    async getFinanceiroOrigens(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
             origem: (0, drizzle_orm_1.sql) `COALESCE(${atendimento_db_schema_1.tickets.origin}, 'Base de contatos')`,
@@ -336,12 +503,13 @@ exports.dashboardService = {
             vendas: (0, drizzle_orm_1.sql) `count(*)::int`,
         })
             .from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), start ? (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start) : undefined, end ? (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end) : undefined))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .groupBy(atendimento_db_schema_1.tickets.origin)
             .orderBy((0, drizzle_orm_1.sql) `SUM(CAST(REPLACE(REPLACE(${atendimento_db_schema_1.tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))) desc`)
             .limit(10);
     },
-    async getFinanceiroHistorico(companyId, start, end) {
+    async getFinanceiroHistorico(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
             id: atendimento_db_schema_1.tickets.id,
@@ -353,11 +521,12 @@ exports.dashboardService = {
         })
             .from(atendimento_db_schema_1.tickets)
             .leftJoin(atendimento_db_schema_1.contacts, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, atendimento_db_schema_1.contacts.id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), start ? (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start) : undefined, end ? (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end) : undefined))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 1), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .orderBy((0, drizzle_orm_1.desc)(atendimento_db_schema_1.tickets.updated_at))
             .limit(200);
     },
-    async getFinanceiroPerdas(companyId, start, end) {
+    async getFinanceiroPerdas(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
         return client_1.db
             .select({
             id: atendimento_db_schema_1.tickets.id,
@@ -370,7 +539,7 @@ exports.dashboardService = {
             .from(atendimento_db_schema_1.tickets)
             .leftJoin(atendimento_db_schema_1.contacts, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, atendimento_db_schema_1.contacts.id))
             .leftJoin(atendimento_db_schema_1.crm_sales_reasons, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.reasons_id, atendimento_db_schema_1.crm_sales_reasons.id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), start ? (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start) : undefined, end ? (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end) : undefined))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.is_sale, 0), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.service_not_made, 0), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.updated_at, end), ...scopeConditions(scope)))
             .orderBy((0, drizzle_orm_1.desc)(atendimento_db_schema_1.tickets.updated_at))
             .limit(200);
     },

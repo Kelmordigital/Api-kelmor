@@ -29,17 +29,22 @@ const quick_messages_routes_1 = require("../modules/quick-messages/quick-message
 const bots_routes_1 = require("../modules/bots/bots.routes");
 const etiqueta_routes_1 = require("../modules/etiquetas/etiqueta.routes");
 const fila_routes_1 = require("../modules/filas/fila.routes");
+const achievements_routes_1 = require("../modules/achievements/achievements.routes");
 const usuario_routes_1 = require("../modules/usuarios/usuario.routes");
+const meu_perfil_routes_1 = require("../modules/meu-perfil/meu-perfil.routes");
 const pesquisa_routes_1 = require("../modules/pesquisas/pesquisa.routes");
 const produto_routes_1 = require("../modules/produtos/produto.routes");
+const cupom_routes_1 = require("../modules/cupons/cupom.routes");
 const campanha_routes_1 = require("../modules/campanhas/campanha.routes");
 const integracao_routes_1 = require("../modules/integracoes/integracao.routes");
 const agenda_routes_1 = require("../modules/agenda/agenda.routes");
 const tarefas_routes_1 = require("../modules/tarefas/tarefas.routes");
 const configuracao_geral_routes_1 = require("../modules/configuracao-geral/configuracao-geral.routes");
+const api_messages_routes_1 = require("../modules/api-messages/api-messages.routes");
 const reports_routes_1 = require("../modules/reports/reports.routes");
 const crm_reports_routes_1 = require("../modules/crm/crm-reports.routes");
 const crm_config_routes_1 = require("../modules/crm/crm-config.routes");
+const crm_timeline_routes_1 = require("../modules/crm/crm-timeline.routes");
 const superadmin_routes_1 = require("../modules/superadmin/superadmin.routes");
 const monitoring_metrics_1 = require("../modules/monitoring/monitoring.metrics");
 const monitoring_routes_1 = require("../modules/monitoring/monitoring.routes");
@@ -119,6 +124,13 @@ function buildApp() {
         root: path_1.default.join(process.cwd(), 'uploads'),
         prefix: '/uploads/',
         decorateReply: false,
+        // helmet marca tudo como Cross-Origin-Resource-Policy: same-origin por padrão,
+        // o que bloqueia o navegador de carregar essas imagens quando o front (outro
+        // domínio/porta) tenta exibi-las em <img>. Esses arquivos são públicos por
+        // natureza (avatar, mídia de mensagens), então liberamos o embed cross-origin.
+        setHeaders: (res) => {
+            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        },
     });
     app.get('/health', async () => ({
         status: 'ok',
@@ -140,22 +152,33 @@ function buildApp() {
     app.register(quick_messages_routes_1.quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiqueta_routes_1.etiquetasRoutes, { prefix: '/api/v1' });
     app.register(fila_routes_1.filasRoutes, { prefix: '/api/v1/configuracao/filas' });
+    app.register(achievements_routes_1.achievementsRoutes, { prefix: '/api/v1/achievements' });
     app.register(tarefas_routes_1.tarefasRoutes, { prefix: '/api/v1/tarefas' });
+    app.register(meu_perfil_routes_1.meuPerfilRoutes, { prefix: '/api/v1/configuracao/meu-perfil' });
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
     app.register(adminOnly(bots_routes_1.botsRoutes), { prefix: '/api/v1/bots' });
     app.register(adminOnly(usuario_routes_1.usuariosRoutes), { prefix: '/api/v1/configuracao/usuarios' });
     app.register(adminOnly(pesquisa_routes_1.pesquisasRoutes), { prefix: '/api/v1/configuracao/pesquisas' });
     app.register(adminOnly(campanha_routes_1.campanhasRoutes), { prefix: '/api/v1/configuracao/mensagens-agendadas' });
     app.register(adminOnly(produto_routes_1.produtosRoutes), { prefix: '/api/v1/configuracao/produtos' });
+    app.register(adminOnly(cupom_routes_1.cuponsRoutes), { prefix: '/api/v1/configuracao/cupons' });
     // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
     // O gating admin é feito por-rota dentro de integracao.routes.ts.
     app.register(integracao_routes_1.integracoesRoutes, { prefix: '/api/v1/integracoes' });
+    // api-messages NÃO usa adminOnly: /send é público, autenticado por X-Api-Key
+    // (chamado por sistemas externos, não por usuário logado). O gating admin
+    // das rotas de gestão da chave é feito por-rota dentro de api-messages.routes.ts.
+    app.register(api_messages_routes_1.apiMessagesRoutes, { prefix: '/api/v1' });
     app.register(adminOnly(agenda_routes_1.agendaRoutes), { prefix: '/api/v1/agenda' });
-    app.register(adminOnly(configuracao_geral_routes_1.configuracaoGeralRoutes), { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    // configuracaoGeralRoutes NÃO usa adminOnly: GET é liberado pra qualquer
+    // usuário autenticado (useCompanyPermissions precisa disso pro app inteiro),
+    // o gating admin do PUT é feito por-rota dentro de configuracao-geral.routes.ts.
+    app.register(configuracao_geral_routes_1.configuracaoGeralRoutes, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
     app.register(adminOnly(reports_routes_1.reportsRoutes), { prefix: '/api/v1/reports' });
     app.register(adminOnly(reports_routes_1.reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crm_reports_routes_1.crmReportsRoutes), { prefix: '/api/v1/crm-reports' });
     app.register(crm_config_routes_1.crmConfigRoutes, { prefix: '/api/v1/crm' });
+    app.register(crm_timeline_routes_1.crmTimelineRoutes, { prefix: '/api/v1' });
     app.register(superadmin_routes_1.superadminRoutes, { prefix: '/api/v1/superadmin' });
     // Webhook da API Oficial do WhatsApp (Cloud API) — chamado pela META.
     // GET = verificação (hub.challenge); POST = eventos (messages/statuses).

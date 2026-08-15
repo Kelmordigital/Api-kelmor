@@ -101,7 +101,7 @@ exports.filaService = {
         if (ids.length === 0)
             return [];
         return client_1.db
-            .select({ id: auth_schema_1.users.id, name: auth_schema_1.users.name, email: auth_schema_1.users.email })
+            .select({ id: auth_schema_1.users.id, name: auth_schema_1.users.name, nickname: auth_schema_1.users.nickname, email: auth_schema_1.users.email })
             .from(auth_schema_1.users)
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId), (0, drizzle_orm_1.inArray)(auth_schema_1.users.id, ids)))
             .orderBy(auth_schema_1.users.name);

@@ -6,6 +6,7 @@ const client_1 = require("../../database/client");
 const auth_schema_1 = require("./auth.schema");
 const profile_db_schema_1 = require("../profiles/profile.db.schema");
 const company_db_schema_1 = require("../companies/company.db.schema");
+const meu_perfil_db_schema_1 = require("../meu-perfil/meu-perfil.db.schema");
 exports.authRepository = {
     async findByEmailWithProfile(email) {
         const [result] = await client_1.db
@@ -21,9 +22,12 @@ exports.authRepository = {
             is_approved: auth_schema_1.users.is_approved,
             finance: auth_schema_1.users.finance,
             totp_enabled: auth_schema_1.users.totp_enabled,
+            hide_name_active: auth_schema_1.users.hide_name_active,
+            avatar_url: meu_perfil_db_schema_1.userAvatars.url,
         })
             .from(auth_schema_1.users)
             .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))
+            .leftJoin(meu_perfil_db_schema_1.userAvatars, (0, drizzle_orm_1.eq)(meu_perfil_db_schema_1.userAvatars.user_id, auth_schema_1.users.id))
             .where((0, drizzle_orm_1.eq)(auth_schema_1.users.email, email));
         return result ?? null;
     },
@@ -49,9 +53,12 @@ exports.authRepository = {
             is_approved: auth_schema_1.users.is_approved,
             finance: auth_schema_1.users.finance,
             totp_enabled: auth_schema_1.users.totp_enabled,
+            hide_name_active: auth_schema_1.users.hide_name_active,
+            avatar_url: meu_perfil_db_schema_1.userAvatars.url,
         })
             .from(auth_schema_1.users)
             .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))
+            .leftJoin(meu_perfil_db_schema_1.userAvatars, (0, drizzle_orm_1.eq)(meu_perfil_db_schema_1.userAvatars.user_id, auth_schema_1.users.id))
             .where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, id));
         return result ?? null;
     },

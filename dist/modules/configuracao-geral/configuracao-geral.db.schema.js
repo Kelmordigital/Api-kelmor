@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.companyPermissions = void 0;
+exports.companyEmailNotify = exports.companyPermissions = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const company_db_schema_1 = require("../companies/company.db.schema");
 exports.companyPermissions = (0, pg_core_1.pgTable)('company_permissions', {
@@ -61,7 +61,19 @@ exports.companyPermissions = (0, pg_core_1.pgTable)('company_permissions', {
     notify_by_email_connection: (0, pg_core_1.boolean)('notify_by_email_connection').notNull().default(false),
     active_crm: (0, pg_core_1.boolean)('active_crm').notNull().default(false),
     google_contacts_auto_sync: (0, pg_core_1.boolean)('google_contacts_auto_sync').notNull().default(false),
+    // Chave-mestra da "experiência gamer" (Mapa de Conquistas, XP, patente).
+    // Desligada, nenhuma tela/celebração do jogo aparece e o XP para de contar.
+    gamification_enabled: (0, pg_core_1.boolean)('gamification_enabled').notNull().default(true),
+    // Quantos XP o vendedor ganha por atendimento fechado como venda. Configurável
+    // pelo dono da empresa (só faz sentido com gamification_enabled ligado).
+    sale_xp_amount: (0, pg_core_1.integer)('sale_xp_amount').notNull().default(10),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
+});
+exports.companyEmailNotify = (0, pg_core_1.pgTable)('company_email_notify', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    email: (0, pg_core_1.varchar)('email', { length: 255 }).notNull(),
+    created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 //# sourceMappingURL=configuracao-geral.db.schema.js.map

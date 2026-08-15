@@ -2,14 +2,18 @@ export declare const usuarioService: {
     list(companyId: string): Promise<{
         queue_ids: number[];
         connection_ids: number[];
+        patente: string;
+        patente_sub_level: number | null;
         id: string;
         name: string;
+        nickname: string | null;
         email: string;
         profile_id: number;
         profile_tag: string;
         profile_name: string;
         is_approved: boolean;
         created_at: Date | null;
+        avatar_url: string | null;
     }[]>;
     create(companyId: string, payload: {
         name: string;
@@ -25,6 +29,7 @@ export declare const usuarioService: {
         name: string;
         created_at: Date | null;
         updated_at: Date | null;
+        nickname: string | null;
         email: string;
         password_hash: string;
         profile_id: number;
@@ -35,6 +40,8 @@ export declare const usuarioService: {
         totp_secret: string | null;
         totp_enabled: boolean;
         totp_recovery_codes: unknown;
+        xp: number;
+        hide_name_active: boolean;
     }>;
     update(id: string, companyId: string, payload: {
         name?: string;
