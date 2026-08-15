@@ -7,22 +7,57 @@ export declare class AtendenteNaoElegivelError extends Error {
 export declare class TransferenciaParaSiMesmoError extends Error {
     constructor();
 }
+export declare class ReturnTicketPermissionError extends Error {
+    constructor();
+}
+export declare class SpyTicketPermissionError extends Error {
+    constructor();
+}
+/**
+ * Gate de visualização de mensagens de um ticket.
+ * - status 2 (Aberta) de OUTRO atendente: só o dono ou admin/superAdmin (bypass,
+ *   mas ainda entra no log). "Permitir pré-visualização" (spy_ticket) NÃO dá
+ *   acesso aqui — não faz sentido "espiar" quem já está atendendo de verdade.
+ * - status 1 (Aguardando, sem dono): ler sem aceitar é o próprio conceito de
+ *   "espiar" deste sistema — precisa de spy_ticket ligado (admin bypassa).
+ * - demais status: sem gate.
+ * Toda vez que a checagem passa por causa do bypass/permissão (não é o fluxo
+ * normal de dono lendo o próprio ticket), registra em ticket_spy_log.
+ */
+export declare function ensureCanViewTicketMessages(ticket: Ticket, userId: string, profileTag: string): Promise<void>;
+/**
+ * "Espiar" só dá direito de LER — nunca de responder. Bloqueia o envio quando
+ * o ticket em atendimento (status 2) tem atendente diferente de quem está
+ * enviando, admin sempre pode (mesmo bypass usado no resto do sistema).
+ */
+export declare function ensureCanSendToTicket(ticket: Ticket, userId: string, profileTag: string): void;
 /**
  * Constrói a condição de visibilidade de tickets para um "viewer".
  * - admin/superAdmin ou empresa com show_all_tickets → sem restrição (undefined).
- * - demais: vê ticket cuja fila ele pertence, OU sem fila, OU atribuído a ele.
+ * - demais, o atendente vê o ticket se qualquer uma valer:
+ *     (a) está atribuído a ele; OU
+ *     (b) está numa fila dele E numa conexão dele (ou sem conexão atribuída) —
+ *         isolamento por conexão: atendimentos de um número que não é dele não
+ *         aparecem, mesmo que caiam numa fila em comum; OU
+ *     (c) não tem fila (queue_id nulo) — permanece visível a todos os atendentes.
  *   Se not_show_pending_ticket_without_queue: oculta pendentes (status 1) sem fila.
  */
 export declare function ticketVisibilityCondition(companyId: string, userId: string, profileTag: string): Promise<SQL | undefined>;
 export interface FunilCard {
     id: number;
-    funil_stage: string;
+    funil_stage_id: number;
     contact_id: number;
     contact_name: string;
     contact_number: string | null;
     contact_profile_pic_url: string | null;
     status_id: number;
+    attendant_user_id: string | null;
     created_at: Date | null;
+}
+export declare class FunilDestinoInvalidoError extends Error {
+}
+export declare class FunilMovimentoNaoAutorizadoError extends Error {
+    constructor();
 }
 /** O bot só processa mensagens enquanto o ticket está em status Bot (9) — status_id é a única fonte de roteamento. */
 export declare function shouldRunBot(ticket: {
@@ -35,6 +70,16 @@ export declare const ticketService: {
         ticket: Ticket;
         created: boolean;
     }>;
+    /**
+     * Vincula uma mensagem enviada por FORA do atendimento humano (hoje: API
+     * transacional) ao histórico de conversa do contato. Reaproveita um ticket
+     * já aberto na mesma conexão (mesma regra de `findOpenTicket`, único ponto
+     * de decisão "isso ainda conta como conversa em aberto?" — não duplicar
+     * essa pergunta em cada canal de envio automatizado). Sem ticket aberto,
+     * cria um novo já FECHADO e sem atendente — só pra guardar o histórico,
+     * nunca entra em fila/bot, nunca aparece pra alguém aceitar.
+     */
+    attachExternalMessage(companyId: string, contactId: number, connectionId: number, body: string): Promise<Ticket>;
     get(ticketId: number, companyId: string): Promise<Ticket | null>;
     /**
      * Histórico de atendimentos de um contato — todos os tickets (aberto e
@@ -81,9 +126,9 @@ export declare const ticketService: {
     routeToQueue(ticketId: number, companyId: string, queueId: number): Promise<Ticket | null>;
     _sendQueueGreeting(ticket: Ticket, queueId: number): Promise<void>;
     /** Devolve o ticket para a fila (2 → 1). Zera o atendente. */
-    returnToQueue(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
+    returnToQueue(ticketId: number, userId: string, companyId: string, profileTag: string): Promise<Ticket>;
     /** Reabre um ticket finalizado (3 → 2). Verifica se não há outro aberto para o mesmo contato. */
-    reopen(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
+    reopen(ticketId: number, userId: string, companyId: string, profileTag: string): Promise<Ticket>;
     /** Transfere o ticket para outro atendente dentro de uma fila. Cria mensagem interna de transferência. */
     transfer(ticketId: number, fromUserId: string, toUserId: string, companyId: string, queueId: number): Promise<Ticket>;
     _sendTransferMessage(ticket: Ticket, companyId: string, fromName: string | undefined, toName: string): Promise<void>;
@@ -126,10 +171,17 @@ export declare const ticketService: {
         phone?: string;
         email?: string;
         notes?: string;
-        funil_stage?: string;
+        funil_stage_id?: number;
     }): Promise<FunilCard>;
     getFunilCards(companyId: string, search?: string): Promise<FunilCard[]>;
-    updateFunilStage(ticketId: number, stage: string, companyId: string): Promise<Ticket>;
+    /**
+     * Árvore de decisão do drag-and-drop do Kanban: reaproveita assignAttendant/
+     * reopen/returnToQueue (cada um já com suas próprias checagens de permissão/
+     * capacidade) — mover um card sempre dispara a ação real de negócio
+     * equivalente, nunca só um valor visual. Finalizado nunca é destino válido
+     * aqui: fechar exige a classificação de venda (fluxo separado, ver CrmModal).
+     */
+    moveTicketFunilStage(ticketId: number, destinationStageId: number, userId: string, companyId: string, profileTag: string): Promise<Ticket>;
     statusByContact(companyId: string, params: {
         dateInit?: string;
         dateEnd?: string;
@@ -143,6 +195,7 @@ export declare const ticketService: {
         id: string;
         name: string;
         email: string;
+        profile_tag: string;
     }[]>;
 };
 //# sourceMappingURL=ticket.service.d.ts.map

@@ -5,6 +5,8 @@ const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
 const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
 const socket_1 = require("../../shared/socket");
+const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const attendant_capacity_service_1 = require("../atendimento/attendant-capacity.service");
 function pickRandom(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -50,9 +52,17 @@ async function distributeTicket(companyId, queueId, connectionId) {
         client_1.db.select({ id: atendimento_db_schema_1.userConnections.user_id }).from(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.connection_id, connectionId)),
     ]);
     const connSet = new Set(withConn.map((r) => r.id));
-    const eligible = inQueue
+    let eligible = inQueue
         .map((r) => r.id)
         .filter((id) => connSet.has(id) && (0, socket_1.isUserOnline)(id));
+    if (eligible.length === 0)
+        return undefined;
+    // Distribuição capacity-aware: quem já bateu o teto de atendimentos
+    // simultâneos (config "Limitar atendimentos por usuário") sai da disputa
+    // antes do ranking — a distribuição automática nunca empurra ticket pra
+    // quem não tem vaga, mesmo sendo o "melhor" candidato relativo aos outros.
+    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    eligible = await (0, attendant_capacity_service_1.filterByCapacity)(eligible, perms);
     if (eligible.length === 0)
         return undefined;
     if (eligible.length === 1)

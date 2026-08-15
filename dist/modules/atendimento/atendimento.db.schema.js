@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.connectionQueues = exports.userConnections = exports.userQueues = exports.connection_errors_log = exports.connection_health = exports.historic_tickets = exports.atendimento_messages = exports.tickets = exports.crm_keywords = exports.crm_sales_reasons = exports.contacts = exports.queues = exports.connections = exports.statuses = void 0;
+exports.connectionQueues = exports.userConnections = exports.userQueues = exports.connection_errors_log = exports.connection_health = exports.ticket_spy_log = exports.historic_tickets = exports.atendimento_messages = exports.funil_stage_history = exports.tickets = exports.funil_stages = exports.crm_contact_notes = exports.crm_keywords = exports.crm_sales_reasons = exports.contacts = exports.queues = exports.connections = exports.statuses = void 0;
 const pg_core_1 = require("drizzle-orm/pg-core");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const auth_schema_1 = require("../auth/auth.schema");
@@ -62,6 +62,33 @@ exports.crm_keywords = (0, pg_core_1.pgTable)('at_crm_keywords', {
     origin: (0, pg_core_1.varchar)('origin', { length: 255 }).notNull(),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
+// Nota manual na timeline de interações do lead (painel do CRM). Sem
+// updated_at/deleted_at — registro de histórico imutável, mesmo espírito do
+// "atendimento fechado é definitivo". Visível pra qualquer usuário da empresa
+// que abrir o contato, não só pra quem escreveu.
+exports.crm_contact_notes = (0, pg_core_1.pgTable)('crm_contact_notes', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    contact_id: (0, pg_core_1.bigint)('contact_id', { mode: 'number' }).notNull().references(() => exports.contacts.id, { onDelete: 'cascade' }),
+    user_id: (0, pg_core_1.uuid)('user_id').references(() => auth_schema_1.users.id, { onDelete: 'set null' }),
+    body: (0, pg_core_1.text)('body').notNull(),
+    created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
+});
+// Etapas do quadro Kanban (Funil de atendimento), configuráveis por empresa.
+// "Aguardando" e "Finalizado" são as duas protegidas (is_waiting_stage/
+// is_finished_stage) — no máximo uma de cada por empresa, nunca editáveis/
+// excluíveis pela UI. As etapas do meio são livres, criadas/reordenadas pela
+// própria empresa (ver docs/superpowers/specs/2026-07-30-kanban-funil-design.md).
+exports.funil_stages = (0, pg_core_1.pgTable)('funil_stages', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    name: (0, pg_core_1.varchar)('name', { length: 100 }).notNull(),
+    color: (0, pg_core_1.varchar)('color', { length: 50 }).notNull().default('bg-blue-500'),
+    position: (0, pg_core_1.integer)('position').notNull().default(0),
+    is_waiting_stage: (0, pg_core_1.boolean)('is_waiting_stage').notNull().default(false),
+    is_finished_stage: (0, pg_core_1.boolean)('is_finished_stage').notNull().default(false),
+    created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
+});
 exports.tickets = (0, pg_core_1.pgTable)('at_tickets', {
     id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
     company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
@@ -83,9 +110,22 @@ exports.tickets = (0, pg_core_1.pgTable)('at_tickets', {
     pinned: (0, pg_core_1.integer)('pinned').default(0), // 1 = fixado no topo
     is_transfer: (0, pg_core_1.integer)('is_transfer').default(0), // 1 = foi transferido
     funil_stage: (0, pg_core_1.varchar)('funil_stage', { length: 50 }).notNull().default('novos_leads'),
+    funil_stage_id: (0, pg_core_1.bigint)('funil_stage_id', { mode: 'number' }).references(() => exports.funil_stages.id, { onDelete: 'set null' }),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
     deleted_at: (0, pg_core_1.timestamp)('deleted_at'),
+});
+// Histórico de entrada em cada etapa do funil, pra alimentar o gráfico de
+// conversão (visão "Funil" do Kanban). Só passa a existir a partir de quando
+// essa feature foi criada — sem backfill de dados antigos. Uma linha por
+// entrada real na etapa (criação do ticket = entrada em Aguardando, e cada
+// vez que moveTicketFunilStage efetiva uma troca de etapa).
+exports.funil_stage_history = (0, pg_core_1.pgTable)('funil_stage_history', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    ticket_id: (0, pg_core_1.bigint)('ticket_id', { mode: 'number' }).notNull().references(() => exports.tickets.id, { onDelete: 'cascade' }),
+    funil_stage_id: (0, pg_core_1.bigint)('funil_stage_id', { mode: 'number' }).notNull().references(() => exports.funil_stages.id, { onDelete: 'cascade' }),
+    entered_at: (0, pg_core_1.timestamp)('entered_at').defaultNow(),
 });
 exports.atendimento_messages = (0, pg_core_1.pgTable)('at_messages', {
     id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
@@ -96,6 +136,8 @@ exports.atendimento_messages = (0, pg_core_1.pgTable)('at_messages', {
     from_me: (0, pg_core_1.boolean)('from_me').default(false),
     media_type: (0, pg_core_1.varchar)('media_type', { length: 100 }),
     media_url: (0, pg_core_1.text)('media_url'),
+    media_waveform: (0, pg_core_1.jsonb)('media_waveform').$type(),
+    media_seconds: (0, pg_core_1.integer)('media_seconds'),
     ack: (0, pg_core_1.integer)('ack').default(0),
     wab_message_id: (0, pg_core_1.varchar)('wab_message_id', { length: 255 }), // wamid da Cloud API (casa os status/ACK)
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
@@ -106,6 +148,17 @@ exports.historic_tickets = (0, pg_core_1.pgTable)('at_historic_tickets', {
     user_id: (0, pg_core_1.uuid)('user_id'),
     status_id_init: (0, pg_core_1.bigint)('status_id_init', { mode: 'number' }),
     status_id_end: (0, pg_core_1.bigint)('status_id_end', { mode: 'number' }),
+    created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
+});
+// Log de auditoria: sempre que alguém que NÃO é o atendente do ticket visualiza
+// as mensagens dele (toggle "Permitir pré-visualização do ticket" / spy_ticket).
+// Gravado independente de ser admin (bypassa a permissão) ou atendente comum
+// (precisa da permissão ligada) — "quem espiou o quê" importa nos dois casos.
+exports.ticket_spy_log = (0, pg_core_1.pgTable)('at_ticket_spy_log', {
+    id: (0, pg_core_1.bigserial)('id', { mode: 'number' }).primaryKey(),
+    company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
+    ticket_id: (0, pg_core_1.bigint)('ticket_id', { mode: 'number' }).notNull(),
+    user_id: (0, pg_core_1.uuid)('user_id').notNull().references(() => auth_schema_1.users.id, { onDelete: 'cascade' }),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
 });
 // ── Saúde das conexões WhatsApp ───────────────────────────────────────────────

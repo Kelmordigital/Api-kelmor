@@ -948,6 +948,23 @@ export declare const bot_conversations: import("drizzle-orm/pg-core").PgTableWit
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        error_message: import("drizzle-orm/pg-core").PgColumn<{
+            name: "error_message";
+            tableName: "at_bot_conversations";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         started_at: import("drizzle-orm/pg-core").PgColumn<{
             name: "started_at";
             tableName: "at_bot_conversations";

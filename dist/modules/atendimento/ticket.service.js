@@ -33,7 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ticketService = exports.TransferenciaParaSiMesmoError = exports.AtendenteNaoElegivelError = void 0;
+exports.ticketService = exports.FunilMovimentoNaoAutorizadoError = exports.FunilDestinoInvalidoError = exports.SpyTicketPermissionError = exports.ReturnTicketPermissionError = exports.TransferenciaParaSiMesmoError = exports.AtendenteNaoElegivelError = void 0;
+exports.ensureCanViewTicketMessages = ensureCanViewTicketMessages;
+exports.ensureCanSendToTicket = ensureCanSendToTicket;
 exports.ticketVisibilityCondition = ticketVisibilityCondition;
 exports.shouldRunBot = shouldRunBot;
 const drizzle_orm_1 = require("drizzle-orm");
@@ -41,10 +43,24 @@ const pg_core_1 = require("drizzle-orm/pg-core");
 const client_1 = require("../../database/client");
 const atendimento_db_schema_1 = require("./atendimento.db.schema");
 const auth_schema_1 = require("../auth/auth.schema");
+const profile_db_schema_1 = require("../profiles/profile.db.schema");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const socket_1 = require("../../shared/socket");
 const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
 const fila_service_1 = require("../filas/fila.service");
+const attendant_capacity_service_1 = require("./attendant-capacity.service");
+const funil_stage_service_1 = require("./funil-stage.service");
+// XP do mini-game de Conquistas: só quando o próprio fechamento é uma venda
+// (ticket.is_sale === 1 no momento em que o fechamento se efetiva). Fechar
+// sem venda, ou sem classificar, não soma nada — é um contador real
+// (users.xp), não recalculado a partir do histórico de tickets. A quantidade
+// por venda é configurável pelo dono (company_permissions.sale_xp_amount).
+async function grantSaleXp(userId, companyId) {
+    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    if (!perms.gamification_enabled)
+        return;
+    await client_1.db.update(auth_schema_1.users).set({ xp: (0, drizzle_orm_1.sql) `${auth_schema_1.users.xp} + ${perms.sale_xp_amount}` }).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, userId));
+}
 class AtendenteNaoElegivelError extends Error {
     constructor() { super('O atendente selecionado não pertence à fila de destino.'); }
 }
@@ -53,10 +69,76 @@ class TransferenciaParaSiMesmoError extends Error {
     constructor() { super('Não é possível transferir o atendimento para o mesmo atendente.'); }
 }
 exports.TransferenciaParaSiMesmoError = TransferenciaParaSiMesmoError;
+class ReturnTicketPermissionError extends Error {
+    constructor() { super('O administrador definiu que você não pode devolver ou reabrir este atendimento.'); }
+}
+exports.ReturnTicketPermissionError = ReturnTicketPermissionError;
+/** admin/superAdmin sempre podem; atendente comum depende de company_permissions.return_ticket. */
+async function ensureReturnTicketPermission(companyId, profileTag) {
+    if (profileTag === 'admin' || profileTag === 'superAdmin')
+        return;
+    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    if (!perms.return_ticket)
+        throw new ReturnTicketPermissionError();
+}
+class SpyTicketPermissionError extends Error {
+    constructor() { super('Você não tem permissão para visualizar este atendimento.'); }
+}
+exports.SpyTicketPermissionError = SpyTicketPermissionError;
+/**
+ * Gate de visualização de mensagens de um ticket.
+ * - status 2 (Aberta) de OUTRO atendente: só o dono ou admin/superAdmin (bypass,
+ *   mas ainda entra no log). "Permitir pré-visualização" (spy_ticket) NÃO dá
+ *   acesso aqui — não faz sentido "espiar" quem já está atendendo de verdade.
+ * - status 1 (Aguardando, sem dono): ler sem aceitar é o próprio conceito de
+ *   "espiar" deste sistema — precisa de spy_ticket ligado (admin bypassa).
+ * - demais status: sem gate.
+ * Toda vez que a checagem passa por causa do bypass/permissão (não é o fluxo
+ * normal de dono lendo o próprio ticket), registra em ticket_spy_log.
+ */
+async function ensureCanViewTicketMessages(ticket, userId, profileTag) {
+    const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
+    if (ticket.status_id === 2) {
+        if (!ticket.attendant_user_id || ticket.attendant_user_id === userId)
+            return;
+        if (!isAdmin)
+            throw new SpyTicketPermissionError();
+    }
+    else if (ticket.status_id === 1) {
+        if (!isAdmin) {
+            const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(ticket.company_id);
+            if (!perms.spy_ticket)
+                throw new SpyTicketPermissionError();
+        }
+    }
+    else {
+        return;
+    }
+    await client_1.db.insert(atendimento_db_schema_1.ticket_spy_log).values({ company_id: ticket.company_id, ticket_id: ticket.id, user_id: userId });
+}
+/**
+ * "Espiar" só dá direito de LER — nunca de responder. Bloqueia o envio quando
+ * o ticket em atendimento (status 2) tem atendente diferente de quem está
+ * enviando, admin sempre pode (mesmo bypass usado no resto do sistema).
+ */
+function ensureCanSendToTicket(ticket, userId, profileTag) {
+    if (ticket.status_id !== 2)
+        return;
+    if (!ticket.attendant_user_id || ticket.attendant_user_id === userId)
+        return;
+    if (profileTag === 'admin' || profileTag === 'superAdmin')
+        return;
+    throw new SpyTicketPermissionError();
+}
 /**
  * Constrói a condição de visibilidade de tickets para um "viewer".
  * - admin/superAdmin ou empresa com show_all_tickets → sem restrição (undefined).
- * - demais: vê ticket cuja fila ele pertence, OU sem fila, OU atribuído a ele.
+ * - demais, o atendente vê o ticket se qualquer uma valer:
+ *     (a) está atribuído a ele; OU
+ *     (b) está numa fila dele E numa conexão dele (ou sem conexão atribuída) —
+ *         isolamento por conexão: atendimentos de um número que não é dele não
+ *         aparecem, mesmo que caiam numa fila em comum; OU
+ *     (c) não tem fila (queue_id nulo) — permanece visível a todos os atendentes.
  *   Se not_show_pending_ticket_without_queue: oculta pendentes (status 1) sem fila.
  */
 async function ticketVisibilityCondition(companyId, userId, profileTag) {
@@ -66,19 +148,33 @@ async function ticketVisibilityCondition(companyId, userId, profileTag) {
     const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
     if (perms.show_all_tickets)
         return undefined;
-    const myQueues = await client_1.db
-        .select({ queue_id: atendimento_db_schema_1.userQueues.queue_id })
-        .from(atendimento_db_schema_1.userQueues)
-        .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.user_id, userId));
+    const [myQueues, myConns] = await Promise.all([
+        client_1.db.select({ queue_id: atendimento_db_schema_1.userQueues.queue_id }).from(atendimento_db_schema_1.userQueues).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.user_id, userId)),
+        client_1.db.select({ connection_id: atendimento_db_schema_1.userConnections.connection_id }).from(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.user_id, userId)),
+    ]);
     const queueIds = myQueues.map((q) => q.queue_id);
+    const connIds = myConns.map((c) => c.connection_id);
     const ors = [(0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, userId)];
-    if (queueIds.length)
-        ors.push((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.queue_id, queueIds));
+    if (queueIds.length) {
+        // Ticket com fila só é visível se também for de uma conexão do atendente
+        // (ou sem conexão atribuída — ticket "solto" não é da Conexão B).
+        const connScope = connIds.length
+            ? (0, drizzle_orm_1.or)((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.connection_id, connIds), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.connection_id))
+            : (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.connection_id);
+        ors.push((0, drizzle_orm_1.and)((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.queue_id, queueIds), connScope));
+    }
     ors.push(perms.not_show_pending_ticket_without_queue
         ? (0, drizzle_orm_1.and)((0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.queue_id), (0, drizzle_orm_1.ne)(atendimento_db_schema_1.tickets.status_id, 1))
         : (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.queue_id));
     return (0, drizzle_orm_1.or)(...ors);
 }
+class FunilDestinoInvalidoError extends Error {
+}
+exports.FunilDestinoInvalidoError = FunilDestinoInvalidoError;
+class FunilMovimentoNaoAutorizadoError extends Error {
+    constructor() { super('Só quem está atendendo (ou um admin) pode mover este card entre colunas.'); }
+}
+exports.FunilMovimentoNaoAutorizadoError = FunilMovimentoNaoAutorizadoError;
 // Status IDs considerados "ativos" — nova mensagem entra no ticket existente
 // 1=Pendente 2=Em Atendimento 7=Pesquisa de Satisfação 9=Bot/Resolvido
 const OPEN_STATUSES = [1, 2, 7, 9];
@@ -146,6 +242,15 @@ exports.ticketService = {
             .values({ company_id: companyId, contact_id: contactId, connection_id: connectionId ?? null, serialized_id: serializedId ?? null, origin, status_id: initialStatusId })
             .returning();
         (0, socket_1.emitToCompany)(companyId, 'ticket:created', { ticket: created });
+        // Alimenta o gráfico de conversão do Kanban (visão "Funil") — só grava
+        // pra empresas com o toggle ligado, senão toda empresa (mesmo sem usar
+        // Kanban) ganharia etapas provisionadas e histórico crescendo à toa.
+        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        if (perms.active_kanban) {
+            const stages = await funil_stage_service_1.funilStageService.listStages(companyId);
+            const waitingStage = stages.find((s) => s.is_waiting_stage);
+            await funil_stage_service_1.funilStageService.recordStageEntry(companyId, created.id, waitingStage.id);
+        }
         // Sem bot ativo: se a conexão tiver exatamente 1 fila ativa vinculada,
         // o ticket já nasce roteado pra ela (mesma lógica do nó "Transferir" do bot).
         if (!activeBot && connectionId) {
@@ -157,6 +262,33 @@ exports.ticketService = {
             }
         }
         return { ticket: created, created: true };
+    },
+    /**
+     * Vincula uma mensagem enviada por FORA do atendimento humano (hoje: API
+     * transacional) ao histórico de conversa do contato. Reaproveita um ticket
+     * já aberto na mesma conexão (mesma regra de `findOpenTicket`, único ponto
+     * de decisão "isso ainda conta como conversa em aberto?" — não duplicar
+     * essa pergunta em cada canal de envio automatizado). Sem ticket aberto,
+     * cria um novo já FECHADO e sem atendente — só pra guardar o histórico,
+     * nunca entra em fila/bot, nunca aparece pra alguém aceitar.
+     */
+    async attachExternalMessage(companyId, contactId, connectionId, body) {
+        const existing = await this.findOpenTicket(companyId, contactId, connectionId);
+        let ticket = existing;
+        if (!ticket) {
+            const [created] = await client_1.db.insert(atendimento_db_schema_1.tickets).values({
+                company_id: companyId,
+                contact_id: contactId,
+                connection_id: connectionId,
+                status_id: 3,
+                origin: 'API',
+            }).returning();
+            ticket = created;
+            (0, socket_1.emitToCompany)(companyId, 'ticket:created', { ticket });
+        }
+        const { messageService } = await Promise.resolve().then(() => __importStar(require('./message.service')));
+        await messageService.save(ticket.id, contactId, body, true, companyId, {});
+        return ticket;
     },
     async get(ticketId, companyId) {
         const [ticket] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
@@ -264,22 +396,25 @@ exports.ticketService = {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey))
             throw new Error('Ticket já está sendo assumido por outro atendente');
+        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        // Serializa por atendente (não só por ticket): sem isso, dois aceites
+        // simultâneos de tickets DIFERENTES pelo mesmo atendente passariam na
+        // contagem do limite antes que qualquer um dos dois efetivasse — cada
+        // um vendo a contagem sem o outro ainda computado.
+        const attendantLockKey = `attendant-limit:${userId}`;
+        const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
+        if (!attendantLocked) {
+            releaseLock(lockKey);
+            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+        }
         try {
             const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
                 .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
                 .limit(1);
             if (!current)
                 throw new Error('Ticket não encontrado');
-            // Verifica limite de atendimentos simultâneos por atendente
-            const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
-            if (perms.limit_services_users) {
-                const [{ cnt }] = await client_1.db
-                    .select({ cnt: (0, drizzle_orm_1.sql) `count(*)::int` })
-                    .from(atendimento_db_schema_1.tickets)
-                    .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.attendant_user_id, userId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.status_id, 2), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at)));
-                if (cnt >= (perms.number_limit_services_users ?? 5)) {
-                    throw new Error('Limite de atendimentos simultâneos atingido');
-                }
+            if (!(await (0, attendant_capacity_service_1.attendantHasCapacity)(userId, perms))) {
+                throw new attendant_capacity_service_1.AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
             }
             // Update atômico condicional: só aplica se o ticket ainda estiver
             // Pendente(1) ou em Bot(9) e sem atendente — garante que o bot
@@ -304,6 +439,8 @@ exports.ticketService = {
             return updated;
         }
         finally {
+            if (perms.limit_services_users)
+                releaseLock(attendantLockKey);
             releaseLock(lockKey);
         }
     },
@@ -415,7 +552,8 @@ exports.ticketService = {
         await whatsappService.sendTextToPhone(ticket.connection_id, target, queueRow.greeting_message);
     },
     /** Devolve o ticket para a fila (2 → 1). Zera o atendente. */
-    async returnToQueue(ticketId, userId, companyId) {
+    async returnToQueue(ticketId, userId, companyId, profileTag) {
+        await ensureReturnTicketPermission(companyId, profileTag);
         const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
             .limit(1);
@@ -436,77 +574,108 @@ exports.ticketService = {
         return updated;
     },
     /** Reabre um ticket finalizado (3 → 2). Verifica se não há outro aberto para o mesmo contato. */
-    async reopen(ticketId, userId, companyId) {
-        const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
-            .limit(1);
-        if (!current)
-            throw new Error('Ticket não encontrado');
-        // Verifica se já existe outro ticket aberto para o mesmo contato+conexão
-        const [alreadyOpen] = await client_1.db.select({ id: atendimento_db_schema_1.tickets.id }).from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, current.contact_id), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, [1, 2]), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at)))
-            .limit(1);
-        if (alreadyOpen)
-            throw new Error('Já existe um ticket aberto para este contato');
-        await client_1.db.insert(atendimento_db_schema_1.historic_tickets).values({
-            ticket_id: ticketId,
-            user_id: userId,
-            status_id_init: current.status_id,
-            status_id_end: 2,
-        });
-        const [updated] = await client_1.db
-            .update(atendimento_db_schema_1.tickets)
-            .set({ status_id: 2, attendant_user_id: userId, closed_by_user_id: null, updated_at: new Date() })
-            .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId))
-            .returning();
-        (0, socket_1.emitToCompany)(companyId, 'ticket:updated', { ticket: updated });
-        return updated;
+    async reopen(ticketId, userId, companyId, profileTag) {
+        await ensureReturnTicketPermission(companyId, profileTag);
+        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const attendantLockKey = `attendant-limit:${userId}`;
+        const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
+        if (!attendantLocked) {
+            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+        }
+        try {
+            const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
+                .limit(1);
+            if (!current)
+                throw new Error('Ticket não encontrado');
+            // Verifica se já existe outro ticket aberto para o mesmo contato+conexão
+            const [alreadyOpen] = await client_1.db.select({ id: atendimento_db_schema_1.tickets.id }).from(atendimento_db_schema_1.tickets)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, current.contact_id), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, [1, 2]), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at)))
+                .limit(1);
+            if (alreadyOpen)
+                throw new Error('Já existe um ticket aberto para este contato');
+            if (!(await (0, attendant_capacity_service_1.attendantHasCapacity)(userId, perms))) {
+                throw new attendant_capacity_service_1.AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
+            }
+            await client_1.db.insert(atendimento_db_schema_1.historic_tickets).values({
+                ticket_id: ticketId,
+                user_id: userId,
+                status_id_init: current.status_id,
+                status_id_end: 2,
+            });
+            const [updated] = await client_1.db
+                .update(atendimento_db_schema_1.tickets)
+                .set({ status_id: 2, attendant_user_id: userId, closed_by_user_id: null, updated_at: new Date() })
+                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId))
+                .returning();
+            (0, socket_1.emitToCompany)(companyId, 'ticket:updated', { ticket: updated });
+            return updated;
+        }
+        finally {
+            if (perms.limit_services_users)
+                releaseLock(attendantLockKey);
+        }
     },
     /** Transfere o ticket para outro atendente dentro de uma fila. Cria mensagem interna de transferência. */
     async transfer(ticketId, fromUserId, toUserId, companyId, queueId) {
         if (fromUserId === toUserId)
             throw new TransferenciaParaSiMesmoError();
-        const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
-            .limit(1);
-        if (!current)
-            throw new Error('Ticket não encontrado');
-        const eligible = await fila_service_1.filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
-        if (!eligible.some((u) => u.id === toUserId))
-            throw new AtendenteNaoElegivelError();
-        const [fromUser] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, fromUserId)).limit(1);
-        const [toUser] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, toUserId)).limit(1);
-        if (!toUser)
-            throw new Error('Atendente destino não encontrado');
-        await client_1.db.insert(atendimento_db_schema_1.historic_tickets).values({
-            ticket_id: ticketId,
-            user_id: fromUserId,
-            status_id_init: current.status_id,
-            status_id_end: 2,
-        });
-        const set = {
-            attendant_user_id: toUserId,
-            is_transfer: 1,
-            status_id: 2,
-            updated_at: new Date(),
-            queue_id: queueId,
-        };
-        const [updated] = await client_1.db
-            .update(atendimento_db_schema_1.tickets)
-            .set(set)
-            .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId))
-            .returning();
-        const fromName = fromUser?.name ?? 'Atendente anterior';
-        await client_1.db.insert(atendimento_db_schema_1.atendimento_messages).values({
-            ticket_id: ticketId,
-            body: `Atendimento transferido de *${fromName}* para *${toUser.name}*`,
-            from_me: true,
-            user_id: fromUserId,
-        });
-        (0, socket_1.emitToCompany)(companyId, 'ticket:updated', { ticket: updated });
-        // Mensagem de transferência para o cliente (fire-and-forget)
-        this._sendTransferMessage(updated, companyId, fromUser?.name, toUser.name).catch(() => { });
-        return updated;
+        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const attendantLockKey = `attendant-limit:${toUserId}`;
+        const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
+        if (!attendantLocked) {
+            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+        }
+        try {
+            const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
+                .limit(1);
+            if (!current)
+                throw new Error('Ticket não encontrado');
+            const eligible = await fila_service_1.filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
+            if (!eligible.some((u) => u.id === toUserId))
+                throw new AtendenteNaoElegivelError();
+            if (!(await (0, attendant_capacity_service_1.attendantHasCapacity)(toUserId, perms))) {
+                throw new attendant_capacity_service_1.AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
+            }
+            const [fromUser] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, fromUserId)).limit(1);
+            const [toUser] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, toUserId)).limit(1);
+            if (!toUser)
+                throw new Error('Atendente destino não encontrado');
+            await client_1.db.insert(atendimento_db_schema_1.historic_tickets).values({
+                ticket_id: ticketId,
+                user_id: fromUserId,
+                status_id_init: current.status_id,
+                status_id_end: 2,
+            });
+            const set = {
+                attendant_user_id: toUserId,
+                is_transfer: 1,
+                status_id: 2,
+                updated_at: new Date(),
+                queue_id: queueId,
+            };
+            const [updated] = await client_1.db
+                .update(atendimento_db_schema_1.tickets)
+                .set(set)
+                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId))
+                .returning();
+            const fromName = fromUser?.name ?? 'Atendente anterior';
+            await client_1.db.insert(atendimento_db_schema_1.atendimento_messages).values({
+                ticket_id: ticketId,
+                body: `Atendimento transferido de *${fromName}* para *${toUser.name}*`,
+                from_me: true,
+                user_id: fromUserId,
+            });
+            (0, socket_1.emitToCompany)(companyId, 'ticket:updated', { ticket: updated });
+            // Mensagem de transferência para o cliente (fire-and-forget)
+            this._sendTransferMessage(updated, companyId, fromUser?.name, toUser.name).catch(() => { });
+            return updated;
+        }
+        finally {
+            if (perms.limit_services_users)
+                releaseLock(attendantLockKey);
+        }
     },
     async _sendTransferMessage(ticket, companyId, fromName, toName) {
         if (!ticket.connection_id || !ticket.contact_id)
@@ -575,6 +744,8 @@ exports.ticketService = {
         })
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
             .returning();
+        if (current.is_sale === 1)
+            await grantSaleXp(userId, companyId);
         (0, socket_1.emitToCompany)(companyId, 'ticket:closed', { ticketId });
         // Mensagem de despedida (fire-and-forget). Se o fechamento manual informou
         // a escolha (com/sem mensagem), ela sobrepõe a permissão global. Erro no envio
@@ -632,6 +803,8 @@ exports.ticketService = {
             .update(atendimento_db_schema_1.tickets)
             .set({ status_id: 3, updated_at: new Date() })
             .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId));
+        if (current.is_sale === 1 && current.closed_by_user_id)
+            await grantSaleXp(current.closed_by_user_id, companyId);
         (0, socket_1.emitToCompany)(companyId, 'ticket:closed', { ticketId });
     },
     /**
@@ -739,32 +912,39 @@ exports.ticketService = {
             }).returning();
             contact = created;
         }
-        const stage = payload.funil_stage || 'novos_leads';
+        const stages = await funil_stage_service_1.funilStageService.listStages(companyId);
+        const middleStages = stages.filter((s) => !s.is_waiting_stage && !s.is_finished_stage);
+        const chosenStageId = payload.funil_stage_id ?? middleStages[0].id;
         const [ticket] = await client_1.db.insert(atendimento_db_schema_1.tickets).values({
             company_id: companyId,
             contact_id: contact.id,
             status_id: 1,
-            funil_stage: stage,
+            funil_stage_id: chosenStageId,
             origin: 'funil_manual',
             ocurrence: payload.notes?.trim() || null,
         }).returning();
         (0, socket_1.emitToCompany)(companyId, 'ticket:created', { ticket });
+        const waitingStage = stages.find((s) => s.is_waiting_stage);
+        await funil_stage_service_1.funilStageService.recordStageEntry(companyId, ticket.id, waitingStage.id);
         return {
             id: ticket.id,
-            funil_stage: stage,
+            funil_stage_id: funil_stage_service_1.funilStageService.resolveEffectiveStageId(ticket, stages),
             contact_id: contact.id,
             contact_name: contact.name,
             contact_number: contact.number ?? null,
             contact_profile_pic_url: contact.profile_pic_url ?? null,
             status_id: 1,
+            attendant_user_id: null,
             created_at: ticket.created_at,
         };
     },
     async getFunilCards(companyId, search) {
         const conditions = [
             (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId),
-            (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, [1, 2]),
             (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at),
+            // Finalizado some do quadro 24h depois de fechar — sem isso a coluna
+            // só cresce pra sempre com todo ticket já fechado da empresa.
+            (0, drizzle_orm_1.or)((0, drizzle_orm_1.ne)(atendimento_db_schema_1.tickets.status_id, 3), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.updated_at, (0, drizzle_orm_1.sql) `now() - interval '24 hours'`)),
         ];
         if (search) {
             const term = search.trim();
@@ -777,34 +957,85 @@ exports.ticketService = {
                 return [];
             conditions.push((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.contact_id, ids));
         }
-        return client_1.db
-            .select({
-            id: atendimento_db_schema_1.tickets.id,
-            funil_stage: atendimento_db_schema_1.tickets.funil_stage,
-            contact_id: atendimento_db_schema_1.tickets.contact_id,
-            contact_name: atendimento_db_schema_1.contacts.name,
-            contact_number: atendimento_db_schema_1.contacts.number,
-            contact_profile_pic_url: atendimento_db_schema_1.contacts.profile_pic_url,
-            status_id: atendimento_db_schema_1.tickets.status_id,
-            created_at: atendimento_db_schema_1.tickets.created_at,
-        })
-            .from(atendimento_db_schema_1.tickets)
-            .leftJoin(atendimento_db_schema_1.contacts, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, atendimento_db_schema_1.contacts.id))
-            .where((0, drizzle_orm_1.and)(...conditions))
-            .orderBy((0, drizzle_orm_1.desc)(atendimento_db_schema_1.tickets.created_at));
+        const [stages, rows] = await Promise.all([
+            funil_stage_service_1.funilStageService.listStages(companyId),
+            client_1.db
+                .select({
+                id: atendimento_db_schema_1.tickets.id,
+                funil_stage_id: atendimento_db_schema_1.tickets.funil_stage_id,
+                contact_id: atendimento_db_schema_1.tickets.contact_id,
+                contact_name: atendimento_db_schema_1.contacts.name,
+                contact_number: atendimento_db_schema_1.contacts.number,
+                contact_profile_pic_url: atendimento_db_schema_1.contacts.profile_pic_url,
+                status_id: atendimento_db_schema_1.tickets.status_id,
+                attendant_user_id: atendimento_db_schema_1.tickets.attendant_user_id,
+                created_at: atendimento_db_schema_1.tickets.created_at,
+            })
+                .from(atendimento_db_schema_1.tickets)
+                .leftJoin(atendimento_db_schema_1.contacts, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.contact_id, atendimento_db_schema_1.contacts.id))
+                .where((0, drizzle_orm_1.and)(...conditions))
+                .orderBy((0, drizzle_orm_1.desc)(atendimento_db_schema_1.tickets.created_at)),
+        ]);
+        return rows.map((row) => ({
+            ...row,
+            funil_stage_id: funil_stage_service_1.funilStageService.resolveEffectiveStageId(row, stages),
+        }));
     },
-    async updateFunilStage(ticketId, stage, companyId) {
-        const VALID_STAGES = ['novos_leads', 'primeiro_contato', 'agendado', 'atendimento', 'convertido'];
-        if (!VALID_STAGES.includes(stage))
-            throw new Error('Etapa inválida');
-        const [updated] = await client_1.db
-            .update(atendimento_db_schema_1.tickets)
-            .set({ funil_stage: stage, updated_at: new Date() })
+    /**
+     * Árvore de decisão do drag-and-drop do Kanban: reaproveita assignAttendant/
+     * reopen/returnToQueue (cada um já com suas próprias checagens de permissão/
+     * capacidade) — mover um card sempre dispara a ação real de negócio
+     * equivalente, nunca só um valor visual. Finalizado nunca é destino válido
+     * aqui: fechar exige a classificação de venda (fluxo separado, ver CrmModal).
+     */
+    async moveTicketFunilStage(ticketId, destinationStageId, userId, companyId, profileTag) {
+        const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
-            .returning();
-        if (!updated)
+            .limit(1);
+        if (!current)
             throw new Error('Ticket não encontrado');
-        (0, socket_1.emitToCompany)(companyId, 'ticket:funil_stage_updated', { ticketId, stage });
+        const stages = await funil_stage_service_1.funilStageService.listStages(companyId);
+        const destination = stages.find((s) => s.id === destinationStageId);
+        if (!destination)
+            throw new FunilDestinoInvalidoError('Etapa de destino não encontrada.');
+        const originStageId = funil_stage_service_1.funilStageService.resolveEffectiveStageId(current, stages);
+        if (originStageId === destinationStageId)
+            return current;
+        if (destination.is_finished_stage) {
+            throw new FunilDestinoInvalidoError('Fechar o atendimento pelo Kanban exige classificar a venda — use o fluxo de fechamento.');
+        }
+        if (current.status_id === 3 && destination.is_waiting_stage) {
+            throw new FunilDestinoInvalidoError('Reabra o atendimento antes de devolver para a fila.');
+        }
+        if (current.status_id === 3) {
+            const reopened = await this.reopen(ticketId, userId, companyId, profileTag);
+            const [updated] = await client_1.db.update(atendimento_db_schema_1.tickets).set({ funil_stage_id: destinationStageId })
+                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId)).returning();
+            await funil_stage_service_1.funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
+            return updated ?? reopened;
+        }
+        if (current.status_id === 1 || current.status_id === 9) {
+            const accepted = await this.assignAttendant(ticketId, userId, companyId);
+            const [updated] = await client_1.db.update(atendimento_db_schema_1.tickets).set({ funil_stage_id: destinationStageId })
+                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId)).returning();
+            await funil_stage_service_1.funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
+            return updated ?? accepted;
+        }
+        if (destination.is_waiting_stage) {
+            const returned = await this.returnToQueue(ticketId, userId, companyId, profileTag);
+            await funil_stage_service_1.funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
+            return returned;
+        }
+        const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
+        if (current.attendant_user_id !== userId && !isAdmin) {
+            throw new FunilMovimentoNaoAutorizadoError();
+        }
+        const [updated] = await client_1.db.update(atendimento_db_schema_1.tickets)
+            .set({ funil_stage_id: destinationStageId, updated_at: new Date() })
+            .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId))
+            .returning();
+        (0, socket_1.emitToCompany)(companyId, 'ticket:updated', { ticket: updated });
+        await funil_stage_service_1.funilStageService.recordStageEntry(companyId, ticketId, destinationStageId);
         return updated;
     },
     // ── Relatório: status por contato ─────────────────────────────────────────
@@ -847,8 +1078,9 @@ exports.ticketService = {
     // ── Atendentes da empresa ─────────────────────────────────────────────────
     async listAttendants(companyId) {
         return client_1.db
-            .select({ id: auth_schema_1.users.id, name: auth_schema_1.users.name, email: auth_schema_1.users.email })
+            .select({ id: auth_schema_1.users.id, name: auth_schema_1.users.name, email: auth_schema_1.users.email, profile_tag: profile_db_schema_1.profiles.tag })
             .from(auth_schema_1.users)
+            .innerJoin(profile_db_schema_1.profiles, (0, drizzle_orm_1.eq)(auth_schema_1.users.profile_id, profile_db_schema_1.profiles.id))
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId), (0, drizzle_orm_1.eq)(auth_schema_1.users.is_approved, true)))
             .orderBy(auth_schema_1.users.name);
     },

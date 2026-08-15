@@ -46,6 +46,7 @@ const QR_TTL = 180; // 3 minutes
 // ── Redis keys por sessão ────────────────────────────────────────────────────
 function statusKey(id) { return `wa:status:${id}`; }
 function qrKey(id) { return `wa:qr:${id}`; }
+function pairingKey(id) { return `wa:pairing:${id}`; }
 function convKey(phone) { return `wa:conv:${phone}`; }
 function convsSetKey() { return 'wa:conv_phones'; }
 // ── Bays HTTP helpers ────────────────────────────────────────────────────────
@@ -160,7 +161,11 @@ exports.whatsappService = {
             }
             return { status: 'qr_ready', qr: qr ?? undefined };
         }
-        if (cached === 'loading_qr' || cached === 'reconnecting' || cached === 'needs_reauth') {
+        if (cached === 'pairing_ready') {
+            const pairingCode = await redis?.get(pairingKey(id)) ?? undefined;
+            return { status: 'pairing_ready', pairingCode: pairingCode ?? undefined };
+        }
+        if (cached === 'loading_qr' || cached === 'loading_pairing' || cached === 'reconnecting' || cached === 'needs_reauth') {
             return { status: cached };
         }
         // ── Camada 2: Banco de dados (source of truth, ~5ms) ────────────────
@@ -245,6 +250,13 @@ exports.whatsappService = {
         }
         return { status: 'disconnected' };
     },
+    // ── Importar sessão (fingerprint do navegador) ──────────────────────────
+    async generateWebToken(connectionId) {
+        return baysPost(`/session/web-token/${connectionId}`);
+    },
+    async checkFingerprint(connectionId) {
+        return baysGet(`/session/check-fingerprint/${connectionId}`);
+    },
     async connect(connectionId) {
         const id = connectionId ?? Number(SESSION_ID);
         const redis = (0, redis_1.getRedisClient)();
@@ -292,6 +304,15 @@ exports.whatsappService = {
             }
         }
     },
+    async requestPairingCode(connectionId, phoneNumber) {
+        const id = connectionId;
+        const redis = (0, redis_1.getRedisClient)();
+        const payload = { phoneNumber, groups: false, company_id: 1, connection_name: `session-${id}` };
+        await baysDelete(`/session/delete/${id}`).catch(() => { });
+        await baysPost(`/session/pairing-code/${id}`, payload);
+        if (redis)
+            await redis.set(statusKey(id), 'loading_pairing', 'EX', STATUS_TTL);
+    },
     async disconnect(connectionId) {
         const id = connectionId ?? Number(SESSION_ID);
         const redis = (0, redis_1.getRedisClient)();
@@ -312,9 +333,15 @@ exports.whatsappService = {
             await redis.set(statusKey(id), 'qr_ready', 'EX', STATUS_TTL);
             console.log(`[WA:${id}] QR code received from bays`);
         }
+        else if (data.type === 'pairing-code' && data.pairingCode) {
+            await redis.set(pairingKey(id), data.pairingCode, 'EX', QR_TTL);
+            await redis.set(statusKey(id), 'pairing_ready', 'EX', STATUS_TTL);
+            console.log(`[WA:${id}] Pairing code received from bays`);
+        }
         else if (data.type === 'connected') {
             await redis.set(statusKey(id), 'connected', 'EX', STATUS_TTL);
             await redis.del(qrKey(id));
+            await redis.del(pairingKey(id));
             // Reseta circuit breaker e lock de reconexão
             await redis.del(`wa:consec_401:${id}`).catch(() => { });
             await redis.del(`wa:reconnect_lock:${id}`).catch(() => { });
@@ -353,6 +380,7 @@ exports.whatsappService = {
         else if (data.type === 'disconnected') {
             await redis.set(statusKey(id), 'disconnected', 'EX', STATUS_TTL);
             await redis.del(qrKey(id));
+            await redis.del(pairingKey(id));
             const { connections } = await Promise.resolve().then(() => __importStar(require('../atendimento/atendimento.db.schema')));
             const { eq } = await Promise.resolve().then(() => __importStar(require('drizzle-orm')));
             await client_1.db
@@ -363,7 +391,7 @@ exports.whatsappService = {
             // Busca company_id para notificações
             let connD;
             try {
-                const [r] = await client_1.db.select({ company_id: connections.company_id }).from(connections).where(eq(connections.id, id)).limit(1);
+                const [r] = await client_1.db.select({ company_id: connections.company_id, name: connections.name }).from(connections).where(eq(connections.id, id)).limit(1);
                 connD = r;
             }
             catch { }
@@ -372,6 +400,35 @@ exports.whatsappService = {
                 (0, socket_1.emitToCompany)(String(connD.company_id), 'connection:status', {
                     connectionId: id, status: 'disconnected', code: data.code,
                 });
+            }
+            // Alerta por e-mail — best-effort, nunca bloqueia o resto do fluxo
+            if (connD?.company_id) {
+                try {
+                    const { companies } = await Promise.resolve().then(() => __importStar(require('../companies/company.db.schema')));
+                    const { companyPermissions, companyEmailNotify } = await Promise.resolve().then(() => __importStar(require('../configuracao-geral/configuracao-geral.db.schema')));
+                    const { sendDropConnectionEmail } = await Promise.resolve().then(() => __importStar(require('../../shared/email/resend.service')));
+                    const [perms] = await client_1.db.select({ notify_by_email_connection: companyPermissions.notify_by_email_connection })
+                        .from(companyPermissions)
+                        .where(eq(companyPermissions.company_id, connD.company_id));
+                    if (perms?.notify_by_email_connection) {
+                        const emailRows = await client_1.db.select({ email: companyEmailNotify.email })
+                            .from(companyEmailNotify)
+                            .where(eq(companyEmailNotify.company_id, connD.company_id));
+                        if (emailRows.length > 0) {
+                            const [company] = await client_1.db.select({ name: companies.name }).from(companies).where(eq(companies.id, connD.company_id));
+                            await sendDropConnectionEmail({
+                                to: emailRows.map(r => r.email),
+                                connectionName: connD.name,
+                                companyName: company?.name ?? '',
+                                code: data.code,
+                                reason: data.reason,
+                            });
+                        }
+                    }
+                }
+                catch (err) {
+                    console.error(`[WA:${id}] Falha ao processar alerta de e-mail de queda:`, err);
+                }
             }
             const codeLabels = {
                 401: 'loggedOut — sessão removida pelo WhatsApp/usuário',
@@ -590,7 +647,13 @@ exports.whatsappService = {
             const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
             const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
             if (!wasAnswer) {
-                await messageService.save(ticket.id, contact.id, body, fromMe, companyId);
+                const media = msg.media;
+                await messageService.save(ticket.id, contact.id, body, fromMe, companyId, {
+                    mediaType: media?.mimetype || undefined,
+                    mediaUrl: media?.url || undefined,
+                    mediaWaveform: media?.waveform,
+                    mediaSeconds: media?.seconds,
+                });
                 const { shouldRunBot } = await Promise.resolve().then(() => __importStar(require('../atendimento/ticket.service')));
                 if (sendTarget && shouldRunBot(ticket)) {
                     const { chatbotExecutorService } = await Promise.resolve().then(() => __importStar(require('../bots/chatbot-executor.service')));

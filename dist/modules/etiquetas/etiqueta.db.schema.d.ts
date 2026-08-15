@@ -93,42 +93,6 @@ export declare const etiquetas: import("drizzle-orm/pg-core").PgTableWithColumns
         }, {}, {
             length: 50;
         }>;
-        keyword_trigger: import("drizzle-orm/pg-core").PgColumn<{
-            name: "keyword_trigger";
-            tableName: "at_etiquetas";
-            dataType: "string";
-            columnType: "PgText";
-            data: string;
-            driverParam: string;
-            notNull: false;
-            hasDefault: false;
-            isPrimaryKey: false;
-            isAutoincrement: false;
-            hasRuntimeDefault: false;
-            enumValues: [string, ...string[]];
-            baseColumn: never;
-            identity: undefined;
-            generated: undefined;
-        }, {}, {}>;
-        keyword_type: import("drizzle-orm/pg-core").PgColumn<{
-            name: "keyword_type";
-            tableName: "at_etiquetas";
-            dataType: "string";
-            columnType: "PgVarchar";
-            data: string;
-            driverParam: string;
-            notNull: true;
-            hasDefault: true;
-            isPrimaryKey: false;
-            isAutoincrement: false;
-            hasRuntimeDefault: false;
-            enumValues: [string, ...string[]];
-            baseColumn: never;
-            identity: undefined;
-            generated: undefined;
-        }, {}, {
-            length: 20;
-        }>;
         created_at: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "at_etiquetas";
@@ -228,4 +192,139 @@ export declare const contactEtiquetas: import("drizzle-orm/pg-core").PgTableWith
 }>;
 export type Etiqueta = typeof etiquetas.$inferSelect;
 export type NewEtiqueta = typeof etiquetas.$inferInsert;
+export declare const automaticTagRules: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "at_automatic_tag_rules";
+    schema: undefined;
+    columns: {
+        id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "id";
+            tableName: "at_automatic_tag_rules";
+            dataType: "number";
+            columnType: "PgBigSerial53";
+            data: number;
+            driverParam: number;
+            notNull: true;
+            hasDefault: true;
+            isPrimaryKey: true;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        company_id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "company_id";
+            tableName: "at_automatic_tag_rules";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        keywords: import("drizzle-orm/pg-core").PgColumn<{
+            name: "keywords";
+            tableName: "at_automatic_tag_rules";
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        created_at: import("drizzle-orm/pg-core").PgColumn<{
+            name: "created_at";
+            tableName: "at_automatic_tag_rules";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        updated_at: import("drizzle-orm/pg-core").PgColumn<{
+            name: "updated_at";
+            tableName: "at_automatic_tag_rules";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
+export declare const automaticTagRuleTags: import("drizzle-orm/pg-core").PgTableWithColumns<{
+    name: "at_automatic_tag_rule_tags";
+    schema: undefined;
+    columns: {
+        rule_id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "rule_id";
+            tableName: "at_automatic_tag_rule_tags";
+            dataType: "number";
+            columnType: "PgBigInt53";
+            data: number;
+            driverParam: string | number;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        etiqueta_id: import("drizzle-orm/pg-core").PgColumn<{
+            name: "etiqueta_id";
+            tableName: "at_automatic_tag_rule_tags";
+            dataType: "string";
+            columnType: "PgUUID";
+            data: string;
+            driverParam: string;
+            notNull: true;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+    };
+    dialect: "pg";
+}>;
+export type AutomaticTagRule = typeof automaticTagRules.$inferSelect;
+export type NewAutomaticTagRule = typeof automaticTagRules.$inferInsert;
 //# sourceMappingURL=etiqueta.db.schema.d.ts.map

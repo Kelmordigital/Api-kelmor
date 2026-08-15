@@ -6,6 +6,7 @@ const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const configuracao_geral_db_schema_1 = require("./configuracao-geral.db.schema");
+const socket_1 = require("../../shared/socket");
 function stripHtml(html) {
     if (!html)
         return '';
@@ -35,10 +36,13 @@ exports.configuracaoGeralService = {
             transfer_message: company_db_schema_1.companies.transfer_message,
         }).from(company_db_schema_1.companies).where((0, drizzle_orm_1.eq)(company_db_schema_1.companies.id, companyId));
         const perms = await getCompanyPermissions(companyId);
-        return { ...company, ...perms };
+        const emailRows = await client_1.db.select({ email: configuracao_geral_db_schema_1.companyEmailNotify.email })
+            .from(configuracao_geral_db_schema_1.companyEmailNotify)
+            .where((0, drizzle_orm_1.eq)(configuracao_geral_db_schema_1.companyEmailNotify.company_id, companyId));
+        return { ...company, ...perms, notify_emails: emailRows.map(r => r.email) };
     },
     async update(companyId, payload) {
-        const { init_message, end_message, transfer_message, ...rest } = payload;
+        const { init_message, end_message, transfer_message, notify_emails, ...rest } = payload;
         // Remove campos não-editáveis que o frontend pode reenviar acidentalmente
         const { id: _id, company_id: _cid, created_at: _ca, updated_at: _ua, ...permPayload } = rest;
         // Atualiza mensagens na tabela companies (null se vazio)
@@ -63,6 +67,20 @@ exports.configuracaoGeralService = {
                 set: { ...permPayload, updated_at: new Date() },
             });
         }
+        // Substitui a lista de e-mails de notificação (apaga e recria)
+        if (notify_emails !== undefined) {
+            await client_1.db.delete(configuracao_geral_db_schema_1.companyEmailNotify).where((0, drizzle_orm_1.eq)(configuracao_geral_db_schema_1.companyEmailNotify.company_id, companyId));
+            const uniqueEmails = [...new Set(notify_emails.map(e => e.trim()).filter(Boolean))];
+            if (uniqueEmails.length > 0) {
+                await client_1.db.insert(configuracao_geral_db_schema_1.companyEmailNotify)
+                    .values(uniqueEmails.map(email => ({ company_id: companyId, email })));
+            }
+        }
+        // Sem isso, quem já estava com o CRM aberto (qualquer aba/usuário da
+        // empresa) só veria a mudança de permissão depois do staleTime padrão
+        // do React Query (5min) ou de um refresh manual — toggles como
+        // "Permitir pré-visualização do ticket" pareceriam não fazer efeito.
+        (0, socket_1.emitToCompany)(companyId, 'company_permissions:updated', {});
         return this.get(companyId);
     },
 };

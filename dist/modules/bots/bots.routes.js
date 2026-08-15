@@ -6,6 +6,7 @@ const bots_controller_1 = require("./bots.controller");
 async function botsRoutes(app) {
     const auth = { preHandler: auth_middleware_1.authMiddleware };
     app.get('/', auth, bots_controller_1.botsController.list);
+    app.get('/stats', auth, bots_controller_1.botsController.stats);
     app.post('/', auth, bots_controller_1.botsController.create);
     app.put('/:id', auth, bots_controller_1.botsController.update);
     app.delete('/:id', auth, bots_controller_1.botsController.remove);

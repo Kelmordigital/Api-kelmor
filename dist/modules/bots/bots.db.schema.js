@@ -52,8 +52,9 @@ exports.bot_conversations = (0, pg_core_1.pgTable)('at_bot_conversations', {
     company_id: (0, pg_core_1.uuid)('company_id').notNull().references(() => company_db_schema_1.companies.id, { onDelete: 'cascade' }),
     contact_phone: (0, pg_core_1.varchar)('contact_phone', { length: 30 }).notNull(),
     current_node_id: (0, pg_core_1.varchar)('current_node_id', { length: 36 }),
-    status: (0, pg_core_1.varchar)('status', { length: 20 }).default('active').notNull(), // active|ended
+    status: (0, pg_core_1.varchar)('status', { length: 20 }).default('active').notNull(), // active|ended|error
     context: (0, pg_core_1.text)('context'), // JSON: variáveis capturadas no fluxo ({{nome}}, etc.)
+    error_message: (0, pg_core_1.text)('error_message'), // preenchido quando status='error' — exceção que travou o fluxo
     started_at: (0, pg_core_1.timestamp)('started_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
 });

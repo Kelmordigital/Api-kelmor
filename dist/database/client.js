@@ -45,7 +45,7 @@ const connectionString = env_1.env.NODE_ENV === 'test' && env_1.env.TEST_DATABAS
     ? env_1.env.TEST_DATABASE_URL
     : env_1.env.DATABASE_URL;
 const client = (0, postgres_1.default)(connectionString, {
-    max: env_1.env.NODE_ENV === 'test' ? 1 : 25,
+    max: env_1.env.NODE_ENV === 'test' ? 1 : 20,
     idle_timeout: 20,
     connect_timeout: 10,
 });
