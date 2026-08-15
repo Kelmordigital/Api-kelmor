@@ -28,6 +28,7 @@ import { usuariosRoutes } from '../modules/usuarios/usuario.routes';
 import { meuPerfilRoutes } from '../modules/meu-perfil/meu-perfil.routes';
 import { pesquisasRoutes } from '../modules/pesquisas/pesquisa.routes';
 import { produtosRoutes } from '../modules/produtos/produto.routes';
+import { cuponsRoutes } from '../modules/cupons/cupom.routes';
 import { campanhasRoutes } from '../modules/campanhas/campanha.routes';
 import { integracoesRoutes } from '../modules/integracoes/integracao.routes';
 import { agendaRoutes } from '../modules/agenda/agenda.routes';
@@ -161,6 +162,7 @@ export function buildApp() {
     app.register(adminOnly(pesquisasRoutes), { prefix: '/api/v1/configuracao/pesquisas' });
     app.register(adminOnly(campanhasRoutes), { prefix: '/api/v1/configuracao/mensagens-agendadas' });
     app.register(adminOnly(produtosRoutes), { prefix: '/api/v1/configuracao/produtos' });
+    app.register(adminOnly(cuponsRoutes), { prefix: '/api/v1/configuracao/cupons' });
     // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
     // O gating admin é feito por-rota dentro de integracao.routes.ts.
     app.register(integracoesRoutes, { prefix: '/api/v1/integracoes' });
