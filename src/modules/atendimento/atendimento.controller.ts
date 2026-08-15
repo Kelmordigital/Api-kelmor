@@ -696,42 +696,32 @@ export const atendimentoController = {
     // ────── Financeiro ──────
 
     async financeiroKpis(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-        const companyId = req.user.company_id!;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end   = endDate   ? new Date(endDate)   : undefined;
-        return reply.send(await dashboardService.getFinanceiroKpis(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getFinanceiroKpis(req.user.company_id!, scope));
     },
 
     async financeiroEvolucao(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-        const companyId = req.user.company_id!;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end   = endDate   ? new Date(endDate)   : undefined;
-        return reply.send(await dashboardService.getFinanceiroEvolucao(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getFinanceiroEvolucao(req.user.company_id!, scope));
     },
 
     async financeiroOrigens(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-        const companyId = req.user.company_id!;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end   = endDate   ? new Date(endDate)   : undefined;
-        return reply.send(await dashboardService.getFinanceiroOrigens(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getFinanceiroOrigens(req.user.company_id!, scope));
     },
 
     async financeiroHistorico(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-        const companyId = req.user.company_id!;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end   = endDate   ? new Date(endDate)   : undefined;
-        return reply.send(await dashboardService.getFinanceiroHistorico(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getFinanceiroHistorico(req.user.company_id!, scope));
     },
 
     async financeiroPerdas(req: FastifyRequest, reply: FastifyReply) {
-        const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-        const companyId = req.user.company_id!;
-        const start = startDate ? new Date(startDate) : undefined;
-        const end   = endDate   ? new Date(endDate)   : undefined;
-        return reply.send(await dashboardService.getFinanceiroPerdas(companyId, start, end));
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getFinanceiroPerdas(req.user.company_id!, scope));
     },
 };

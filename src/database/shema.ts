@@ -8,6 +8,7 @@ export * from '../modules/etiquetas/etiqueta.db.schema';
 export * from '../modules/pesquisas/pesquisa.db.schema';
 export * from '../modules/campanhas/campanha.db.schema';
 export * from '../modules/produtos/produto.db.schema';
+export * from '../modules/cupons/cupom.db.schema';
 export * from '../modules/agenda/agenda.db.schema';
 export * from '../modules/tarefas/tarefas.db.schema';
 export * from '../modules/integracoes/integracao.db.schema';

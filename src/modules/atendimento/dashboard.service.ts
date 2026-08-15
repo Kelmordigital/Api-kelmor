@@ -648,14 +648,16 @@ export const dashboardService = {
         return sql<number>`CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))`;
     },
 
-    async getFinanceiroKpis(companyId: string, start?: Date, end?: Date) {
+    async getFinanceiroKpis(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
         const base = and(
             eq(tickets.company_id, companyId),
             eq(tickets.status_id, 3),
             eq(tickets.service_not_made, 0),
             isNull(tickets.deleted_at),
-            start ? gte(tickets.updated_at, start) : undefined,
-            end   ? lte(tickets.updated_at, end)   : undefined,
+            gte(tickets.updated_at, start),
+            lte(tickets.updated_at, end),
+            ...scopeConditions(scope),
         );
 
         const [totalAtend] = await db
@@ -694,7 +696,8 @@ export const dashboardService = {
         };
     },
 
-    async getFinanceiroEvolucao(companyId: string, start?: Date, end?: Date) {
+    async getFinanceiroEvolucao(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
         return db
             .select({
                 dia:    sql<string>`DATE(${tickets.updated_at})::text`,
@@ -708,14 +711,16 @@ export const dashboardService = {
                 eq(tickets.is_sale, 1),
                 eq(tickets.service_not_made, 0),
                 isNull(tickets.deleted_at),
-                start ? gte(tickets.updated_at, start) : undefined,
-                end   ? lte(tickets.updated_at, end)   : undefined,
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
             ))
             .groupBy(sql`DATE(${tickets.updated_at})`)
             .orderBy(sql`DATE(${tickets.updated_at})`);
     },
 
-    async getFinanceiroOrigens(companyId: string, start?: Date, end?: Date) {
+    async getFinanceiroOrigens(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
         return db
             .select({
                 origem:  sql<string>`COALESCE(${tickets.origin}, 'Base de contatos')`,
@@ -729,15 +734,17 @@ export const dashboardService = {
                 eq(tickets.is_sale, 1),
                 eq(tickets.service_not_made, 0),
                 isNull(tickets.deleted_at),
-                start ? gte(tickets.updated_at, start) : undefined,
-                end   ? lte(tickets.updated_at, end)   : undefined,
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
             ))
             .groupBy(tickets.origin)
             .orderBy(sql`SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))) desc`)
             .limit(10);
     },
 
-    async getFinanceiroHistorico(companyId: string, start?: Date, end?: Date) {
+    async getFinanceiroHistorico(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
         return db
             .select({
                 id:            tickets.id,
@@ -755,14 +762,16 @@ export const dashboardService = {
                 eq(tickets.is_sale, 1),
                 eq(tickets.service_not_made, 0),
                 isNull(tickets.deleted_at),
-                start ? gte(tickets.updated_at, start) : undefined,
-                end   ? lte(tickets.updated_at, end)   : undefined,
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
             ))
             .orderBy(desc(tickets.updated_at))
             .limit(200);
     },
 
-    async getFinanceiroPerdas(companyId: string, start?: Date, end?: Date) {
+    async getFinanceiroPerdas(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
         return db
             .select({
                 id:              tickets.id,
@@ -781,8 +790,9 @@ export const dashboardService = {
                 eq(tickets.is_sale, 0),
                 eq(tickets.service_not_made, 0),
                 isNull(tickets.deleted_at),
-                start ? gte(tickets.updated_at, start) : undefined,
-                end   ? lte(tickets.updated_at, end)   : undefined,
+                gte(tickets.updated_at, start),
+                lte(tickets.updated_at, end),
+                ...scopeConditions(scope),
             ))
             .orderBy(desc(tickets.updated_at))
             .limit(200);
