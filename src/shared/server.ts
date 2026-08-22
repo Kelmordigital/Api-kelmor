@@ -210,18 +210,20 @@ export function buildApp() {
         reply.send({ id: 1, name: 'kelmor-main', exists: true })
     );
     // Retorna todas as conexões cadastradas para o bays reconectar no boot
-    app.get('/connection', whatsappController.getActiveSessions);
+    app.get('/connection', baysAuth, whatsappController.getActiveSessions);
 
     // Baileys auth-session persistence (bays calls these to save/restore credentials)
     // Stored in Redis under baileys:auth:{prefix}:{key}
-    app.get('/auth-sessions', async (_req, reply) => {
+    // Protegidas por secretkey (baysAuth) — sem isso, qualquer pessoa na internet
+    // conseguia ler/apagar as credenciais de sessão do WhatsApp de qualquer empresa.
+    app.get('/auth-sessions', baysAuth, async (_req, reply) => {
         const redis = getRedisClient();
         if (!redis) return reply.send({ prefixes: [] });
         const keys = await redis.keys('baileys:auth:*');
         const prefixes = [...new Set(keys.map((k: string) => k.split(':').slice(2, -1).join(':')))];
         return reply.send({ prefixes });
     });
-    app.put('/auth-sessions', async (req, reply) => {
+    app.put('/auth-sessions', baysAuth, async (req, reply) => {
         const { prefix, key, value } = req.body as { prefix: string; key: string; value?: string };
         const redis = getRedisClient();
         if (!redis) return reply.send({ ok: true });
@@ -232,7 +234,7 @@ export function buildApp() {
         }
         return reply.send({ ok: true });
     });
-    app.get('/auth-sessions/:prefix/:key', async (req, reply) => {
+    app.get('/auth-sessions/:prefix/:key', baysAuth, async (req, reply) => {
         const { prefix, key } = req.params as { prefix: string; key: string };
         const redis = getRedisClient();
         if (!redis) return reply.status(404).send({ value: null });
@@ -240,13 +242,13 @@ export function buildApp() {
         if (value == null) return reply.status(404).send({ value: null });
         return reply.send({ value });
     });
-    app.delete('/auth-sessions/:prefix/:key', async (req, reply) => {
+    app.delete('/auth-sessions/:prefix/:key', baysAuth, async (req, reply) => {
         const { prefix, key } = req.params as { prefix: string; key: string };
         const redis = getRedisClient();
         if (redis) await redis.del(`baileys:auth:${prefix}:${key}`);
         return reply.send({ ok: true });
     });
-    app.delete('/auth-sessions/:prefix', async (req, reply) => {
+    app.delete('/auth-sessions/:prefix', baysAuth, async (req, reply) => {
         const { prefix } = req.params as { prefix: string };
         const redis = getRedisClient();
         if (redis) {

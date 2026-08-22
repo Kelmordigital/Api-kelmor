@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { eq, and, inArray, sql } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { campaigns, campaignConnections, campaignContacts, campaignSent } from './campanha.db.schema';
-import { contacts } from '../atendimento/atendimento.db.schema';
+import { connections, contacts } from '../atendimento/atendimento.db.schema';
 
 type ScheduledTask = ReturnType<typeof cron.schedule>;
 
@@ -90,9 +90,16 @@ async function executeCampaign(campaignId: number): Promise<void> {
         .where(eq(campaigns.id, campaignId));
 
     try {
+        // Revalida (defesa em profundidade) que a conexão realmente pertence à
+        // empresa da campanha, mesmo já filtrando na escrita em campanha.service.ts —
+        // é aqui que o abuso se concretiza (envia mensagem usando o WhatsApp de outra empresa).
         const connLinks = await db.select({ connection_id: campaignConnections.connection_id })
             .from(campaignConnections)
-            .where(eq(campaignConnections.campaign_id, campaignId));
+            .innerJoin(connections, eq(connections.id, campaignConnections.connection_id))
+            .where(and(
+                eq(campaignConnections.campaign_id, campaignId),
+                eq(connections.company_id, campaign.company_id),
+            ));
 
         if (connLinks.length === 0) {
             console.warn(`[Campaign #${campaignId}] No connections configured`);
@@ -115,9 +122,14 @@ async function executeCampaign(campaignId: number): Promise<void> {
                 .where(eq(campaignContacts.campaign_id, campaignId));
 
             if (contactLinks.length > 0) {
+                // Mesma defesa em profundidade: só envia para contatos que
+                // realmente pertencem à empresa da campanha.
                 targets = await db.select({ id: contacts.id, number: contacts.number })
                     .from(contacts)
-                    .where(inArray(contacts.id, contactLinks.map(c => c.contact_id)));
+                    .where(and(
+                        inArray(contacts.id, contactLinks.map(c => c.contact_id)),
+                        eq(contacts.company_id, campaign.company_id),
+                    ));
             }
         }
 

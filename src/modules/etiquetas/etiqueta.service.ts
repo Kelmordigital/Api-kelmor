@@ -2,6 +2,19 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { etiquetas, contactEtiquetas, automaticTagRules, automaticTagRuleTags, Etiqueta, NewEtiqueta } from './etiqueta.db.schema';
 import { companyPermissions } from '../configuracao-geral/configuracao-geral.db.schema';
+import { contacts } from '../atendimento/atendimento.db.schema';
+
+// contactEtiquetas não tem company_id — sem confirmar que o contato é da
+// empresa, listar/aplicar/remover etiqueta por contactId vazava e permitia
+// vandalizar tags de contatos de outras empresas.
+async function contactBelongsToCompany(contactId: string, companyId: string): Promise<boolean> {
+    const numericId = Number(contactId);
+    if (!Number.isFinite(numericId)) return false;
+    const [row] = await db.select({ id: contacts.id }).from(contacts)
+        .where(and(eq(contacts.id, numericId), eq(contacts.company_id, companyId)))
+        .limit(1);
+    return !!row;
+}
 
 export const etiquetaService = {
 
@@ -80,13 +93,19 @@ export const etiquetaService = {
     async aplicarAoContato(contactId: string, etiquetaId: string, companyId: string): Promise<void> {
         const et = await etiquetaService.findById(etiquetaId, companyId);
         if (!et) throw new Error('Etiqueta não encontrada');
+        if (!(await contactBelongsToCompany(contactId, companyId))) throw new Error('Contato não encontrado');
         await db
             .insert(contactEtiquetas)
             .values({ contact_id: contactId, etiqueta_id: etiquetaId })
             .onConflictDoNothing();
     },
 
-    async removerDoContato(contactId: string, etiquetaId: string): Promise<void> {
+    async removerDoContato(contactId: string, etiquetaId: string, companyId: string): Promise<void> {
+        const [belongsContact, et] = await Promise.all([
+            contactBelongsToCompany(contactId, companyId),
+            etiquetaService.findById(etiquetaId, companyId),
+        ]);
+        if (!belongsContact || !et) return;
         await db
             .delete(contactEtiquetas)
             .where(and(
@@ -95,12 +114,16 @@ export const etiquetaService = {
             ));
     },
 
-    async listDoContato(contactId: string): Promise<Etiqueta[]> {
+    async listDoContato(contactId: string, companyId: string): Promise<Etiqueta[]> {
+        if (!(await contactBelongsToCompany(contactId, companyId))) return [];
         const rows = await db
             .select({ etiqueta: etiquetas })
             .from(contactEtiquetas)
             .innerJoin(etiquetas, eq(contactEtiquetas.etiqueta_id, etiquetas.id))
-            .where(eq(contactEtiquetas.contact_id, contactId));
+            .where(and(
+                eq(contactEtiquetas.contact_id, contactId),
+                eq(etiquetas.company_id, companyId),
+            ));
         return rows.map(r => r.etiqueta);
     },
 };

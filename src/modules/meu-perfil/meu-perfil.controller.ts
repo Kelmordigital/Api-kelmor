@@ -30,7 +30,7 @@ export const meuPerfilController = {
             return reply.status(403).send({ message: 'Apenas administradores podem alterar suas conexões e filas' });
         }
 
-        const result = await meuPerfilService.updateProfile(req.user.id, body);
+        const result = await meuPerfilService.updateProfile(req.user.id, req.user.company_id!, body);
         return reply.send(result);
     },
 

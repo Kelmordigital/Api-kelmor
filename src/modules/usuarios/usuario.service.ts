@@ -7,6 +7,23 @@ import { queues, connections, userQueues, userConnections } from '../atendimento
 import { userAvatars } from '../meu-perfil/meu-perfil.db.schema';
 import { achievementsService } from '../achievements/achievements.service';
 
+// Restringe os ids recebidos do cliente aos que realmente pertencem à
+// empresa — sem isso, dava pra vincular fila/conexão de outra empresa a um
+// usuário só enviando o id.
+async function filterOwnedQueueIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: queues.id }).from(queues)
+        .where(and(eq(queues.company_id, companyId), inArray(queues.id, ids)));
+    return owned.map(o => o.id);
+}
+
+async function filterOwnedConnectionIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: connections.id }).from(connections)
+        .where(and(eq(connections.company_id, companyId), inArray(connections.id, ids)));
+    return owned.map(o => o.id);
+}
+
 export const usuarioService = {
 
     async list(companyId: string) {
@@ -99,6 +116,16 @@ export const usuarioService = {
         queue_ids?: number[];
         connection_ids?: number[];
     }) {
+        // Confirma que o usuário alvo é da própria empresa ANTES de mexer nas
+        // tabelas de junção — sem isso, enviar só queue_ids/connection_ids
+        // (sem name/email/...) pulava o update em `users` (corretamente
+        // escopado) e ainda assim reatribuía fila/conexão de um usuário de
+        // outra empresa, usando só o `id` cru.
+        const [owned] = await db.select({ id: users.id }).from(users)
+            .where(and(eq(users.id, id), eq(users.company_id, companyId)))
+            .limit(1);
+        if (!owned) return null;
+
         const updateData: Record<string, unknown> = {};
         if (payload.name) updateData.name = payload.name;
         if (payload.email) updateData.email = payload.email.toLowerCase();
@@ -107,25 +134,25 @@ export const usuarioService = {
 
         if (Object.keys(updateData).length > 0) {
             updateData.updated_at = new Date();
-            await db.update(users).set(updateData).where(
-                and(eq(users.id, id), eq(users.company_id, companyId))
-            );
+            await db.update(users).set(updateData).where(eq(users.id, id));
         }
 
         if (payload.queue_ids !== undefined) {
             await db.delete(userQueues).where(eq(userQueues.user_id, id));
-            if (payload.queue_ids.length > 0) {
+            const safeQueueIds = await filterOwnedQueueIds(companyId, payload.queue_ids);
+            if (safeQueueIds.length > 0) {
                 await db.insert(userQueues).values(
-                    payload.queue_ids.map((qid) => ({ user_id: id, queue_id: qid }))
+                    safeQueueIds.map((qid) => ({ user_id: id, queue_id: qid }))
                 );
             }
         }
 
         if (payload.connection_ids !== undefined) {
             await db.delete(userConnections).where(eq(userConnections.user_id, id));
-            if (payload.connection_ids.length > 0) {
+            const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+            if (safeConnectionIds.length > 0) {
                 await db.insert(userConnections).values(
-                    payload.connection_ids.map((cid) => ({ user_id: id, connection_id: cid }))
+                    safeConnectionIds.map((cid) => ({ user_id: id, connection_id: cid }))
                 );
             }
         }

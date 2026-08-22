@@ -60,14 +60,16 @@ export const etiquetaController = {
     },
 
     async removerDoContato(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
         const { contactId, etiquetaId } = req.params as { contactId: string; etiquetaId: string };
-        await etiquetaService.removerDoContato(contactId, etiquetaId);
+        await etiquetaService.removerDoContato(contactId, etiquetaId, companyId);
         return reply.status(204).send();
     },
 
     async listDoContato(req: FastifyRequest, reply: FastifyReply) {
+        const companyId = req.user.company_id!;
         const { contactId } = req.params as { contactId: string };
-        const list = await etiquetaService.listDoContato(contactId);
+        const list = await etiquetaService.listDoContato(contactId, companyId);
         return reply.send(list);
     },
 };

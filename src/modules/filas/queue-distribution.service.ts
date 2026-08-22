@@ -3,6 +3,7 @@ import { db } from '../../database/client';
 import {
     tickets, queues, userQueues, userConnections,
 } from '../atendimento/atendimento.db.schema';
+import { users } from '../auth/auth.schema';
 import { isUserOnline } from '../../shared/socket';
 import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
 import { filterByCapacity } from '../atendimento/attendant-capacity.service';
@@ -47,10 +48,19 @@ export async function distributeTicket(
     if (queue.distribution === 'none') return undefined;
     if (connectionId == null) return undefined;
 
-    // 2. Conjunto elegível = fila ∩ conexão ∩ online
+    // 2. Conjunto elegível = fila ∩ conexão ∩ online ∩ da própria empresa
+    // (userQueues/userConnections não têm company_id — sem o join em users,
+    // um usuário vinculado por engano/abuso a fila/conexão de outra empresa
+    // entrava na disputa e podia travar tickets alheios com ele.)
     const [inQueue, withConn] = await Promise.all([
-        db.select({ id: userQueues.user_id }).from(userQueues).where(eq(userQueues.queue_id, queueId)),
-        db.select({ id: userConnections.user_id }).from(userConnections).where(eq(userConnections.connection_id, connectionId)),
+        db.select({ id: userQueues.user_id })
+            .from(userQueues)
+            .innerJoin(users, eq(users.id, userQueues.user_id))
+            .where(and(eq(userQueues.queue_id, queueId), eq(users.company_id, companyId))),
+        db.select({ id: userConnections.user_id })
+            .from(userConnections)
+            .innerJoin(users, eq(users.id, userConnections.user_id))
+            .where(and(eq(userConnections.connection_id, connectionId), eq(users.company_id, companyId))),
     ]);
     const connSet = new Set(withConn.map((r) => r.id));
     let eligible = inQueue

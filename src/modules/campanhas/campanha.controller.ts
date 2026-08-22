@@ -55,7 +55,8 @@ export const campanhaController = {
             contact_ids?: number[];
         };
 
-        await campanhaService.update(Number(id), req.user.company_id!, body);
+        const result = await campanhaService.update(Number(id), req.user.company_id!, body);
+        if (!result) return reply.status(404).send({ message: 'Campanha não encontrada' });
         return reply.send({ ok: true });
     },
 

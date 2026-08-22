@@ -6,6 +6,21 @@ import { getRedisClient } from '../../config/redis';
 import { whatsappService } from './whatsapp.service';
 import { env } from '../../config/env';
 
+// Busca a conexão por id SÓ se pertencer à empresa do usuário autenticado.
+// Todas as rotas de gerenciamento de conexão por :id precisam passar por
+// aqui antes de ler/alterar qualquer coisa — sem isso, o id (bigserial
+// sequencial e global) é trivialmente enumerável entre empresas.
+async function getOwnedConnection(req: FastifyRequest, connectionId: number) {
+    const companyId = req.user?.company_id;
+    if (!companyId || !Number.isFinite(connectionId)) return null;
+    const [conn] = await db
+        .select({ id: connections.id, company_id: connections.company_id })
+        .from(connections)
+        .where(and(eq(connections.id, connectionId), eq(connections.company_id, companyId)))
+        .limit(1);
+    return conn ?? null;
+}
+
 // Retorna o ID da primeira conexão da empresa, ou o SESSION_ID do env como fallback
 async function getCompanyConnectionId(req: FastifyRequest): Promise<number> {
     try {
@@ -62,13 +77,17 @@ export const whatsappController = {
 
     async generateWebToken(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const result = await whatsappService.generateWebToken(Number(id));
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        const result = await whatsappService.generateWebToken(conn.id);
         return reply.send(result);
     },
 
     async checkConnectionFingerprint(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const result = await whatsappService.checkFingerprint(Number(id));
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        const result = await whatsappService.checkFingerprint(conn.id);
         return reply.send(result);
     },
 
@@ -144,7 +163,9 @@ export const whatsappController = {
     // DELETE /api/v1/whatsapp/connections/:id
     async removeConnection(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const connId = Number(id);
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        const connId = conn.id;
 
         // Desconecta do bays e limpa Redis (erros ignorados — pode já estar desconectado)
         await whatsappService.disconnect(connId).catch(() => {});
@@ -186,21 +207,27 @@ export const whatsappController = {
     // GET /api/v1/whatsapp/connections/:id/status
     async getConnectionStatus(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const result = await whatsappService.getStatus(Number(id));
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        const result = await whatsappService.getStatus(conn.id);
         return reply.send(result);
     },
 
     // POST /api/v1/whatsapp/connections/:id/connect
     async connectConnection(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        await whatsappService.connect(Number(id));
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        await whatsappService.connect(conn.id);
         return reply.status(202).send({ message: 'Conexão iniciada.' });
     },
 
     // DELETE /api/v1/whatsapp/connections/:id/disconnect
     async disconnectConnection(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        await whatsappService.disconnect(Number(id));
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        await whatsappService.disconnect(conn.id);
         return reply.send({ ok: true });
     },
 
@@ -211,7 +238,9 @@ export const whatsappController = {
         if (!phoneNumber) {
             return reply.status(400).send({ error: 'phoneNumber é obrigatório' });
         }
-        await whatsappService.requestPairingCode(Number(id), phoneNumber);
+        const conn = await getOwnedConnection(req, Number(id));
+        if (!conn) return reply.status(404).send({ error: 'Conexão não encontrada' });
+        await whatsappService.requestPairingCode(conn.id, phoneNumber);
         return reply.status(202).send({ message: 'Código de pareamento solicitado.' });
     },
 

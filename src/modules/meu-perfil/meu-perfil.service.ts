@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import path from 'path';
 import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
@@ -10,6 +10,23 @@ import { userAvatars } from './meu-perfil.db.schema';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5MB
+
+// Restringe os ids recebidos do cliente aos que realmente pertencem à
+// empresa — sem isso, um admin podia se autovincular à fila/conexão de
+// outra empresa e corromper a distribuição automática de tickets alheia.
+async function filterOwnedQueueIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: queues.id }).from(queues)
+        .where(and(eq(queues.company_id, companyId), inArray(queues.id, ids)));
+    return owned.map(o => o.id);
+}
+
+async function filterOwnedConnectionIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: connections.id }).from(connections)
+        .where(and(eq(connections.company_id, companyId), inArray(connections.id, ids)));
+    return owned.map(o => o.id);
+}
 
 export const meuPerfilService = {
 
@@ -52,7 +69,7 @@ export const meuPerfilService = {
         return { queues: queueList, connections: connectionList };
     },
 
-    async updateProfile(userId: string, payload: {
+    async updateProfile(userId: string, companyId: string, payload: {
         nickname?: string | null;
         queue_ids?: number[];
         connection_ids?: number[];
@@ -72,18 +89,20 @@ export const meuPerfilService = {
 
         if (payload.queue_ids !== undefined) {
             await db.delete(userQueues).where(eq(userQueues.user_id, userId));
-            if (payload.queue_ids.length > 0) {
+            const safeQueueIds = await filterOwnedQueueIds(companyId, payload.queue_ids);
+            if (safeQueueIds.length > 0) {
                 await db.insert(userQueues).values(
-                    payload.queue_ids.map((qid) => ({ user_id: userId, queue_id: qid }))
+                    safeQueueIds.map((qid) => ({ user_id: userId, queue_id: qid }))
                 );
             }
         }
 
         if (payload.connection_ids !== undefined) {
             await db.delete(userConnections).where(eq(userConnections.user_id, userId));
-            if (payload.connection_ids.length > 0) {
+            const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+            if (safeConnectionIds.length > 0) {
                 await db.insert(userConnections).values(
-                    payload.connection_ids.map((cid) => ({ user_id: userId, connection_id: cid }))
+                    safeConnectionIds.map((cid) => ({ user_id: userId, connection_id: cid }))
                 );
             }
         }

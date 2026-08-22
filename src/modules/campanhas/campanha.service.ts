@@ -6,6 +6,23 @@ import {
 import { connections, contacts } from '../atendimento/atendimento.db.schema';
 import { scheduleCampaign, cancelCampaignTask, resumeCampaign } from './campanha.scheduler';
 
+// Restringe os ids recebidos do cliente aos que realmente pertencem à
+// empresa — sem isso, uma empresa poderia vincular campanhas à conexão
+// WhatsApp ou à base de contatos de outra empresa só enviando o id.
+async function filterOwnedConnectionIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: connections.id }).from(connections)
+        .where(and(eq(connections.company_id, companyId), inArray(connections.id, ids)));
+    return owned.map(o => o.id);
+}
+
+async function filterOwnedContactIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: contacts.id }).from(contacts)
+        .where(and(eq(contacts.company_id, companyId), inArray(contacts.id, ids)));
+    return owned.map(o => o.id);
+}
+
 export const campanhaService = {
 
     async list(companyId: string) {
@@ -60,16 +77,20 @@ export const campanhaService = {
             all_contacts: payload.all_contacts ?? false,
         }).returning();
 
-        if (payload.connection_ids.length > 0) {
+        const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+        if (safeConnectionIds.length > 0) {
             await db.insert(campaignConnections).values(
-                payload.connection_ids.map(cid => ({ campaign_id: campaign.id, connection_id: cid }))
+                safeConnectionIds.map(cid => ({ campaign_id: campaign.id, connection_id: cid }))
             );
         }
 
         if (!payload.all_contacts && payload.contact_ids?.length) {
-            await db.insert(campaignContacts).values(
-                payload.contact_ids.map(cid => ({ campaign_id: campaign.id, contact_id: cid }))
-            );
+            const safeContactIds = await filterOwnedContactIds(companyId, payload.contact_ids);
+            if (safeContactIds.length > 0) {
+                await db.insert(campaignContacts).values(
+                    safeContactIds.map(cid => ({ campaign_id: campaign.id, contact_id: cid }))
+                );
+            }
         }
 
         await scheduleCampaign(campaign.id);
@@ -86,6 +107,17 @@ export const campanhaService = {
         connection_ids?: number[];
         contact_ids?: number[];
     }) {
+        // Confirma que a campanha é da própria empresa ANTES de mexer nas
+        // tabelas de junção — sem isso, o update em `campaigns` (corretamente
+        // escopado) simplesmente não afeta nenhuma linha, mas o código seguia
+        // e reescrevia campaignConnections/campaignContacts de uma campanha
+        // de outra empresa mesmo assim, usando só o `id` cru.
+        const [owned] = await db.select({ id: campaigns.id })
+            .from(campaigns)
+            .where(and(eq(campaigns.id, id), eq(campaigns.company_id, companyId)))
+            .limit(1);
+        if (!owned) return null;
+
         const updateData: Record<string, unknown> = { updated_at: new Date() };
         if (payload.title        !== undefined) updateData.title        = payload.title;
         if (payload.message      !== undefined) updateData.message      = payload.message;
@@ -95,22 +127,24 @@ export const campanhaService = {
 
         await db.update(campaigns)
             .set(updateData)
-            .where(and(eq(campaigns.id, id), eq(campaigns.company_id, companyId)));
+            .where(eq(campaigns.id, id));
 
         if (payload.connection_ids !== undefined) {
             await db.delete(campaignConnections).where(eq(campaignConnections.campaign_id, id));
-            if (payload.connection_ids.length > 0) {
+            const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+            if (safeConnectionIds.length > 0) {
                 await db.insert(campaignConnections).values(
-                    payload.connection_ids.map(cid => ({ campaign_id: id, connection_id: cid }))
+                    safeConnectionIds.map(cid => ({ campaign_id: id, connection_id: cid }))
                 );
             }
         }
 
         if (payload.contact_ids !== undefined) {
             await db.delete(campaignContacts).where(eq(campaignContacts.campaign_id, id));
-            if (payload.contact_ids.length > 0) {
+            const safeContactIds = await filterOwnedContactIds(companyId, payload.contact_ids);
+            if (safeContactIds.length > 0) {
                 await db.insert(campaignContacts).values(
-                    payload.contact_ids.map(cid => ({ campaign_id: id, contact_id: cid }))
+                    safeContactIds.map(cid => ({ campaign_id: id, contact_id: cid }))
                 );
             }
         }
