@@ -3,7 +3,7 @@ import { contactService } from './contact.service';
 import {
     ticketService, AtendenteNaoElegivelError, TransferenciaParaSiMesmoError, ReturnTicketPermissionError,
     ensureCanViewTicketMessages, ensureCanSendToTicket, SpyTicketPermissionError,
-    FunilDestinoInvalidoError, FunilMovimentoNaoAutorizadoError,
+    FunilDestinoInvalidoError, FunilMovimentoNaoAutorizadoError, TicketAssignConflictError,
 } from './ticket.service';
 import {
     funilStageService, FunilStageProtegidaError, FunilStageNomeDuplicadoError,
@@ -150,7 +150,7 @@ export const atendimentoController = {
             const ticket = await ticketService.assignAttendant(Number(id), userId, companyId);
             return reply.send(ticket);
         } catch (err) {
-            if (err instanceof AttendantLimitReachedError) {
+            if (err instanceof AttendantLimitReachedError || err instanceof TicketAssignConflictError) {
                 return reply.status(409).send({ error: err.message });
             }
             throw err;
