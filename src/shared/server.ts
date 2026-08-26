@@ -263,6 +263,13 @@ export function buildApp() {
         whatsappController.sendMessageProxy
     );
 
+    // Endpoint interno — chamado pelo microsserviço campaigns pra entregar o disparo
+    app.post(
+        '/api/internal/send-text-by-connection',
+        { preHandler: internalAuthMiddleware },
+        whatsappController.sendTextByConnection
+    );
+
     registerRequestLogger(app);
     app.setErrorHandler(errorHandler);
 

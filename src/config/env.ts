@@ -23,9 +23,6 @@ const envSchema = z.object({
     FRONTEND_URL: z.string().url().default('http://localhost:5173'),
     SUPERADMIN_URL: z.string().url().default('http://localhost:8081'),
 
-    EVOLUTION_API_URL: z.string().url().optional(),
-    EVOLUTION_API_KEY: z.string().optional(),
-    EVOLUTION_INSTANCE: z.string().optional(),
     OPENAI_API_KEY: z.string().optional(),
 
     FILIPE_INSTANCE: z.string().optional(),
@@ -36,6 +33,9 @@ const envSchema = z.object({
     BAYS_URL: z.string().url().default('http://localhost:4001'),
     BAYS_SECRET_KEY: z.string().default(''),
     BAYS_SESSION_ID: z.string().default('1'),
+
+    // Microsserviço de campanhas (motor de disparo agendado)
+    CAMPAIGNS_API_URL: z.string().url().default('http://localhost:3350'),
 
     // Monitoramento / alertas (opcionais — a API sobe sem eles)
     ALERT_WEBHOOK_TOKEN: z.string().min(16, 'ALERT_WEBHOOK_TOKEN deve ter ao menos 16 caracteres').optional(),
