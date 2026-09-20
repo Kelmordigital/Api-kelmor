@@ -16,4 +16,8 @@ export declare function verifyTotpTicket(token: string): {
     sub: string;
     jti: string;
 } | null;
+export declare function signOAuthStateTicket(companyId: string): string;
+export declare function verifyOAuthStateTicket(token: string): {
+    companyId: string;
+} | null;
 //# sourceMappingURL=jwt.d.ts.map

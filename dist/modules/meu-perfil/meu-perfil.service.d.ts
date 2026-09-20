@@ -23,7 +23,7 @@ export declare const meuPerfilService: {
             status: string | null;
         }[];
     }>;
-    updateProfile(userId: string, payload: {
+    updateProfile(userId: string, companyId: string, payload: {
         nickname?: string | null;
         queue_ids?: number[];
         connection_ids?: number[];

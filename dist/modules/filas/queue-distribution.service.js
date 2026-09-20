@@ -4,6 +4,7 @@ exports.distributeTicket = distributeTicket;
 const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
 const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
+const auth_schema_1 = require("../auth/auth.schema");
 const socket_1 = require("../../shared/socket");
 const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
 const attendant_capacity_service_1 = require("../atendimento/attendant-capacity.service");
@@ -46,10 +47,19 @@ async function distributeTicket(companyId, queueId, connectionId) {
         return undefined;
     if (connectionId == null)
         return undefined;
-    // 2. Conjunto elegível = fila ∩ conexão ∩ online
+    // 2. Conjunto elegível = fila ∩ conexão ∩ online ∩ da própria empresa
+    // (userQueues/userConnections não têm company_id — sem o join em users,
+    // um usuário vinculado por engano/abuso a fila/conexão de outra empresa
+    // entrava na disputa e podia travar tickets alheios com ele.)
     const [inQueue, withConn] = await Promise.all([
-        client_1.db.select({ id: atendimento_db_schema_1.userQueues.user_id }).from(atendimento_db_schema_1.userQueues).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.queue_id, queueId)),
-        client_1.db.select({ id: atendimento_db_schema_1.userConnections.user_id }).from(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.connection_id, connectionId)),
+        client_1.db.select({ id: atendimento_db_schema_1.userQueues.user_id })
+            .from(atendimento_db_schema_1.userQueues)
+            .innerJoin(auth_schema_1.users, (0, drizzle_orm_1.eq)(auth_schema_1.users.id, atendimento_db_schema_1.userQueues.user_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.queue_id, queueId), (0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId))),
+        client_1.db.select({ id: atendimento_db_schema_1.userConnections.user_id })
+            .from(atendimento_db_schema_1.userConnections)
+            .innerJoin(auth_schema_1.users, (0, drizzle_orm_1.eq)(auth_schema_1.users.id, atendimento_db_schema_1.userConnections.user_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.connection_id, connectionId), (0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId))),
     ]);
     const connSet = new Set(withConn.map((r) => r.id));
     let eligible = inQueue

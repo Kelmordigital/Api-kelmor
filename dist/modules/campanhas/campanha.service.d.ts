@@ -68,7 +68,7 @@ export declare const campanhaService: {
         contact_ids?: number[];
     }): Promise<{
         id: number;
-    }>;
+    } | null>;
     remove(id: number, companyId: string): Promise<boolean>;
     play(id: number, companyId: string): Promise<boolean>;
     pause(id: number, companyId: string): Promise<boolean>;

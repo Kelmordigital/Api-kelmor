@@ -6,6 +6,19 @@ const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
 const etiqueta_db_schema_1 = require("./etiqueta.db.schema");
 const configuracao_geral_db_schema_1 = require("../configuracao-geral/configuracao-geral.db.schema");
+const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
+// contactEtiquetas não tem company_id — sem confirmar que o contato é da
+// empresa, listar/aplicar/remover etiqueta por contactId vazava e permitia
+// vandalizar tags de contatos de outras empresas.
+async function contactBelongsToCompany(contactId, companyId) {
+    const numericId = Number(contactId);
+    if (!Number.isFinite(numericId))
+        return false;
+    const [row] = await client_1.db.select({ id: atendimento_db_schema_1.contacts.id }).from(atendimento_db_schema_1.contacts)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.id, numericId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.company_id, companyId)))
+        .limit(1);
+    return !!row;
+}
 exports.etiquetaService = {
     async list(companyId) {
         return client_1.db
@@ -73,22 +86,32 @@ exports.etiquetaService = {
         const et = await exports.etiquetaService.findById(etiquetaId, companyId);
         if (!et)
             throw new Error('Etiqueta não encontrada');
+        if (!(await contactBelongsToCompany(contactId, companyId)))
+            throw new Error('Contato não encontrado');
         await client_1.db
             .insert(etiqueta_db_schema_1.contactEtiquetas)
             .values({ contact_id: contactId, etiqueta_id: etiquetaId })
             .onConflictDoNothing();
     },
-    async removerDoContato(contactId, etiquetaId) {
+    async removerDoContato(contactId, etiquetaId, companyId) {
+        const [belongsContact, et] = await Promise.all([
+            contactBelongsToCompany(contactId, companyId),
+            exports.etiquetaService.findById(etiquetaId, companyId),
+        ]);
+        if (!belongsContact || !et)
+            return;
         await client_1.db
             .delete(etiqueta_db_schema_1.contactEtiquetas)
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.contact_id, contactId), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.etiqueta_id, etiquetaId)));
     },
-    async listDoContato(contactId) {
+    async listDoContato(contactId, companyId) {
+        if (!(await contactBelongsToCompany(contactId, companyId)))
+            return [];
         const rows = await client_1.db
             .select({ etiqueta: etiqueta_db_schema_1.etiquetas })
             .from(etiqueta_db_schema_1.contactEtiquetas)
             .innerJoin(etiqueta_db_schema_1.etiquetas, (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.etiqueta_id, etiqueta_db_schema_1.etiquetas.id))
-            .where((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.contact_id, contactId));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.contact_id, contactId), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.company_id, companyId)));
         return rows.map(r => r.etiqueta);
     },
 };

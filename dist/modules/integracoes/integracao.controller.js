@@ -3,13 +3,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.integracaoController = void 0;
 const integracao_service_1 = require("./integracao.service");
 const google_calendar_client_1 = require("./google-calendar.client");
+const jwt_1 = require("../../config/jwt");
 const env_1 = require("../../config/env");
 exports.integracaoController = {
     async getAuthUrl(req, reply) {
         const companyId = req.user.company_id;
         if (!companyId)
             return reply.status(403).send({ error: 'Empresa não encontrada' });
-        const url = (0, google_calendar_client_1.getAuthUrlWithState)(companyId);
+        // state assinado (JWT curto) em vez do company_id cru — evita que
+        // qualquer pessoa monte a URL de autorização com o company_id de
+        // outra empresa e sequestre a integração dela no callback.
+        const state = (0, jwt_1.signOAuthStateTicket)(companyId);
+        const url = (0, google_calendar_client_1.getAuthUrlWithState)(state);
         return reply.send({ url });
     },
     async callback(req, reply) {
@@ -17,8 +22,12 @@ exports.integracaoController = {
         if (!code || !state) {
             return reply.redirect(`${env_1.env.FRONTEND_URL}/dashboard/configuracoes/integracoes?error=missing_params`);
         }
+        const ticket = (0, jwt_1.verifyOAuthStateTicket)(state);
+        if (!ticket) {
+            return reply.redirect(`${env_1.env.FRONTEND_URL}/dashboard/configuracoes/integracoes?error=invalid_state`);
+        }
         try {
-            await integracao_service_1.integracaoService.handleCallback(state, code);
+            await integracao_service_1.integracaoService.handleCallback(ticket.companyId, code);
             return reply.redirect(`${env_1.env.FRONTEND_URL}/dashboard/configuracoes/integracoes?connected=true`);
         }
         catch (err) {

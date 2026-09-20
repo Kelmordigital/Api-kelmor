@@ -9,6 +9,8 @@ exports.verifyAccessToken = verifyAccessToken;
 exports.verifyRefreshToken = verifyRefreshToken;
 exports.signTotpTicket = signTotpTicket;
 exports.verifyTotpTicket = verifyTotpTicket;
+exports.signOAuthStateTicket = signOAuthStateTicket;
+exports.verifyOAuthStateTicket = verifyOAuthStateTicket;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = require("crypto");
 const env_1 = require("./env");
@@ -50,6 +52,24 @@ function verifyTotpTicket(token) {
         if (p.purpose !== 'totp' || !p.jti)
             return null;
         return { sub: p.sub, jti: p.jti };
+    }
+    catch {
+        return null;
+    }
+}
+// Assina o parâmetro `state` do OAuth do Google Calendar como um ticket
+// verificável, em vez de expor o company_id cru — sem isso, qualquer pessoa
+// pode montar a URL de autorização do Google com state=<company_id alheio>
+// e sequestrar a integração de outra empresa (CSRF no callback).
+function signOAuthStateTicket(companyId) {
+    return jsonwebtoken_1.default.sign({ sub: companyId, purpose: 'google_oauth_state', jti: (0, crypto_1.randomUUID)() }, env_1.env.JWT_SECRET, { expiresIn: '10m' });
+}
+function verifyOAuthStateTicket(token) {
+    try {
+        const p = jsonwebtoken_1.default.verify(token, env_1.env.JWT_SECRET);
+        if (p.purpose !== 'google_oauth_state')
+            return null;
+        return { companyId: p.sub };
     }
     catch {
         return null;

@@ -21,7 +21,7 @@ exports.meuPerfilController = {
         if (changesQueuesOrConnections && req.user.profile_tag !== 'admin' && req.user.profile_tag !== 'superAdmin') {
             return reply.status(403).send({ message: 'Apenas administradores podem alterar suas conexões e filas' });
         }
-        const result = await meu_perfil_service_1.meuPerfilService.updateProfile(req.user.id, body);
+        const result = await meu_perfil_service_1.meuPerfilService.updateProfile(req.user.id, req.user.company_id, body);
         return reply.send(result);
     },
     async uploadAvatar(req, reply) {

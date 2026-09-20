@@ -50,7 +50,9 @@ exports.usuarioController = {
         if (body.profile_id === 3) {
             return reply.status(403).send({ message: 'Não é permitido definir superAdmin' });
         }
-        await usuario_service_1.usuarioService.update(id, companyId, body);
+        const result = await usuario_service_1.usuarioService.update(id, companyId, body);
+        if (!result)
+            return reply.status(404).send({ message: 'Usuário não encontrado' });
         return reply.send({ ok: true });
     },
     async remove(req, reply) {

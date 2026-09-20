@@ -15,6 +15,23 @@ const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
 const meu_perfil_db_schema_1 = require("./meu-perfil.db.schema");
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5MB
+// Restringe os ids recebidos do cliente aos que realmente pertencem à
+// empresa — sem isso, um admin podia se autovincular à fila/conexão de
+// outra empresa e corromper a distribuição automática de tickets alheia.
+async function filterOwnedQueueIds(companyId, ids) {
+    if (ids.length === 0)
+        return [];
+    const owned = await client_1.db.select({ id: atendimento_db_schema_1.queues.id }).from(atendimento_db_schema_1.queues)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.queues.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.queues.id, ids)));
+    return owned.map(o => o.id);
+}
+async function filterOwnedConnectionIds(companyId, ids) {
+    if (ids.length === 0)
+        return [];
+    const owned = await client_1.db.select({ id: atendimento_db_schema_1.connections.id }).from(atendimento_db_schema_1.connections)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.connections.id, ids)));
+    return owned.map(o => o.id);
+}
 exports.meuPerfilService = {
     async getProfile(userId) {
         const [row] = await client_1.db
@@ -51,7 +68,7 @@ exports.meuPerfilService = {
         ]);
         return { queues: queueList, connections: connectionList };
     },
-    async updateProfile(userId, payload) {
+    async updateProfile(userId, companyId, payload) {
         if (payload.nickname !== undefined) {
             await client_1.db.update(auth_schema_1.users)
                 .set({ nickname: payload.nickname?.trim() || null, updated_at: new Date() })
@@ -64,14 +81,16 @@ exports.meuPerfilService = {
         }
         if (payload.queue_ids !== undefined) {
             await client_1.db.delete(atendimento_db_schema_1.userQueues).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.user_id, userId));
-            if (payload.queue_ids.length > 0) {
-                await client_1.db.insert(atendimento_db_schema_1.userQueues).values(payload.queue_ids.map((qid) => ({ user_id: userId, queue_id: qid })));
+            const safeQueueIds = await filterOwnedQueueIds(companyId, payload.queue_ids);
+            if (safeQueueIds.length > 0) {
+                await client_1.db.insert(atendimento_db_schema_1.userQueues).values(safeQueueIds.map((qid) => ({ user_id: userId, queue_id: qid })));
             }
         }
         if (payload.connection_ids !== undefined) {
             await client_1.db.delete(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.user_id, userId));
-            if (payload.connection_ids.length > 0) {
-                await client_1.db.insert(atendimento_db_schema_1.userConnections).values(payload.connection_ids.map((cid) => ({ user_id: userId, connection_id: cid })));
+            const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+            if (safeConnectionIds.length > 0) {
+                await client_1.db.insert(atendimento_db_schema_1.userConnections).values(safeConnectionIds.map((cid) => ({ user_id: userId, connection_id: cid })));
             }
         }
         return { ok: true };

@@ -49,13 +49,15 @@ exports.etiquetaController = {
         return reply.status(204).send();
     },
     async removerDoContato(req, reply) {
+        const companyId = req.user.company_id;
         const { contactId, etiquetaId } = req.params;
-        await etiqueta_service_1.etiquetaService.removerDoContato(contactId, etiquetaId);
+        await etiqueta_service_1.etiquetaService.removerDoContato(contactId, etiquetaId, companyId);
         return reply.status(204).send();
     },
     async listDoContato(req, reply) {
+        const companyId = req.user.company_id;
         const { contactId } = req.params;
-        const list = await etiqueta_service_1.etiquetaService.listDoContato(contactId);
+        const list = await etiqueta_service_1.etiquetaService.listDoContato(contactId, companyId);
         return reply.send(list);
     },
 };

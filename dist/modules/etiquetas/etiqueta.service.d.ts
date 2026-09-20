@@ -16,8 +16,8 @@ export declare const etiquetaService: {
         }[];
     }[]>;
     aplicarAoContato(contactId: string, etiquetaId: string, companyId: string): Promise<void>;
-    removerDoContato(contactId: string, etiquetaId: string): Promise<void>;
-    listDoContato(contactId: string): Promise<Etiqueta[]>;
+    removerDoContato(contactId: string, etiquetaId: string, companyId: string): Promise<void>;
+    listDoContato(contactId: string, companyId: string): Promise<Etiqueta[]>;
 };
 /**
  * Etiquetamento automático: casa o texto de uma mensagem contra as regras

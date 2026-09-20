@@ -119,9 +119,13 @@ async function executeCampaign(campaignId) {
         .set({ is_running: true, is_sending: true, updated_at: new Date() })
         .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.id, campaignId));
     try {
+        // Revalida (defesa em profundidade) que a conexão realmente pertence à
+        // empresa da campanha, mesmo já filtrando na escrita em campanha.service.ts —
+        // é aqui que o abuso se concretiza (envia mensagem usando o WhatsApp de outra empresa).
         const connLinks = await client_1.db.select({ connection_id: campanha_db_schema_1.campaignConnections.connection_id })
             .from(campanha_db_schema_1.campaignConnections)
-            .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaignConnections.campaign_id, campaignId));
+            .innerJoin(atendimento_db_schema_1.connections, (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, campanha_db_schema_1.campaignConnections.connection_id))
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaignConnections.campaign_id, campaignId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, campaign.company_id)));
         if (connLinks.length === 0) {
             console.warn(`[Campaign #${campaignId}] No connections configured`);
             await finishCampaign(campaignId);
@@ -140,9 +144,11 @@ async function executeCampaign(campaignId) {
                 .from(campanha_db_schema_1.campaignContacts)
                 .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaignContacts.campaign_id, campaignId));
             if (contactLinks.length > 0) {
+                // Mesma defesa em profundidade: só envia para contatos que
+                // realmente pertencem à empresa da campanha.
                 targets = await client_1.db.select({ id: atendimento_db_schema_1.contacts.id, number: atendimento_db_schema_1.contacts.number })
                     .from(atendimento_db_schema_1.contacts)
-                    .where((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.contacts.id, contactLinks.map(c => c.contact_id)));
+                    .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.inArray)(atendimento_db_schema_1.contacts.id, contactLinks.map(c => c.contact_id)), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.company_id, campaign.company_id)));
             }
         }
         // Skip already-sent contacts (supports resume after pause)

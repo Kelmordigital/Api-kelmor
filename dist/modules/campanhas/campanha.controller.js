@@ -36,7 +36,9 @@ exports.campanhaController = {
     async update(req, reply) {
         const { id } = req.params;
         const body = req.body;
-        await campanha_service_1.campanhaService.update(Number(id), req.user.company_id, body);
+        const result = await campanha_service_1.campanhaService.update(Number(id), req.user.company_id, body);
+        if (!result)
+            return reply.status(404).send({ message: 'Campanha não encontrada' });
         return reply.send({ ok: true });
     },
     async remove(req, reply) {

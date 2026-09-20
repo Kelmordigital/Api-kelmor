@@ -52,7 +52,7 @@ export declare const usuarioService: {
         connection_ids?: number[];
     }): Promise<{
         id: string;
-    }>;
+    } | null>;
     remove(id: string, companyId: string): Promise<boolean>;
     listQueues(companyId: string): Promise<{
         id: number;

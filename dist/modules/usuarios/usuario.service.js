@@ -12,6 +12,23 @@ const profile_db_schema_1 = require("../profiles/profile.db.schema");
 const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
 const meu_perfil_db_schema_1 = require("../meu-perfil/meu-perfil.db.schema");
 const achievements_service_1 = require("../achievements/achievements.service");
+// Restringe os ids recebidos do cliente aos que realmente pertencem à
+// empresa — sem isso, dava pra vincular fila/conexão de outra empresa a um
+// usuário só enviando o id.
+async function filterOwnedQueueIds(companyId, ids) {
+    if (ids.length === 0)
+        return [];
+    const owned = await client_1.db.select({ id: atendimento_db_schema_1.queues.id }).from(atendimento_db_schema_1.queues)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.queues.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.queues.id, ids)));
+    return owned.map(o => o.id);
+}
+async function filterOwnedConnectionIds(companyId, ids) {
+    if (ids.length === 0)
+        return [];
+    const owned = await client_1.db.select({ id: atendimento_db_schema_1.connections.id }).from(atendimento_db_schema_1.connections)
+        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.connections.id, ids)));
+    return owned.map(o => o.id);
+}
 exports.usuarioService = {
     async list(companyId) {
         const userList = await client_1.db
@@ -78,6 +95,16 @@ exports.usuarioService = {
         };
     },
     async update(id, companyId, payload) {
+        // Confirma que o usuário alvo é da própria empresa ANTES de mexer nas
+        // tabelas de junção — sem isso, enviar só queue_ids/connection_ids
+        // (sem name/email/...) pulava o update em `users` (corretamente
+        // escopado) e ainda assim reatribuía fila/conexão de um usuário de
+        // outra empresa, usando só o `id` cru.
+        const [owned] = await client_1.db.select({ id: auth_schema_1.users.id }).from(auth_schema_1.users)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(auth_schema_1.users.id, id), (0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId)))
+            .limit(1);
+        if (!owned)
+            return null;
         const updateData = {};
         if (payload.name)
             updateData.name = payload.name;
@@ -89,18 +116,20 @@ exports.usuarioService = {
             updateData.profile_id = payload.profile_id;
         if (Object.keys(updateData).length > 0) {
             updateData.updated_at = new Date();
-            await client_1.db.update(auth_schema_1.users).set(updateData).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(auth_schema_1.users.id, id), (0, drizzle_orm_1.eq)(auth_schema_1.users.company_id, companyId)));
+            await client_1.db.update(auth_schema_1.users).set(updateData).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, id));
         }
         if (payload.queue_ids !== undefined) {
             await client_1.db.delete(atendimento_db_schema_1.userQueues).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userQueues.user_id, id));
-            if (payload.queue_ids.length > 0) {
-                await client_1.db.insert(atendimento_db_schema_1.userQueues).values(payload.queue_ids.map((qid) => ({ user_id: id, queue_id: qid })));
+            const safeQueueIds = await filterOwnedQueueIds(companyId, payload.queue_ids);
+            if (safeQueueIds.length > 0) {
+                await client_1.db.insert(atendimento_db_schema_1.userQueues).values(safeQueueIds.map((qid) => ({ user_id: id, queue_id: qid })));
             }
         }
         if (payload.connection_ids !== undefined) {
             await client_1.db.delete(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.user_id, id));
-            if (payload.connection_ids.length > 0) {
-                await client_1.db.insert(atendimento_db_schema_1.userConnections).values(payload.connection_ids.map((cid) => ({ user_id: id, connection_id: cid })));
+            const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+            if (safeConnectionIds.length > 0) {
+                await client_1.db.insert(atendimento_db_schema_1.userConnections).values(safeConnectionIds.map((cid) => ({ user_id: id, connection_id: cid })));
             }
         }
         return { id };
