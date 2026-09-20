@@ -6,10 +6,13 @@ import { connections, contacts, tickets } from '../../src/modules/atendimento/at
 import { whatsappService } from '../../src/modules/whatsapp/whatsapp.service';
 
 /**
- * Reproduz o bug: o Baileys reporta o PRÓPRIO envio da gente (despedida,
- * saudação de fila, etc.) de volta como um evento de "mensagem recebida"
- * (message-upsert com fromMe:true). Isso não deve nunca criar um ticket
- * novo do zero — só faz sentido anexar a um ticket já aberto, se existir.
+ * O Baileys reporta tanto o eco do NOSSO envio (despedida, saudação de fila,
+ * mensagem mandada pela tela do CRM) quanto mensagem digitada de verdade no
+ * celular, fora do sistema, como o mesmo evento "mensagem recebida"
+ * (message-upsert com fromMe:true) — o eco de envio próprio já é filtrado
+ * antes de chegar aqui pelo dedup de cache do Baileys (messageListenerService.ts),
+ * então o que sobra sendo fromMe:true é mensagem externa de verdade e deve
+ * criar um ticket novo igual a uma mensagem de cliente (nunca reabre um fechado).
  */
 
 const SUFFIX = Date.now();
@@ -36,7 +39,7 @@ async function ticketsForPhone(phone: string) {
 }
 
 describe('whatsappService.handleMessagesWebhook — eco de mensagem própria (fromMe)', () => {
-    it('NÃO cria ticket novo quando fromMe:true e não existe ticket aberto pro contato', async () => {
+    it('cria ticket novo quando fromMe:true (mensagem externa) e não existe ticket aberto pro contato', async () => {
         const phone = `55119${SUFFIX}1`;
         await whatsappService.handleMessagesWebhook(connectionId, {
             data: {
@@ -48,7 +51,37 @@ describe('whatsappService.handleMessagesWebhook — eco de mensagem própria (fr
         });
 
         const found = await ticketsForPhone(phone);
-        expect(found).toHaveLength(0);
+        expect(found).toHaveLength(1);
+    });
+
+    it('NÃO reabre ticket fechado quando fromMe:true — cria um novo em vez disso', async () => {
+        const phone = `55119${SUFFIX}3`;
+        const [contact] = await db.insert(contacts)
+            .values({ company_id: companyId, number: phone, name: 'Contato Fechado' })
+            .returning();
+        const [closedTicket] = await db.insert(tickets)
+            .values({
+                company_id: companyId,
+                contact_id: contact.id,
+                connection_id: connectionId,
+                status_id: 3,
+                serialized_id: `${phone}@s.whatsapp.net`,
+            })
+            .returning();
+
+        await whatsappService.handleMessagesWebhook(connectionId, {
+            data: {
+                key: { remoteJid: `${phone}@s.whatsapp.net`, fromMe: true, id: `ECHO2-${SUFFIX}` },
+                message: { conversation: 'seguindo por fora' },
+                messageTimestamp: Math.floor(Date.now() / 1000),
+                pushName: 'Dono da Conexão',
+            },
+        });
+
+        const found = await ticketsForPhone(phone);
+        expect(found).toHaveLength(2);
+        const reopenedClosed = found.find((t) => t.id === closedTicket.id);
+        expect(reopenedClosed?.status_id).toBe(3);
     });
 
     it('cria ticket normalmente quando a mensagem é do cliente (fromMe:false)', async () => {

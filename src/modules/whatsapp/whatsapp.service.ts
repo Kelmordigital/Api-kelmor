@@ -642,17 +642,14 @@ export const whatsappService = {
             } catch { }
         }
 
-        if (fromMe) {
-            // Eco do nosso próprio envio: o Baileys reporta a mensagem que A GENTE
-            // manda (despedida, saudação de fila, etc.) de volta como um evento de
-            // "mensagem recebida" (message-upsert com fromMe:true). Só nos interessa
-            // se já existe um ticket aberto pra anexar — nunca cria um do zero, senão
-            // toda mensagem automática enviada logo após fechar um ticket recria um
-            // ticket fantasma em "Aguardando" pro mesmo contato.
-            const existingTicket = await ticketService.findOpenTicket(companyId, contact.id, conn.id);
-            if (!existingTicket) return;
-        }
-
+        // Eco do nosso próprio envio (despedida, saudação de fila, mensagem
+        // mandada pela tela do CRM) chega aqui como "mensagem recebida"
+        // (message-upsert com fromMe:true) só se escapou do dedup de cache do
+        // Baileys (messageListenerService.ts) — que já filtra isso antes de
+        // chegar na API na imensa maioria dos casos. O que sobra pra cá sendo
+        // fromMe é, na prática, mensagem digitada de verdade no celular, fora
+        // do sistema — segue o mesmo find-or-create das mensagens de cliente
+        // (nunca reabre ticket fechado, só cria um novo se não houver aberto).
         const { ticket, created: ticketCreated } = await ticketService.findOrCreateOpen(
             companyId,
             contact.id,
