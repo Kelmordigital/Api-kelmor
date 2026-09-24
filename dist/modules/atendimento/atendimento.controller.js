@@ -586,6 +586,16 @@ exports.atendimentoController = {
             return;
         return reply.send(await dashboard_service_1.dashboardService.getGraph(company_id, scope));
     },
+    async dashGraphByStatus(req, reply) {
+        const { profile_tag, company_id } = req.user;
+        if (profile_tag === 'superAdmin' || !company_id) {
+            return reply.send({ period: 'day', data: [] });
+        }
+        const scope = getDashboardScope(req, reply);
+        if (!scope)
+            return;
+        return reply.send(await dashboard_service_1.dashboardService.getGraphByStatus(company_id, scope));
+    },
     async dashFunnel(req, reply) {
         const { profile_tag, company_id } = req.user;
         if (profile_tag === 'superAdmin') {

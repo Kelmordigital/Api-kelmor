@@ -48,6 +48,7 @@ export declare const atendimentoController: {
     createReason(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     dashKpis(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
     dashGraph(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
+    dashGraphByStatus(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
     dashFunnel(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
     dashMovimentos(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;
     dashRecent(req: FastifyRequest, reply: FastifyReply): Promise<undefined>;

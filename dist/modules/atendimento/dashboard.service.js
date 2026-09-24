@@ -313,6 +313,28 @@ exports.dashboardService = {
             .orderBy(slotCol);
         return { period, data };
     },
+    /** Igual a getGraph, mas quebrado por status_id — alimenta o gráfico empilhado "Atendimentos por período". */
+    async getGraphByStatus(companyId, scope) {
+        const { start, end } = resolveInterval(scope);
+        const period = scope.period;
+        const exact = Boolean(scope.startDate && scope.endDate);
+        const slotCol = exact
+            ? (0, drizzle_orm_1.sql) `DATE(${atendimento_db_schema_1.tickets.created_at})::text`
+            : period === 'day' ? (0, drizzle_orm_1.sql) `EXTRACT(HOUR FROM ${atendimento_db_schema_1.tickets.created_at})::int`
+                : period === 'week' ? (0, drizzle_orm_1.sql) `EXTRACT(ISODOW FROM ${atendimento_db_schema_1.tickets.created_at})::int`
+                    : period === 'month' ? (0, drizzle_orm_1.sql) `EXTRACT(DAY FROM ${atendimento_db_schema_1.tickets.created_at})::int`
+                        : (0, drizzle_orm_1.sql) `EXTRACT(MONTH FROM ${atendimento_db_schema_1.tickets.created_at})::int`;
+        const data = await client_1.db.select({
+            slot: slotCol,
+            status_id: atendimento_db_schema_1.tickets.status_id,
+            total: (0, drizzle_orm_1.sql) `count(*)::int`,
+        })
+            .from(atendimento_db_schema_1.tickets)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.deleted_at), (0, drizzle_orm_1.gte)(atendimento_db_schema_1.tickets.created_at, start), (0, drizzle_orm_1.lte)(atendimento_db_schema_1.tickets.created_at, end), ...scopeConditions(scope)))
+            .groupBy(slotCol, atendimento_db_schema_1.tickets.status_id)
+            .orderBy(slotCol);
+        return { period, data };
+    },
     async getMovimentos(companyId, scope) {
         const { start, end } = resolveInterval(scope);
         const rows = await client_1.db.select({

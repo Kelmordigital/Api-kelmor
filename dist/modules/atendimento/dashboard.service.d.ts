@@ -90,6 +90,15 @@ export declare const dashboardService: {
             total: number;
         }[];
     }>;
+    /** Igual a getGraph, mas quebrado por status_id — alimenta o gráfico empilhado "Atendimentos por período". */
+    getGraphByStatus(companyId: string, scope: DashboardScope): Promise<{
+        period: Period;
+        data: {
+            slot: string | number;
+            status_id: number;
+            total: number;
+        }[];
+    }>;
     getMovimentos(companyId: string, scope: DashboardScope): Promise<{
         label: string;
         value: number;

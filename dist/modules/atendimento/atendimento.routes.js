@@ -47,6 +47,7 @@ async function atendimentoRoutes(app) {
     // Dashboard por período (novos)
     app.get('/dashboard/kpis', auth, atendimento_controller_1.atendimentoController.dashKpis);
     app.get('/dashboard/graph', auth, atendimento_controller_1.atendimentoController.dashGraph);
+    app.get('/dashboard/graph-by-status', auth, atendimento_controller_1.atendimentoController.dashGraphByStatus);
     app.get('/dashboard/funnel', auth, atendimento_controller_1.atendimentoController.dashFunnel);
     app.get('/dashboard/movimentos', auth, atendimento_controller_1.atendimentoController.dashMovimentos);
     app.get('/dashboard/recent', auth, atendimento_controller_1.atendimentoController.dashRecent);
