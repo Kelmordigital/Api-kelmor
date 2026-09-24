@@ -455,6 +455,38 @@ export const dashboardService = {
         return { period, data };
     },
 
+    /** Igual a getGraph, mas quebrado por status_id — alimenta o gráfico empilhado "Atendimentos por período". */
+    async getGraphByStatus(companyId: string, scope: DashboardScope) {
+        const { start, end } = resolveInterval(scope);
+        const period = scope.period;
+        const exact = Boolean(scope.startDate && scope.endDate);
+
+        const slotCol = exact
+            ? sql<string>`DATE(${tickets.created_at})::text`
+            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${tickets.created_at})::int`
+            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${tickets.created_at})::int`
+            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.created_at})::int`
+                                 : sql<number>`EXTRACT(MONTH FROM ${tickets.created_at})::int`;
+
+        const data = await db.select({
+            slot:      slotCol,
+            status_id: tickets.status_id,
+            total:     sql<number>`count(*)::int`,
+        })
+            .from(tickets)
+            .where(and(
+                eq(tickets.company_id, companyId),
+                isNull(tickets.deleted_at),
+                gte(tickets.created_at, start),
+                lte(tickets.created_at, end),
+                ...scopeConditions(scope),
+            ))
+            .groupBy(slotCol, tickets.status_id)
+            .orderBy(slotCol);
+
+        return { period, data };
+    },
+
     async getMovimentos(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
 
