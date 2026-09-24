@@ -55,6 +55,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     // Dashboard por período (novos)
     app.get('/dashboard/kpis', auth, atendimentoController.dashKpis);
     app.get('/dashboard/graph', auth, atendimentoController.dashGraph);
+    app.get('/dashboard/graph-by-status', auth, atendimentoController.dashGraphByStatus);
     app.get('/dashboard/funnel', auth, atendimentoController.dashFunnel);
     app.get('/dashboard/movimentos', auth, atendimentoController.dashMovimentos);
     app.get('/dashboard/recent', auth, atendimentoController.dashRecent);

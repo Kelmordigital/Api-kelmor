@@ -617,6 +617,18 @@ export const atendimentoController = {
         return reply.send(await dashboardService.getGraph(company_id!, scope));
     },
 
+    async dashGraphByStatus(req: FastifyRequest, reply: FastifyReply) {
+        const { profile_tag, company_id } = req.user;
+
+        if (profile_tag === 'superAdmin' || !company_id) {
+            return reply.send({ period: 'day', data: [] });
+        }
+
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.getGraphByStatus(company_id, scope));
+    },
+
     async dashFunnel(req: FastifyRequest, reply: FastifyReply) {
         const { profile_tag, company_id } = req.user;
 
