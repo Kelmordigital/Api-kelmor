@@ -374,6 +374,33 @@ export const whatsappController = {
         }
     },
 
+    /**
+     * Endpoint interno — chamado pelo microsserviço `campaigns`, que já
+     * resolveu qual conexão usar (rodízio entre as conexões da campanha).
+     * Diferente de sendMessageProxy: aqui a conexão vem explícita, não é
+     * escolhida pela empresa.
+     */
+    async sendTextByConnection(req: FastifyRequest, reply: FastifyReply) {
+        const { connection_id, target, text } = req.body as {
+            connection_id?: number;
+            target?: string;
+            text?: string;
+        };
+
+        if (!connection_id || !target || !text?.trim()) {
+            return reply.status(400).send({ message: 'connection_id, target e text são obrigatórios' });
+        }
+
+        try {
+            await whatsappService.sendTextToPhone(Number(connection_id), target, text);
+            return reply.send({ ok: true });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : 'Erro desconhecido';
+            req.log.error({ error }, '[sendTextByConnection] Falha ao enviar mensagem');
+            return reply.status(422).send({ ok: false, message });
+        }
+    },
+
     // ── Extensão de importação de sessão ────────────────────────────────────
 
     async downloadExtension(_req: FastifyRequest, reply: FastifyReply) {
