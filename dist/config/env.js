@@ -17,9 +17,6 @@ const envSchema = zod_1.z.object({
     REFRESH_EXPIRES_IN: zod_1.z.string().default('7d'),
     FRONTEND_URL: zod_1.z.string().url().default('http://localhost:5173'),
     SUPERADMIN_URL: zod_1.z.string().url().default('http://localhost:8081'),
-    EVOLUTION_API_URL: zod_1.z.string().url().optional(),
-    EVOLUTION_API_KEY: zod_1.z.string().optional(),
-    EVOLUTION_INSTANCE: zod_1.z.string().optional(),
     OPENAI_API_KEY: zod_1.z.string().optional(),
     FILIPE_INSTANCE: zod_1.z.string().optional(),
     FILIPE_PHONE: zod_1.z.string().optional(),
@@ -28,6 +25,8 @@ const envSchema = zod_1.z.object({
     BAYS_URL: zod_1.z.string().url().default('http://localhost:4001'),
     BAYS_SECRET_KEY: zod_1.z.string().default(''),
     BAYS_SESSION_ID: zod_1.z.string().default('1'),
+    // Microsserviço de campanhas (motor de disparo agendado)
+    CAMPAIGNS_API_URL: zod_1.z.string().url().default('http://localhost:3350'),
     // Monitoramento / alertas (opcionais — a API sobe sem eles)
     ALERT_WEBHOOK_TOKEN: zod_1.z.string().min(16, 'ALERT_WEBHOOK_TOKEN deve ter ao menos 16 caracteres').optional(),
     ALERT_CONNECTION_ID: zod_1.z.string().optional(),

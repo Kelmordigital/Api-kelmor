@@ -10,6 +10,14 @@ export declare class TransferenciaParaSiMesmoError extends Error {
 export declare class ReturnTicketPermissionError extends Error {
     constructor();
 }
+/**
+ * Falhas esperadas de concorrência/estado ao aceitar um ticket (lock em uso,
+ * ticket já assumido por outro, não encontrado). Tipada pra sobreviver ao
+ * errorHandler genérico em produção, que mascara Error puro como "Algo deu
+ * errado." — sem isso o atendente não descobre por que não conseguiu abrir.
+ */
+export declare class TicketAssignConflictError extends Error {
+}
 export declare class SpyTicketPermissionError extends Error {
     constructor();
 }

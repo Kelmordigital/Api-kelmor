@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ticketService = exports.FunilMovimentoNaoAutorizadoError = exports.FunilDestinoInvalidoError = exports.SpyTicketPermissionError = exports.ReturnTicketPermissionError = exports.TransferenciaParaSiMesmoError = exports.AtendenteNaoElegivelError = void 0;
+exports.ticketService = exports.FunilMovimentoNaoAutorizadoError = exports.FunilDestinoInvalidoError = exports.SpyTicketPermissionError = exports.TicketAssignConflictError = exports.ReturnTicketPermissionError = exports.TransferenciaParaSiMesmoError = exports.AtendenteNaoElegivelError = void 0;
 exports.ensureCanViewTicketMessages = ensureCanViewTicketMessages;
 exports.ensureCanSendToTicket = ensureCanSendToTicket;
 exports.ticketVisibilityCondition = ticketVisibilityCondition;
@@ -73,6 +73,15 @@ class ReturnTicketPermissionError extends Error {
     constructor() { super('O administrador definiu que você não pode devolver ou reabrir este atendimento.'); }
 }
 exports.ReturnTicketPermissionError = ReturnTicketPermissionError;
+/**
+ * Falhas esperadas de concorrência/estado ao aceitar um ticket (lock em uso,
+ * ticket já assumido por outro, não encontrado). Tipada pra sobreviver ao
+ * errorHandler genérico em produção, que mascara Error puro como "Algo deu
+ * errado." — sem isso o atendente não descobre por que não conseguiu abrir.
+ */
+class TicketAssignConflictError extends Error {
+}
+exports.TicketAssignConflictError = TicketAssignConflictError;
 /** admin/superAdmin sempre podem; atendente comum depende de company_permissions.return_ticket. */
 async function ensureReturnTicketPermission(companyId, profileTag) {
     if (profileTag === 'admin' || profileTag === 'superAdmin')
@@ -395,7 +404,7 @@ exports.ticketService = {
     async assignAttendant(ticketId, userId, companyId) {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey))
-            throw new Error('Ticket já está sendo assumido por outro atendente');
+            throw new TicketAssignConflictError('Ticket já está sendo assumido por outro atendente');
         const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
         // Serializa por atendente (não só por ticket): sem isso, dois aceites
         // simultâneos de tickets DIFERENTES pelo mesmo atendente passariam na
@@ -405,14 +414,14 @@ exports.ticketService = {
         const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
         if (!attendantLocked) {
             releaseLock(lockKey);
-            throw new Error('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
+            throw new TicketAssignConflictError('Outro atendimento está sendo processado para este atendente, tente novamente em instantes');
         }
         try {
             const [current] = await client_1.db.select().from(atendimento_db_schema_1.tickets)
                 .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId)))
                 .limit(1);
             if (!current)
-                throw new Error('Ticket não encontrado');
+                throw new TicketAssignConflictError('Ticket não encontrado');
             if (!(await (0, attendant_capacity_service_1.attendantHasCapacity)(userId, perms))) {
                 throw new attendant_capacity_service_1.AttendantLimitReachedError(perms.number_limit_services_users ?? undefined);
             }
@@ -426,7 +435,7 @@ exports.ticketService = {
                 .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.id, ticketId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.tickets.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.tickets.status_id, [1, 9]), (0, drizzle_orm_1.isNull)(atendimento_db_schema_1.tickets.attendant_user_id)))
                 .returning();
             if (!updated)
-                throw new Error('Ticket já foi assumido por outro atendente ou não está mais disponível');
+                throw new TicketAssignConflictError('Ticket já foi assumido por outro atendente ou não está mais disponível');
             await client_1.db.insert(atendimento_db_schema_1.historic_tickets).values({
                 ticket_id: ticketId,
                 user_id: userId,

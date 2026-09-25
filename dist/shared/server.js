@@ -259,6 +259,8 @@ function buildApp() {
     });
     // Endpoint interno — chamado pelo proxy messages-api-proxy para enviar mensagens
     app.post('/api/internal/send-message', { preHandler: internal_auth_middleware_1.internalAuthMiddleware }, whatsapp_controller_1.whatsappController.sendMessageProxy);
+    // Endpoint interno — chamado pelo microsserviço campaigns pra entregar o disparo
+    app.post('/api/internal/send-text-by-connection', { preHandler: internal_auth_middleware_1.internalAuthMiddleware }, whatsapp_controller_1.whatsappController.sendTextByConnection);
     (0, logger_middleware_1.registerRequestLogger)(app);
     app.setErrorHandler(error_middleware_1.errorHandler);
     return app;

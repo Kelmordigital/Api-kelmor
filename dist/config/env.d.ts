@@ -11,6 +11,7 @@ export declare const env: {
     BAYS_URL: string;
     BAYS_SECRET_KEY: string;
     BAYS_SESSION_ID: string;
+    CAMPAIGNS_API_URL: string;
     META_GRAPH_API_VERSION: string;
     WAB_APP_ID: string;
     WAB_APP_SECRET: string;
@@ -31,9 +32,6 @@ export declare const env: {
     RABBITMQ_USER: string;
     RABBITMQ_PASS: string;
     TEST_DATABASE_URL?: string | undefined;
-    EVOLUTION_API_URL?: string | undefined;
-    EVOLUTION_API_KEY?: string | undefined;
-    EVOLUTION_INSTANCE?: string | undefined;
     OPENAI_API_KEY?: string | undefined;
     FILIPE_INSTANCE?: string | undefined;
     FILIPE_PHONE?: string | undefined;

@@ -156,7 +156,7 @@ exports.atendimentoController = {
             return reply.send(ticket);
         }
         catch (err) {
-            if (err instanceof attendant_capacity_service_1.AttendantLimitReachedError) {
+            if (err instanceof attendant_capacity_service_1.AttendantLimitReachedError || err instanceof ticket_service_1.TicketAssignConflictError) {
                 return reply.status(409).send({ error: err.message });
             }
             throw err;

@@ -3,12 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.campanhaService = void 0;
 const drizzle_orm_1 = require("drizzle-orm");
 const client_1 = require("../../database/client");
+const env_1 = require("../../config/env");
 const campanha_db_schema_1 = require("./campanha.db.schema");
 const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
-const campanha_scheduler_1 = require("./campanha.scheduler");
-// Restringe os ids recebidos do cliente aos que realmente pertencem à
-// empresa — sem isso, uma empresa poderia vincular campanhas à conexão
-// WhatsApp ou à base de contatos de outra empresa só enviando o id.
+/**
+ * Defesa em profundidade: o `campaigns` também valida isso, mas o proxy não
+ * deve repassar connection_ids/contact_ids de outra empresa mesmo que a
+ * validação do outro lado falhe ou fique desatualizada.
+ */
 async function filterOwnedConnectionIds(companyId, ids) {
     if (ids.length === 0)
         return [];
@@ -23,25 +25,75 @@ async function filterOwnedContactIds(companyId, ids) {
         .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.contacts.id, ids)));
     return owned.map(o => o.id);
 }
+async function campaignsApi(path, init) {
+    return fetch(`${env_1.env.CAMPAIGNS_API_URL}${path}`, {
+        ...init,
+        headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': env_1.env.INTERNAL_API_SECRET,
+            ...init?.headers,
+        },
+    });
+}
 exports.campanhaService = {
+    // ── Campanhas — proxy pro microsserviço `campaigns` ─────────────────────
+    // Quem persiste, agenda (BullMQ) e efetivamente dispara é o `campaigns`;
+    // este serviço só repassa a chamada já validada e escopada por empresa.
     async list(companyId) {
-        const list = await client_1.db.select().from(campanha_db_schema_1.campaigns).where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.company_id, companyId));
-        if (list.length === 0)
-            return [];
-        const ids = list.map(c => c.id);
-        const [connLinks, contactLinks, sentRows] = await Promise.all([
-            client_1.db.select().from(campanha_db_schema_1.campaignConnections).where((0, drizzle_orm_1.inArray)(campanha_db_schema_1.campaignConnections.campaign_id, ids)),
-            client_1.db.select().from(campanha_db_schema_1.campaignContacts).where((0, drizzle_orm_1.inArray)(campanha_db_schema_1.campaignContacts.campaign_id, ids)),
-            client_1.db.select().from(campanha_db_schema_1.campaignSent).where((0, drizzle_orm_1.inArray)(campanha_db_schema_1.campaignSent.campaign_id, ids)),
-        ]);
-        return list.map(c => ({
-            ...c,
-            connection_ids: connLinks.filter(l => l.campaign_id === c.id).map(l => l.connection_id),
-            contact_ids: contactLinks.filter(l => l.campaign_id === c.id).map(l => l.contact_id),
-            sent_count: sentRows.filter(s => s.campaign_id === c.id && s.is_sent).length,
-            failed_count: sentRows.filter(s => s.campaign_id === c.id && !s.is_sent).length,
-        }));
+        const res = await campaignsApi(`/campaign?company_id=${companyId}`);
+        if (!res.ok)
+            throw new Error(`Erro ao listar campanhas (${res.status})`);
+        return res.json();
     },
+    async create(companyId, payload) {
+        const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+        const safeContactIds = payload.contact_ids?.length
+            ? await filterOwnedContactIds(companyId, payload.contact_ids)
+            : payload.contact_ids;
+        const res = await campaignsApi('/campaign', {
+            method: 'POST',
+            body: JSON.stringify({
+                company_id: companyId,
+                ...payload,
+                connection_ids: safeConnectionIds,
+                contact_ids: safeContactIds,
+            }),
+        });
+        if (!res.ok)
+            throw new Error(`Erro ao criar campanha (${res.status})`);
+        return res.json();
+    },
+    async update(id, companyId, payload) {
+        const safeConnectionIds = payload.connection_ids !== undefined
+            ? await filterOwnedConnectionIds(companyId, payload.connection_ids)
+            : undefined;
+        const safeContactIds = payload.contact_ids !== undefined
+            ? await filterOwnedContactIds(companyId, payload.contact_ids)
+            : undefined;
+        await campaignsApi(`/campaign/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                company_id: companyId,
+                ...payload,
+                ...(safeConnectionIds !== undefined ? { connection_ids: safeConnectionIds } : {}),
+                ...(safeContactIds !== undefined ? { contact_ids: safeContactIds } : {}),
+            }),
+        });
+        return { id };
+    },
+    async remove(id, companyId) {
+        const res = await campaignsApi(`/campaign/${id}?company_id=${companyId}`, { method: 'DELETE' });
+        return res.ok;
+    },
+    async play(id, companyId) {
+        const res = await campaignsApi(`/campaign/${id}/play?company_id=${companyId}`, { method: 'POST' });
+        return res.ok;
+    },
+    async pause(id, companyId) {
+        const res = await campaignsApi(`/campaign/${id}/pause?company_id=${companyId}`, { method: 'POST' });
+        return res.ok;
+    },
+    // ── Seletores auxiliares (conexões/contatos) — locais, sem relação com o motor de envio ──
     async getSelects(companyId) {
         const [conns, cts] = await Promise.all([
             client_1.db.select({ id: atendimento_db_schema_1.connections.id, name: atendimento_db_schema_1.connections.name, status: atendimento_db_schema_1.connections.status })
@@ -53,103 +105,7 @@ exports.campanhaService = {
         ]);
         return { connections: conns, contacts: cts };
     },
-    async create(companyId, payload) {
-        const [campaign] = await client_1.db.insert(campanha_db_schema_1.campaigns).values({
-            company_id: companyId,
-            title: payload.title,
-            message: payload.message,
-            type: payload.type ?? 'whatsapp',
-            send_date: new Date(payload.send_date),
-            timezone: payload.timezone ?? 'America/Sao_Paulo',
-            all_contacts: payload.all_contacts ?? false,
-        }).returning();
-        const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
-        if (safeConnectionIds.length > 0) {
-            await client_1.db.insert(campanha_db_schema_1.campaignConnections).values(safeConnectionIds.map(cid => ({ campaign_id: campaign.id, connection_id: cid })));
-        }
-        if (!payload.all_contacts && payload.contact_ids?.length) {
-            const safeContactIds = await filterOwnedContactIds(companyId, payload.contact_ids);
-            if (safeContactIds.length > 0) {
-                await client_1.db.insert(campanha_db_schema_1.campaignContacts).values(safeContactIds.map(cid => ({ campaign_id: campaign.id, contact_id: cid })));
-            }
-        }
-        await (0, campanha_scheduler_1.scheduleCampaign)(campaign.id);
-        return campaign;
-    },
-    async update(id, companyId, payload) {
-        // Confirma que a campanha é da própria empresa ANTES de mexer nas
-        // tabelas de junção — sem isso, o update em `campaigns` (corretamente
-        // escopado) simplesmente não afeta nenhuma linha, mas o código seguia
-        // e reescrevia campaignConnections/campaignContacts de uma campanha
-        // de outra empresa mesmo assim, usando só o `id` cru.
-        const [owned] = await client_1.db.select({ id: campanha_db_schema_1.campaigns.id })
-            .from(campanha_db_schema_1.campaigns)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.id, id), (0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.company_id, companyId)))
-            .limit(1);
-        if (!owned)
-            return null;
-        const updateData = { updated_at: new Date() };
-        if (payload.title !== undefined)
-            updateData.title = payload.title;
-        if (payload.message !== undefined)
-            updateData.message = payload.message;
-        if (payload.send_date !== undefined)
-            updateData.send_date = new Date(payload.send_date);
-        if (payload.timezone !== undefined)
-            updateData.timezone = payload.timezone;
-        if (payload.all_contacts !== undefined)
-            updateData.all_contacts = payload.all_contacts;
-        await client_1.db.update(campanha_db_schema_1.campaigns)
-            .set(updateData)
-            .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.id, id));
-        if (payload.connection_ids !== undefined) {
-            await client_1.db.delete(campanha_db_schema_1.campaignConnections).where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaignConnections.campaign_id, id));
-            const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
-            if (safeConnectionIds.length > 0) {
-                await client_1.db.insert(campanha_db_schema_1.campaignConnections).values(safeConnectionIds.map(cid => ({ campaign_id: id, connection_id: cid })));
-            }
-        }
-        if (payload.contact_ids !== undefined) {
-            await client_1.db.delete(campanha_db_schema_1.campaignContacts).where((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaignContacts.campaign_id, id));
-            const safeContactIds = await filterOwnedContactIds(companyId, payload.contact_ids);
-            if (safeContactIds.length > 0) {
-                await client_1.db.insert(campanha_db_schema_1.campaignContacts).values(safeContactIds.map(cid => ({ campaign_id: id, contact_id: cid })));
-            }
-        }
-        if (payload.send_date !== undefined) {
-            (0, campanha_scheduler_1.cancelCampaignTask)(id);
-            await (0, campanha_scheduler_1.scheduleCampaign)(id);
-        }
-        return { id };
-    },
-    async remove(id, companyId) {
-        (0, campanha_scheduler_1.cancelCampaignTask)(id);
-        const [row] = await client_1.db.delete(campanha_db_schema_1.campaigns)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.id, id), (0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.company_id, companyId)))
-            .returning({ id: campanha_db_schema_1.campaigns.id });
-        return !!row;
-    },
-    async play(id, companyId) {
-        const [row] = await client_1.db.update(campanha_db_schema_1.campaigns)
-            .set({ is_paused: false, updated_at: new Date() })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.id, id), (0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.company_id, companyId)))
-            .returning({ id: campanha_db_schema_1.campaigns.id });
-        if (!row)
-            return false;
-        await (0, campanha_scheduler_1.resumeCampaign)(id);
-        return true;
-    },
-    async pause(id, companyId) {
-        const [row] = await client_1.db.update(campanha_db_schema_1.campaigns)
-            .set({ is_paused: true, is_running: false, is_sending: false, updated_at: new Date() })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.id, id), (0, drizzle_orm_1.eq)(campanha_db_schema_1.campaigns.company_id, companyId)))
-            .returning({ id: campanha_db_schema_1.campaigns.id });
-        if (!row)
-            return false;
-        (0, campanha_scheduler_1.cancelCampaignTask)(id);
-        return true;
-    },
-    // ── Scheduled Message Texts ───────────────────────────────────────────────
+    // ── Textos de Agendamento — locais, usados no modal do atendimento ──────
     async listTexts(companyId) {
         const existing = await client_1.db.select().from(campanha_db_schema_1.scheduledMessageTexts)
             .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.company_id, companyId));

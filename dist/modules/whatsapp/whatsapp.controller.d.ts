@@ -23,6 +23,13 @@ export declare const whatsappController: {
     connectionUpdate(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     messagesWebhook(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     sendMessageProxy(req: FastifyRequest, reply: FastifyReply): Promise<never>;
+    /**
+     * Endpoint interno — chamado pelo microsserviço `campaigns`, que já
+     * resolveu qual conexão usar (rodízio entre as conexões da campanha).
+     * Diferente de sendMessageProxy: aqui a conexão vem explícita, não é
+     * escolhida pela empresa.
+     */
+    sendTextByConnection(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     downloadExtension(_req: FastifyRequest, reply: FastifyReply): Promise<never>;
     getHealth(_req: FastifyRequest, reply: FastifyReply): Promise<never>;
 };

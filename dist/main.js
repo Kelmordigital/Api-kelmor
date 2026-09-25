@@ -7,7 +7,6 @@ const migrate_1 = require("./database/migrate");
 const socket_1 = require("./shared/socket");
 const connection_health_job_1 = require("./jobs/connection-health.job");
 const reconnection_queue_1 = require("./jobs/reconnection.queue");
-const campanha_scheduler_1 = require("./modules/campanhas/campanha.scheduler");
 const agendamento_mensagens_scheduler_1 = require("./modules/agendamento-mensagens/agendamento-mensagens.scheduler");
 const rabbitmq_1 = require("./shared/rabbitmq");
 process.on('uncaughtException', (err) => {
@@ -41,7 +40,6 @@ async function main() {
         healthInterval = (0, connection_health_job_1.startConnectionHealthJob)();
         (0, connection_health_job_1.initSessionsGauge)().catch(() => { });
         reconnectWorker = (0, reconnection_queue_1.startReconnectionWorker)();
-        (0, campanha_scheduler_1.restoreScheduledCampaigns)().catch(() => { });
         (0, agendamento_mensagens_scheduler_1.restoreScheduledMessages)().catch(() => { });
         (0, rabbitmq_1.startRabbitConsumer)().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
         console.log(`Servidor rodando na porta ${env_1.env.PORT}`);
