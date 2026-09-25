@@ -122,11 +122,11 @@ describe('POST /tickets/:id/messages — assinatura "*Nome:*" (config "Ocultar n
 
 describe('meuPerfilService — persistência do modo permanente (hide_name_active)', () => {
     it('grava e lê a preferência de ocultar nome permanentemente', async () => {
-        await meuPerfilService.updateProfile(attendantId, { hide_name_active: true });
+        await meuPerfilService.updateProfile(attendantId, companyId, { hide_name_active: true });
         const profile = await meuPerfilService.getProfile(attendantId);
         expect(profile?.hide_name_active).toBe(true);
 
-        await meuPerfilService.updateProfile(attendantId, { hide_name_active: false });
+        await meuPerfilService.updateProfile(attendantId, companyId, { hide_name_active: false });
         const profile2 = await meuPerfilService.getProfile(attendantId);
         expect(profile2?.hide_name_active).toBe(false);
     });
