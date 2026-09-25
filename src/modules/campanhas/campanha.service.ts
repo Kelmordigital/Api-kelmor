@@ -1,8 +1,27 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db } from '../../database/client';
 import { env } from '../../config/env';
 import { scheduledMessageTexts } from './campanha.db.schema';
 import { connections, contacts } from '../atendimento/atendimento.db.schema';
+
+/**
+ * Defesa em profundidade: o `campaigns` também valida isso, mas o proxy não
+ * deve repassar connection_ids/contact_ids de outra empresa mesmo que a
+ * validação do outro lado falhe ou fique desatualizada.
+ */
+async function filterOwnedConnectionIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: connections.id }).from(connections)
+        .where(and(eq(connections.company_id, companyId), inArray(connections.id, ids)));
+    return owned.map(o => o.id);
+}
+
+async function filterOwnedContactIds(companyId: string, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return [];
+    const owned = await db.select({ id: contacts.id }).from(contacts)
+        .where(and(eq(contacts.company_id, companyId), inArray(contacts.id, ids)));
+    return owned.map(o => o.id);
+}
 
 async function campaignsApi(path: string, init?: RequestInit): Promise<Response> {
     return fetch(`${env.CAMPAIGNS_API_URL}${path}`, {
@@ -37,9 +56,19 @@ export const campanhaService = {
         connection_ids: number[];
         contact_ids?: number[];
     }) {
+        const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
+        const safeContactIds = payload.contact_ids?.length
+            ? await filterOwnedContactIds(companyId, payload.contact_ids)
+            : payload.contact_ids;
+
         const res = await campaignsApi('/campaign', {
             method: 'POST',
-            body: JSON.stringify({ company_id: companyId, ...payload }),
+            body: JSON.stringify({
+                company_id: companyId,
+                ...payload,
+                connection_ids: safeConnectionIds,
+                contact_ids: safeContactIds,
+            }),
         });
         if (!res.ok) throw new Error(`Erro ao criar campanha (${res.status})`);
         return res.json();
@@ -54,9 +83,21 @@ export const campanhaService = {
         connection_ids?: number[];
         contact_ids?: number[];
     }) {
+        const safeConnectionIds = payload.connection_ids !== undefined
+            ? await filterOwnedConnectionIds(companyId, payload.connection_ids)
+            : undefined;
+        const safeContactIds = payload.contact_ids !== undefined
+            ? await filterOwnedContactIds(companyId, payload.contact_ids)
+            : undefined;
+
         await campaignsApi(`/campaign/${id}`, {
             method: 'PUT',
-            body: JSON.stringify({ company_id: companyId, ...payload }),
+            body: JSON.stringify({
+                company_id: companyId,
+                ...payload,
+                ...(safeConnectionIds !== undefined ? { connection_ids: safeConnectionIds } : {}),
+                ...(safeContactIds !== undefined ? { contact_ids: safeContactIds } : {}),
+            }),
         });
         return { id };
     },
