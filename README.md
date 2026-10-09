@@ -2,6 +2,8 @@
 
 API backend construída com Fastify, TypeScript e Drizzle ORM para gerenciar leads, imóveis, vendas, tarefas, visitas, fluxo de caixa e autenticação.
 
+<!-- deploy check: 2026-10-09 -->
+
 ## Tecnologias
 
 - Node.js
