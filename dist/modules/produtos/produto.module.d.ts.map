@@ -1,0 +1,1 @@
+{"version":3,"file":"produto.module.d.ts","sourceRoot":"","sources":["../../../src/modules/produtos/produto.module.ts"],"names":[],"mappings":"AAEA,OAAO,EAAkB,KAAK,cAAc,EAAE,MAAM,mBAAmB,CAAC;AAExE,OAAO,EAAE,aAAa,EAAE,MAAM,kBAAkB,CAAC;AAKjD,eAAO,MAAM,aAAa,eAA2D,CAAC;AAEtF,iDAAiD;AACjD,eAAO,MAAM,cAAc,EAAE,cAA+B,CAAC"}

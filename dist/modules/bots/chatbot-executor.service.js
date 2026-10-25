@@ -251,8 +251,8 @@ async function runNode(node, envr, bot) {
         }
         case 'add_tag': {
             if (data.tag_id && envr.contactId != null) {
-                const { etiquetaService } = await Promise.resolve().then(() => __importStar(require('../etiquetas/etiqueta.service')));
-                await etiquetaService.aplicarAoContato(String(envr.contactId), data.tag_id, envr.companyId)
+                const { contactTagger } = await Promise.resolve().then(() => __importStar(require('../etiquetas/etiqueta.module')));
+                await contactTagger.applyToContact(envr.companyId, Number(envr.contactId), data.tag_id)
                     .catch((err) => console.error('[ChatbotExecutor] Falha ao aplicar etiqueta:', err.message));
             }
             return node.next_node_id ?? null;

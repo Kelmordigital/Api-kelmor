@@ -1,14 +1,19 @@
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
-import { apiMessagesController } from './api-messages.controller';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { ApiMessagesController } from './api-messages.controller';
 
-export async function apiMessagesRoutes(app: FastifyInstance) {
-    // Pública — autenticação própria por X-Api-Key, nunca por JWT de usuário.
-    app.post('/api-messages/send', apiMessagesController.send);
+export class ApiMessagesRouter implements HttpRouter {
+    constructor(private readonly controller: ApiMessagesController) {}
 
-    // Gestão da chave — JWT de usuário admin (mesmo padrão de Configurações Gerais).
-    const admin = { preHandler: [authMiddleware, requireAdmin] };
-    app.get('/company-api-keys/status',     admin, apiMessagesController.status);
-    app.post('/company-api-keys/generate',  admin, apiMessagesController.generate);
-    app.delete('/company-api-keys',         admin, apiMessagesController.revoke);
+    register = async (app: FastifyInstance) => {
+        // Pública — autenticação própria por X-Api-Key, nunca por JWT de usuário.
+        app.post('/api-messages/send', this.controller.send);
+
+        // Gestão da chave — JWT de usuário admin.
+        const admin = { preHandler: [authMiddleware, requireAdmin] };
+        app.get('/company-api-keys/status',    admin, this.controller.status);
+        app.post('/company-api-keys/generate', admin, this.controller.generate);
+        app.delete('/company-api-keys',        admin, this.controller.revoke);
+    };
 }

@@ -1,181 +1,106 @@
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { etiquetas, contactEtiquetas, automaticTagRules, automaticTagRuleTags, Etiqueta, NewEtiqueta } from './etiqueta.db.schema';
-import { companyPermissions } from '../configuracao-geral/configuracao-geral.db.schema';
-import { contacts } from '../atendimento/atendimento.db.schema';
+import { NotFoundError } from '../../core/errors/http-errors';
+import type { CompanyDirectory } from '../companies/company-directory';
+import type { Etiqueta } from './etiqueta.db.schema';
+import type { EtiquetaPatch, EtiquetaRepository } from './etiqueta.repository';
+import type { CreateEtiquetaInput, UpdateEtiquetaInput } from './etiqueta.dto';
 
-// contactEtiquetas não tem company_id — sem confirmar que o contato é da
-// empresa, listar/aplicar/remover etiqueta por contactId vazava e permitia
-// vandalizar tags de contatos de outras empresas.
-async function contactBelongsToCompany(contactId: string, companyId: string): Promise<boolean> {
-    const numericId = Number(contactId);
-    if (!Number.isFinite(numericId)) return false;
-    const [row] = await db.select({ id: contacts.id }).from(contacts)
-        .where(and(eq(contacts.id, numericId), eq(contacts.company_id, companyId)))
-        .limit(1);
-    return !!row;
+const DEFAULT_COLOR = '#6366f1';
+const DEFAULT_ICON = 'tag';
+const STATS_DAYS = 7;
+
+export interface EtiquetaStats {
+    etiqueta_id: string;
+    name: string;
+    color: string;
+    total_leads: number;
+    series: { date: string; count: number }[];
 }
 
-export const etiquetaService = {
+/** Aplicar etiqueta num contato — o que o bot e as regras automáticas precisam (ISP). */
+export interface ContactTagger {
+    applyToContact(companyId: string, contactId: number, etiquetaId: string): Promise<void>;
+}
 
-    async list(companyId: string): Promise<Etiqueta[]> {
-        return db
-            .select()
-            .from(etiquetas)
-            .where(eq(etiquetas.company_id, companyId))
-            .orderBy(desc(etiquetas.created_at));
-    },
+export class EtiquetaService implements ContactTagger {
+    constructor(
+        private readonly repository: EtiquetaRepository,
+        private readonly directory: CompanyDirectory,
+        private readonly now: () => Date = () => new Date(),
+    ) {}
 
-    async findById(id: string, companyId: string): Promise<Etiqueta | null> {
-        const [row] = await db
-            .select()
-            .from(etiquetas)
-            .where(and(eq(etiquetas.id, id), eq(etiquetas.company_id, companyId)))
-            .limit(1);
-        return row ?? null;
-    },
+    list(companyId: string): Promise<Etiqueta[]> {
+        return this.repository.listByCompany(companyId);
+    }
 
-    async create(companyId: string, payload: Omit<NewEtiqueta, 'id' | 'company_id' | 'created_at' | 'updated_at'>): Promise<Etiqueta> {
-        const [row] = await db
-            .insert(etiquetas)
-            .values({ ...payload, company_id: companyId })
-            .returning();
+    create(companyId: string, input: CreateEtiquetaInput): Promise<Etiqueta> {
+        return this.repository.create(companyId, {
+            name:  input.name,
+            color: input.color ?? DEFAULT_COLOR,
+            icon:  input.icon ?? DEFAULT_ICON,
+        });
+    }
+
+    async update(id: string, companyId: string, input: UpdateEtiquetaInput): Promise<Etiqueta> {
+        const patch: EtiquetaPatch = {};
+        if (input.name !== undefined) patch.name = input.name;
+        if (input.color !== undefined) patch.color = input.color;
+        if (input.icon !== undefined) patch.icon = input.icon;
+        const row = await this.repository.update(id, companyId, patch);
+        if (!row) throw EtiquetaService.tagNotFound();
         return row;
-    },
+    }
 
-    async update(id: string, companyId: string, payload: Partial<Pick<Etiqueta, 'name' | 'color' | 'icon'>>): Promise<Etiqueta | null> {
-        const [row] = await db
-            .update(etiquetas)
-            .set({ ...payload, updated_at: new Date() })
-            .where(and(eq(etiquetas.id, id), eq(etiquetas.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
+    async remove(id: string, companyId: string): Promise<void> {
+        if (!(await this.repository.delete(id, companyId))) throw EtiquetaService.tagNotFound();
+    }
 
-    async remove(id: string, companyId: string): Promise<boolean> {
-        const [row] = await db
-            .delete(etiquetas)
-            .where(and(eq(etiquetas.id, id), eq(etiquetas.company_id, companyId)))
-            .returning();
-        return !!row;
-    },
+    /** Etiqueta e contato precisam ser da empresa. Aplicar de novo não duplica. */
+    async applyToContact(companyId: string, contactId: number, etiquetaId: string): Promise<void> {
+        if (!(await this.repository.findById(etiquetaId, companyId))) throw EtiquetaService.tagNotFound();
+        if (!(await this.directory.hasContact(companyId, contactId))) throw new NotFoundError('Contato não encontrado');
+        await this.repository.linkToContact(contactId, etiquetaId);
+    }
 
-    async getStats(companyId: string) {
-        const list = await etiquetaService.list(companyId);
-        const today = new Date();
-
-        const stats = await Promise.all(list.map(async (et) => {
-            const total = await db
-                .select({ count: sql<number>`count(*)::int` })
-                .from(contactEtiquetas)
-                .where(eq(contactEtiquetas.etiqueta_id, et.id))
-                .then(r => r[0]?.count ?? 0);
-
-            // Série dos últimos 7 dias
-            const series = Array.from({ length: 7 }, (_, i) => {
-                const d = new Date(today);
-                d.setDate(d.getDate() - (6 - i));
-                return { date: d.toISOString().slice(0, 10), count: 0 };
-            });
-
-            return {
-                etiqueta_id: et.id,
-                name: et.name,
-                color: et.color,
-                total_leads: total,
-                series,
-            };
-        }));
-
-        return stats;
-    },
-
-    async aplicarAoContato(contactId: string, etiquetaId: string, companyId: string): Promise<void> {
-        const et = await etiquetaService.findById(etiquetaId, companyId);
-        if (!et) throw new Error('Etiqueta não encontrada');
-        if (!(await contactBelongsToCompany(contactId, companyId))) throw new Error('Contato não encontrado');
-        await db
-            .insert(contactEtiquetas)
-            .values({ contact_id: contactId, etiqueta_id: etiquetaId })
-            .onConflictDoNothing();
-    },
-
-    async removerDoContato(contactId: string, etiquetaId: string, companyId: string): Promise<void> {
-        const [belongsContact, et] = await Promise.all([
-            contactBelongsToCompany(contactId, companyId),
-            etiquetaService.findById(etiquetaId, companyId),
+    /** Sem efeito (e sem erro) se a etiqueta ou o contato não forem da empresa. */
+    async removeFromContact(companyId: string, contactId: number, etiquetaId: string): Promise<void> {
+        const [ownsContact, tag] = await Promise.all([
+            this.directory.hasContact(companyId, contactId),
+            this.repository.findById(etiquetaId, companyId),
         ]);
-        if (!belongsContact || !et) return;
-        await db
-            .delete(contactEtiquetas)
-            .where(and(
-                eq(contactEtiquetas.contact_id, contactId),
-                eq(contactEtiquetas.etiqueta_id, etiquetaId),
-            ));
-    },
+        if (ownsContact && tag) await this.repository.unlinkFromContact(contactId, etiquetaId);
+    }
 
-    async listDoContato(contactId: string, companyId: string): Promise<Etiqueta[]> {
-        if (!(await contactBelongsToCompany(contactId, companyId))) return [];
-        const rows = await db
-            .select({ etiqueta: etiquetas })
-            .from(contactEtiquetas)
-            .innerJoin(etiquetas, eq(contactEtiquetas.etiqueta_id, etiquetas.id))
-            .where(and(
-                eq(contactEtiquetas.contact_id, contactId),
-                eq(etiquetas.company_id, companyId),
-            ));
-        return rows.map(r => r.etiqueta);
-    },
-};
+    /** Contato de outra empresa responde lista vazia (não revela que existe). */
+    async listForContact(companyId: string, contactId: number): Promise<Etiqueta[]> {
+        if (!(await this.directory.hasContact(companyId, contactId))) return [];
+        return this.repository.listForContact(contactId, companyId);
+    }
 
-/**
- * Etiquetamento automático: casa o texto de uma mensagem contra as regras
- * (at_automatic_tag_rules) cadastradas pela empresa. Cada regra tem uma
- * lista de variações de palavra-chave separadas por vírgula (ex: "fralda,
- * frauda, fraldinha") — qualquer uma delas ativa a regra — e pode apontar
- * para múltiplas etiquetas. Idempotente via ON CONFLICT DO NOTHING em
- * aplicarAoContato.
- */
-export async function matchAndApplyAutomaticTags(
-    companyId: string,
-    contactId: number,
-    messageText: string,
-): Promise<void> {
-    const [perm] = await db
-        .select({ enable_automatic_tags: companyPermissions.enable_automatic_tags })
-        .from(companyPermissions)
-        .where(eq(companyPermissions.company_id, companyId))
-        .limit(1);
+    /** Total de contatos por etiqueta e aplicações por dia nos últimos 7 dias (hoje incluso, UTC). */
+    async getStats(companyId: string): Promise<EtiquetaStats[]> {
+        const tags = await this.repository.listByCompany(companyId);
+        const days = this.lastDays();
+        const usage = await this.repository.usage(tags.map((t) => t.id), new Date(`${days[0]}T00:00:00.000Z`));
 
-    if (!perm?.enable_automatic_tags) return;
+        return tags.map((tag) => ({
+            etiqueta_id: tag.id,
+            name: tag.name,
+            color: tag.color,
+            total_leads: usage.totals.get(tag.id) ?? 0,
+            series: days.map((date) => ({ date, count: usage.daily.get(tag.id)?.get(date) ?? 0 })),
+        }));
+    }
 
-    const rules = await db
-        .select()
-        .from(automaticTagRules)
-        .where(eq(automaticTagRules.company_id, companyId));
+    private lastDays(): string[] {
+        const today = this.now();
+        return Array.from({ length: STATS_DAYS }, (_, i) => {
+            const d = new Date(today);
+            d.setUTCDate(d.getUTCDate() - (STATS_DAYS - 1 - i));
+            return d.toISOString().slice(0, 10);
+        });
+    }
 
-    if (!rules.length) return;
-
-    const lowerText = messageText.toLowerCase();
-
-    const matchedRuleIds = rules
-        .filter(rule => rule.keywords
-            .split(',')
-            .map((k: string) => k.trim().toLowerCase())
-            .filter(Boolean)
-            .some((kw: string) => lowerText.includes(kw)))
-        .map(rule => rule.id);
-
-    if (!matchedRuleIds.length) return;
-
-    const tagRows = await db
-        .select({ etiqueta_id: automaticTagRuleTags.etiqueta_id })
-        .from(automaticTagRuleTags)
-        .where(inArray(automaticTagRuleTags.rule_id, matchedRuleIds));
-
-    const uniqueTagIds = [...new Set(tagRows.map(r => r.etiqueta_id))];
-
-    for (const etiquetaId of uniqueTagIds) {
-        await etiquetaService.aplicarAoContato(String(contactId), etiquetaId, companyId);
+    private static tagNotFound() {
+        return new NotFoundError('Etiqueta não encontrada');
     }
 }

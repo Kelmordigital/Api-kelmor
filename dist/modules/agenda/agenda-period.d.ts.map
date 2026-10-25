@@ -1,0 +1,1 @@
+{"version":3,"file":"agenda-period.d.ts","sourceRoot":"","sources":["../../../src/modules/agenda/agenda-period.ts"],"names":[],"mappings":"AAAA;;;GAGG;AACH,qBAAa,YAAY;IACD,QAAQ,CAAC,KAAK,EAAE,IAAI;IAAE,QAAQ,CAAC,GAAG,EAAE,IAAI;IAA5D,OAAO;IAEP,MAAM,CAAC,EAAE,CAAC,KAAK,EAAE,IAAI,GAAG,SAAS,EAAE,GAAG,EAAE,IAAI,GAAG,SAAS,EAAE,GAAG,GAAE,IAAiB,GAAG,YAAY;CAQlG"}

@@ -29,6 +29,7 @@ export function initSocket(httpServer: HttpServer): Server {
         socket.on('join:user', ({ userId }: { userId: string }) => {
             if (!userId) return;
             (socket.data as { userId?: string }).userId = userId;
+            socket.join(`user:${userId}`);
             let set = onlineUsers.get(userId);
             if (!set) { set = new Set(); onlineUsers.set(userId, set); }
             set.add(socket.id);
@@ -56,4 +57,10 @@ export function getIo(): Server {
 export function emitToCompany(companyId: string, event: string, payload: unknown) {
     if (!io) return;
     io.to(`company:${companyId}`).emit(event, payload);
+}
+
+/** Envia só para as abas abertas de um usuário (sala `user:<id>`). */
+export function emitToUser(userId: string, event: string, payload: unknown) {
+    if (!io) return;
+    io.to(`user:${userId}`).emit(event, payload);
 }

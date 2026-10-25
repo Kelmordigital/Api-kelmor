@@ -6,7 +6,8 @@ import { users } from '../auth/auth.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
-import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
+import type { CompanyPermission } from '../configuracao-geral/configuracao-geral.db.schema';
 import { filaService } from '../filas/fila.service';
 import { attendantHasCapacity, AttendantLimitReachedError } from './attendant-capacity.service';
 import { funilStageService } from './funil-stage.service';
@@ -17,7 +18,7 @@ import { funilStageService } from './funil-stage.service';
 // (users.xp), não recalculado a partir do histórico de tickets. A quantidade
 // por venda é configurável pelo dono (company_permissions.sale_xp_amount).
 async function grantSaleXp(userId: string, companyId: string) {
-    const perms = await getCompanyPermissions(companyId);
+    const perms = await companyPermissionsReader.forCompany(companyId);
     if (!perms.gamification_enabled) return;
     await db.update(users).set({ xp: sql`${users.xp} + ${perms.sale_xp_amount}` }).where(eq(users.id, userId));
 }
@@ -45,7 +46,7 @@ export class TicketAssignConflictError extends Error {}
 /** admin/superAdmin sempre podem; atendente comum depende de company_permissions.return_ticket. */
 async function ensureReturnTicketPermission(companyId: string, profileTag: string): Promise<void> {
     if (profileTag === 'admin' || profileTag === 'superAdmin') return;
-    const perms = await getCompanyPermissions(companyId);
+    const perms = await companyPermissionsReader.forCompany(companyId);
     if (!perms.return_ticket) throw new ReturnTicketPermissionError();
 }
 
@@ -72,7 +73,7 @@ export async function ensureCanViewTicketMessages(ticket: Ticket, userId: string
         if (!isAdmin) throw new SpyTicketPermissionError();
     } else if (ticket.status_id === 1) {
         if (!isAdmin) {
-            const perms = await getCompanyPermissions(ticket.company_id);
+            const perms = await companyPermissionsReader.forCompany(ticket.company_id);
             if (!perms.spy_ticket) throw new SpyTicketPermissionError();
         }
     } else {
@@ -113,7 +114,7 @@ export async function ticketVisibilityCondition(
     const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
     if (isAdmin) return undefined;
 
-    const perms = await getCompanyPermissions(companyId);
+    const perms = await companyPermissionsReader.forCompany(companyId);
     if (perms.show_all_tickets) return undefined;
 
     const [myQueues, myConns] = await Promise.all([
@@ -252,7 +253,7 @@ export const ticketService = {
         // Alimenta o gráfico de conversão do Kanban (visão "Funil") — só grava
         // pra empresas com o toggle ligado, senão toda empresa (mesmo sem usar
         // Kanban) ganharia etapas provisionadas e histórico crescendo à toa.
-        const perms = await getCompanyPermissions(companyId);
+        const perms = await companyPermissionsReader.forCompany(companyId);
         if (perms.active_kanban) {
             const stages = await funilStageService.listStages(companyId);
             const waitingStage = stages.find((s) => s.is_waiting_stage)!;
@@ -462,7 +463,7 @@ export const ticketService = {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey)) throw new TicketAssignConflictError('Ticket já está sendo assumido por outro atendente');
 
-        const perms = await getCompanyPermissions(companyId);
+        const perms = await companyPermissionsReader.forCompany(companyId);
 
         // Serializa por atendente (não só por ticket): sem isso, dois aceites
         // simultâneos de tickets DIFERENTES pelo mesmo atendente passariam na
@@ -526,7 +527,7 @@ export const ticketService = {
         ticket: Ticket,
         userId: string,
         companyId: string,
-        perms: Awaited<ReturnType<typeof getCompanyPermissions>>,
+        perms: CompanyPermission,
     ): Promise<void> {
         if (!ticket.connection_id || !ticket.contact_id) return;
 
@@ -694,7 +695,7 @@ export const ticketService = {
     async reopen(ticketId: number, userId: string, companyId: string, profileTag: string): Promise<Ticket> {
         await ensureReturnTicketPermission(companyId, profileTag);
 
-        const perms = await getCompanyPermissions(companyId);
+        const perms = await companyPermissionsReader.forCompany(companyId);
         const attendantLockKey = `attendant-limit:${userId}`;
         const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
         if (!attendantLocked) {
@@ -754,7 +755,7 @@ export const ticketService = {
     ): Promise<Ticket> {
         if (fromUserId === toUserId) throw new TransferenciaParaSiMesmoError();
 
-        const perms = await getCompanyPermissions(companyId);
+        const perms = await companyPermissionsReader.forCompany(companyId);
         const attendantLockKey = `attendant-limit:${toUserId}`;
         const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
         if (!attendantLocked) {
@@ -828,7 +829,7 @@ export const ticketService = {
     ): Promise<void> {
         if (!ticket.connection_id || !ticket.contact_id) return;
 
-        const perms = await getCompanyPermissions(companyId);
+        const perms = await companyPermissionsReader.forCompany(companyId);
         if (!perms.send_ticket_transfer_msg) return;
 
         const [companyRow] = await db
@@ -939,7 +940,7 @@ export const ticketService = {
             .limit(1);
         if (!current) throw new Error('Ticket não encontrado');
 
-        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+        const { researchSurvey: pesquisaService } = await import('../pesquisas/pesquisa.module');
         const research = await pesquisaService.findActiveForQueue(current.queue_id, companyId);
         if (!research) throw new Error('Nenhuma pesquisa de satisfação configurada para este atendimento');
 
@@ -999,7 +1000,7 @@ export const ticketService = {
         if (!ticket.contact_id) return;
         if (sendGoodbye === false) return;
 
-        const perms = await getCompanyPermissions(companyId);
+        const perms = await companyPermissionsReader.forCompany(companyId);
         if (sendGoodbye === undefined && !perms.send_ticket_goodbye_msg) return;
 
         const [companyRow] = await db

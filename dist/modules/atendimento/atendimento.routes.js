@@ -15,8 +15,6 @@ async function atendimentoRoutes(app) {
     app.put('/tickets/:id/reopen', auth, atendimento_controller_1.atendimentoController.reopen);
     app.put('/tickets/:id/transfer', auth, atendimento_controller_1.atendimentoController.transfer);
     app.put('/tickets/:id/pin', auth, atendimento_controller_1.atendimentoController.togglePin);
-    app.post('/tickets/:id/schedule-message', auth, atendimento_controller_1.atendimentoController.scheduleMessage);
-    app.get('/tickets/:id/scheduled-messages', auth, atendimento_controller_1.atendimentoController.listScheduledMessages);
     app.post('/tickets/:id/close', auth, atendimento_controller_1.atendimentoController.closeTicket);
     app.post('/tickets/:id/research', auth, atendimento_controller_1.atendimentoController.closeTicketWithResearch);
     app.get('/tickets/:id/research-available', auth, atendimento_controller_1.atendimentoController.researchAvailable);

@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyAccessToken } from '../config/jwt';
 import { getRedisClient } from '../config/redis';
+import { sessionKey } from '../core/auth/session';
 
 declare module 'fastify' {
     interface FastifyRequest {
@@ -12,12 +13,6 @@ declare module 'fastify' {
             finance: boolean;
         };
     }
-}
-
-function sessionKey(profileTag: string, companyId: string | null, userId: string): string {
-    return profileTag === 'superAdmin'
-        ? `superadmin-${userId}`
-        : `company-${companyId}-user-${userId}`;
 }
 
 export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {

@@ -1,21 +1,33 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { campanhaController } from './campanha.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { CampanhaController } from './campanha.controller';
 
-export async function campanhasRoutes(app: FastifyInstance) {
-    app.addHook('preHandler', authMiddleware);
+/**
+ * Campanhas (mensagens agendadas) e textos de agendamento — gestão só de
+ * admin/superAdmin. Ler os textos é liberado a qualquer usuário da empresa:
+ * o atendente escolhe um deles no modal "Agendar mensagem" do atendimento.
+ */
+export class CampanhaRouter implements HttpRouter {
+    constructor(private readonly controller: CampanhaController) {}
 
-    // Literal routes first to avoid conflict with /:id
-    app.get('/selects',        campanhaController.getSelects);
-    app.get('/texts',          campanhaController.listTexts);
-    app.post('/texts',         campanhaController.upsertText);
-    app.put('/texts/:id',      campanhaController.updateText);
-    app.delete('/texts/:id',   campanhaController.removeText);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        const c = this.controller;
+        const admin = { preHandler: requireAdmin };
 
-    app.get('/',               campanhaController.list);
-    app.post('/',              campanhaController.create);
-    app.put('/:id',            campanhaController.update);
-    app.delete('/:id',         campanhaController.remove);
-    app.post('/:id/play',      campanhaController.play);
-    app.post('/:id/pause',     campanhaController.pause);
+        // Rotas literais antes das com /:id
+        app.get('/texts',               c.listTexts);
+        app.post('/texts',       admin, c.createText);
+        app.put('/texts/:id',    admin, c.updateText);
+        app.delete('/texts/:id', admin, c.removeText);
+
+        app.get('/selects',      admin, c.getSelects);
+        app.get('/',             admin, c.list);
+        app.post('/',            admin, c.create);
+        app.put('/:id',          admin, c.update);
+        app.delete('/:id',       admin, c.remove);
+        app.post('/:id/play',    admin, c.play);
+        app.post('/:id/pause',   admin, c.pause);
+    };
 }

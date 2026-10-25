@@ -673,7 +673,7 @@ export const whatsappService = {
 
         if (body && !fromMe) {
             // Tenta capturar resposta de pesquisa antes de salvar mensagem
-            const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+            const { researchSurvey: pesquisaService } = await import('../pesquisas/pesquisa.module');
             const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
 
             if (!wasAnswer) {

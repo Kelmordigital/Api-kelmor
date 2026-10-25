@@ -7,7 +7,7 @@ const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
 const bots_db_schema_1 = require("../bots/bots.db.schema");
 const auth_schema_1 = require("../auth/auth.schema");
 const socket_1 = require("../../shared/socket");
-const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const configuracao_geral_module_1 = require("../configuracao-geral/configuracao-geral.module");
 const VALID_DISTRIBUTION = ['none', 'less_attendances', 'time', 'attendant'];
 class FilaVinculadaChatbotError extends Error {
     constructor() { super('Não é possível excluir a fila, pois ela está vinculada a um chatbot.'); }
@@ -89,7 +89,7 @@ exports.filaService = {
             connectionId
                 ? client_1.db.select({ id: atendimento_db_schema_1.userConnections.user_id }).from(atendimento_db_schema_1.userConnections).where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.userConnections.connection_id, connectionId))
                 : Promise.resolve(null),
-            (0, configuracao_geral_service_1.getCompanyPermissions)(companyId),
+            configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId),
         ]);
         let ids = inQueue.map((r) => r.id);
         if (withConn) {

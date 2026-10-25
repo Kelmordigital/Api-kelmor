@@ -1,6 +1,6 @@
 import { type SQL } from 'drizzle-orm';
 import { Ticket } from './atendimento.db.schema';
-import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import type { CompanyPermission } from '../configuracao-geral/configuracao-geral.db.schema';
 export declare class AtendenteNaoElegivelError extends Error {
     constructor();
 }
@@ -125,7 +125,7 @@ export declare const ticketService: {
     }>;
     /** Atendente assume o ticket (Pendente=1 ou Bot=9 → Aberto=2). Update atômico condicional. */
     assignAttendant(ticketId: number, userId: string, companyId: string): Promise<Ticket>;
-    _sendOpeningMessages(ticket: Ticket, userId: string, companyId: string, perms: Awaited<ReturnType<typeof getCompanyPermissions>>): Promise<void>;
+    _sendOpeningMessages(ticket: Ticket, userId: string, companyId: string, perms: CompanyPermission): Promise<void>;
     /**
      * Roteia um ticket para uma fila (usado pelo chatbot). Seta `queue_id` e, se a
      * fila tiver distribuição automática e houver atendente elegível/online, atribui

@@ -13,8 +13,6 @@ export declare const atendimentoController: {
     returnToQueue(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     reopen(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     transfer(req: FastifyRequest, reply: FastifyReply): Promise<never>;
-    scheduleMessage(req: FastifyRequest, reply: FastifyReply): Promise<never>;
-    listScheduledMessages(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     togglePin(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     countTickets(req: FastifyRequest, reply: FastifyReply): Promise<never>;
     listAttendants(req: FastifyRequest, reply: FastifyReply): Promise<never>;

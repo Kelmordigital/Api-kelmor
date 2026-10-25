@@ -1,17 +1,25 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { pesquisaController } from './pesquisa.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { PesquisaController } from './pesquisa.controller';
 
-export async function pesquisasRoutes(app: FastifyInstance) {
-    app.addHook('preHandler', authMiddleware);
+/** Cadastro e relatório de pesquisas — restrito a admin/superAdmin. */
+export class PesquisaRouter implements HttpRouter {
+    constructor(private readonly controller: PesquisaController) {}
 
-    app.get('/active',       pesquisaController.listActive);
-    app.get('/',             pesquisaController.list);
-    app.post('/',            pesquisaController.create);
-    app.put('/:id',          pesquisaController.update);
-    app.delete('/:id',       pesquisaController.remove);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+        const c = this.controller;
 
-    // Relatório
-    app.get('/report',       pesquisaController.report);
-    app.get('/report/view',  pesquisaController.reportView);
+        app.get('/active',      c.listActive);
+        app.get('/',            c.list);
+        app.post('/',           c.create);
+        app.put('/:id',         c.update);
+        app.delete('/:id',      c.remove);
+
+        // Relatório
+        app.get('/report',      c.report);
+        app.get('/report/view', c.reportView);
+    };
 }

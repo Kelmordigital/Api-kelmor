@@ -59,8 +59,8 @@ export const messageService = {
 
         if (body && contactId !== null) {
             try {
-                const { matchAndApplyAutomaticTags } = await import('../etiquetas/etiqueta.service');
-                await matchAndApplyAutomaticTags(companyId, contactId, body);
+                const { messageAutoTagger } = await import('../etiquetas/etiqueta.module');
+                await messageAutoTagger.applyFor(companyId, contactId, body);
             } catch (err) {
                 console.error(
                     `[AutoTags] Falha ao aplicar etiquetas automáticas (ticket ${ticketId}):`,

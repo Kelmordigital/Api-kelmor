@@ -1,131 +1,108 @@
-import { eq, and, ilike, count } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { quickMessages, QuickMessage, NewQuickMessage } from './quick-messages.db.schema';
-import { pipeline } from 'stream/promises';
-import { createWriteStream } from 'fs';
-import fs from 'fs/promises';
-import path from 'path';
-import crypto from 'crypto';
-import { Readable } from 'stream';
+import { BadRequestError, NotFoundError } from '../../core/errors/http-errors';
+import type { MediaStorage, StoredFile } from '../../core/storage/media-storage';
+import type { Page, Pagination } from '../../core/http/pagination';
+import type { QuickMessage } from './quick-messages.db.schema';
+import type { QuickMessagePatch, QuickMessageRepository } from './quick-messages.repository';
+import type { QuickMessageInput } from './quick-messages.dto';
 
-interface ListParams {
-    page?: number;
-    limit?: number;
-    search?: string;
-}
+const NO_MEDIA = { media_path: null, media_type: null, media_size: null } as const;
 
-interface CreatePayload {
-    title: string;
-    message?: string | null;
-    media_path?: string | null;
-    media_type?: string | null;
-    media_size?: number | null;
-}
+/**
+ * Mensagens rápidas da empresa. O arquivo enviado chega já gravado; se a
+ * operação falhar, ele é apagado — nenhum upload fica órfão no storage.
+ */
+export class QuickMessageService {
+    constructor(
+        private readonly repository: QuickMessageRepository,
+        private readonly storage: MediaStorage,
+    ) {}
 
-interface UpdatePayload {
-    title?: string;
-    message?: string | null;
-    media_path?: string | null;
-    media_type?: string | null;
-    media_size?: number | null;
-    remove_media?: boolean;
-}
+    async list(companyId: string, pagination: Pagination, search?: string): Promise<Page<QuickMessage>> {
+        const { rows, total } = await this.repository.page(companyId, {
+            search, limit: pagination.limit, offset: pagination.offset,
+        });
+        return pagination.toPage(rows, total);
+    }
 
-export const quickMessageService = {
+    create(companyId: string, input: QuickMessageInput, media?: StoredFile): Promise<QuickMessage> {
+        return this.discardOnFailure(media, async () => {
+            const title = QuickMessageService.requiredTitle(input.title);
+            const message = QuickMessageService.text(input.message);
+            QuickMessageService.assertHasContent(message, media?.path ?? null);
 
-    async list(companyId: string, params: ListParams = {}) {
-        const page  = Math.max(1, params.page  ?? 1);
-        const limit = Math.min(50, Math.max(1, params.limit ?? 10));
-        const offset = (page - 1) * limit;
+            return this.repository.create(companyId, {
+                title, message, ...QuickMessageService.mediaColumns(media),
+            });
+        });
+    }
 
-        const where = params.search
-            ? and(eq(quickMessages.company_id, companyId), ilike(quickMessages.title, `%${params.search}%`))
-            : eq(quickMessages.company_id, companyId);
+    update(id: number, companyId: string, input: QuickMessageInput, media?: StoredFile): Promise<QuickMessage> {
+        return this.discardOnFailure(media, async () => {
+            const existing = QuickMessageService.orNotFound(await this.repository.findById(id, companyId));
 
-        const [rows, [{ total }]] = await Promise.all([
-            db.select()
-              .from(quickMessages)
-              .where(where)
-              .orderBy(quickMessages.created_at)
-              .limit(limit)
-              .offset(offset),
-            db.select({ total: count() }).from(quickMessages).where(where),
-        ]);
+            const patch: QuickMessagePatch = {};
+            if (input.title !== undefined) patch.title = QuickMessageService.requiredTitle(input.title);
+            if (input.message !== undefined) patch.message = QuickMessageService.text(input.message);
+            // Arquivo novo vence remove_media
+            if (media) Object.assign(patch, QuickMessageService.mediaColumns(media));
+            else if (input.removeMedia) Object.assign(patch, NO_MEDIA);
 
-        return {
-            data: rows,
-            total: Number(total),
-            page,
-            limit,
-            totalPages: Math.ceil(Number(total) / limit),
-        };
-    },
+            QuickMessageService.assertHasContent(
+                patch.message !== undefined ? patch.message : existing.message,
+                patch.media_path !== undefined ? patch.media_path : existing.media_path,
+            );
 
-    async findById(id: number, companyId: string): Promise<QuickMessage | undefined> {
-        const [row] = await db
-            .select()
-            .from(quickMessages)
-            .where(and(eq(quickMessages.id, id), eq(quickMessages.company_id, companyId)));
-        return row;
-    },
+            const updated = QuickMessageService.orNotFound(await this.repository.update(id, companyId, patch));
+            if (existing.media_path && existing.media_path !== updated.media_path) {
+                await this.storage.delete(existing.media_path);
+            }
+            return updated;
+        });
+    }
 
-    async create(companyId: string, payload: CreatePayload): Promise<QuickMessage> {
-        const [row] = await db
-            .insert(quickMessages)
-            .values({ company_id: companyId, ...payload, updated_at: new Date() })
-            .returning();
-        return row;
-    },
+    async remove(id: number, companyId: string): Promise<void> {
+        const existing = QuickMessageService.orNotFound(await this.repository.findById(id, companyId));
+        if (!(await this.repository.delete(id, companyId))) throw QuickMessageService.notFound();
+        if (existing.media_path) await this.storage.delete(existing.media_path);
+    }
 
-    async update(id: number, companyId: string, payload: UpdatePayload): Promise<QuickMessage | null> {
-        const { remove_media, ...rest } = payload;
-        const updateData: Partial<NewQuickMessage> = { ...rest, updated_at: new Date() };
-
-        if (remove_media) {
-            updateData.media_path = null;
-            updateData.media_type = null;
-            updateData.media_size = null;
+    private async discardOnFailure<T>(media: StoredFile | undefined, operation: () => Promise<T>): Promise<T> {
+        try {
+            return await operation();
+        } catch (err) {
+            if (media) await this.storage.delete(media.path);
+            throw err;
         }
+    }
 
-        const [row] = await db
-            .update(quickMessages)
-            .set(updateData)
-            .where(and(eq(quickMessages.id, id), eq(quickMessages.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
+    private static requiredTitle(raw: string | undefined): string {
+        const title = raw?.trim();
+        if (!title) throw new BadRequestError('Campo "title" é obrigatório');
+        return title;
+    }
 
-    async remove(id: number, companyId: string): Promise<QuickMessage | null> {
-        const [deleted] = await db
-            .delete(quickMessages)
-            .where(and(eq(quickMessages.id, id), eq(quickMessages.company_id, companyId)))
-            .returning();
-        return deleted ?? null;
-    },
+    private static text(raw: string | undefined): string | null {
+        return raw?.trim() || null;
+    }
 
-    async saveFile(
-        companyId: string,
-        originalName: string,
-        stream: Readable,
-    ): Promise<{ filePath: string; size: number }> {
-        const ext      = path.extname(originalName).toLowerCase();
-        const fileName = `${Date.now()}-${crypto.randomUUID()}${ext}`;
-        const dir      = path.join(process.cwd(), 'uploads', 'quick-messages', companyId);
+    /** Uma mensagem rápida precisa ter texto, mídia ou os dois. */
+    private static assertHasContent(message: string | null, mediaPath: string | null): void {
+        if (!message && !mediaPath) {
+            throw new BadRequestError('É obrigatório ter mensagem de texto ou arquivo de mídia');
+        }
+    }
 
-        await fs.mkdir(dir, { recursive: true });
+    private static mediaColumns(media: StoredFile | undefined) {
+        if (!media) return NO_MEDIA;
+        return { media_path: media.path, media_type: media.mimeType, media_size: media.size };
+    }
 
-        const fullPath     = path.join(dir, fileName);
-        const relativePath = `uploads/quick-messages/${companyId}/${fileName}`;
+    private static orNotFound(row: QuickMessage | null): QuickMessage {
+        if (!row) throw QuickMessageService.notFound();
+        return row;
+    }
 
-        let size = 0;
-        stream.on('data', (chunk: Buffer) => { size += chunk.length; });
-        await pipeline(stream, createWriteStream(fullPath));
-
-        return { filePath: relativePath, size };
-    },
-
-    async deleteFile(mediaPath: string): Promise<void> {
-        const fullPath = path.join(process.cwd(), mediaPath);
-        await fs.unlink(fullPath).catch(() => {});
-    },
-};
+    private static notFound() {
+        return new NotFoundError('Mensagem rápida não encontrada');
+    }
+}

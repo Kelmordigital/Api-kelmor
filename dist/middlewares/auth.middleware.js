@@ -40,11 +40,7 @@ exports.requireFinance = requireFinance;
 exports.requireAdmin = requireAdmin;
 const jwt_1 = require("../config/jwt");
 const redis_1 = require("../config/redis");
-function sessionKey(profileTag, companyId, userId) {
-    return profileTag === 'superAdmin'
-        ? `superadmin-${userId}`
-        : `company-${companyId}-user-${userId}`;
-}
+const session_1 = require("../core/auth/session");
 async function authMiddleware(req, reply) {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -56,7 +52,7 @@ async function authMiddleware(req, reply) {
     }
     const redis = (0, redis_1.getRedisClient)();
     if (redis) {
-        const key = sessionKey(payload.profile_tag, payload.company_id, payload.sub);
+        const key = (0, session_1.sessionKey)(payload.profile_tag, payload.company_id, payload.sub);
         const session = await redis.get(key);
         if (!session) {
             return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Sessão expirada. Faça login novamente.' });

@@ -1,0 +1,1 @@
+ALTER TABLE "at_company_integrations" ADD COLUMN "reconnect_required_at" timestamp;

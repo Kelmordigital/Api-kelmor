@@ -1,69 +1,49 @@
-import { eq, and, ne, desc } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { cupons, Cupom, NewCupom } from './cupom.db.schema';
+import { ConflictError, NotFoundError } from '../../core/errors/http-errors';
+import type { Cupom } from './cupom.db.schema';
+import { DUPLICATE_CODE_MESSAGE, type CupomRepository } from './cupom.repository';
+import type { CupomTypePolicies } from './cupom-type.policies';
+import { CupomDefinition } from './cupom.definition';
+import type { CupomInput } from './cupom.dto';
 
-export const cupomService = {
+export class CupomService {
+    constructor(
+        private readonly repository: CupomRepository,
+        private readonly policies: CupomTypePolicies,
+    ) {}
 
-    async list(companyId: string): Promise<Cupom[]> {
-        return db
-            .select()
-            .from(cupons)
-            .where(eq(cupons.company_id, companyId))
-            .orderBy(desc(cupons.created_at));
-    },
+    list(companyId: string): Promise<Cupom[]> {
+        return this.repository.listByCompany(companyId);
+    }
 
-    async findById(id: string, companyId: string): Promise<Cupom | null> {
-        const [row] = await db
-            .select()
-            .from(cupons)
-            .where(and(eq(cupons.id, id), eq(cupons.company_id, companyId)))
-            .limit(1);
-        return row ?? null;
-    },
+    async create(companyId: string, input: CupomInput): Promise<Cupom> {
+        const cupom = CupomDefinition.create(input, this.policies);
+        await this.ensureCodeAvailable(companyId, cupom.code);
+        return this.repository.create(companyId, cupom.toPersistence());
+    }
 
-    async isCodeTaken(companyId: string, code: string, excludeId?: string): Promise<boolean> {
-        const conditions = [eq(cupons.company_id, companyId), eq(cupons.code, code)];
-        if (excludeId) conditions.push(ne(cupons.id, excludeId));
-        const [row] = await db
-            .select({ id: cupons.id })
-            .from(cupons)
-            .where(and(...conditions))
-            .limit(1);
-        return !!row;
-    },
+    async update(id: string, companyId: string, patch: CupomInput): Promise<Cupom> {
+        const existing = this.orNotFound(await this.repository.findById(id, companyId));
+        const cupom = CupomDefinition.revise(existing, patch, this.policies);
+        await this.ensureCodeAvailable(companyId, cupom.code, id);
+        return this.orNotFound(await this.repository.update(id, companyId, cupom.toPersistence()));
+    }
 
-    async create(
-        companyId: string,
-        payload: Omit<NewCupom, 'id' | 'company_id' | 'created_at' | 'updated_at'>,
-    ): Promise<Cupom> {
-        const [row] = await db
-            .insert(cupons)
-            .values({ ...payload, company_id: companyId })
-            .returning();
+    async remove(id: string, companyId: string): Promise<void> {
+        if (!(await this.repository.delete(id, companyId))) throw CupomService.notFound();
+    }
+
+    private async ensureCodeAvailable(companyId: string, code: string, excludeId?: string): Promise<void> {
+        if (await this.repository.isCodeTaken(companyId, code, excludeId)) {
+            throw new ConflictError(DUPLICATE_CODE_MESSAGE);
+        }
+    }
+
+    private orNotFound(row: Cupom | null): Cupom {
+        if (!row) throw CupomService.notFound();
         return row;
-    },
+    }
 
-    async update(
-        id: string,
-        companyId: string,
-        payload: Partial<Pick<Cupom,
-            'code' | 'type' | 'value' | 'gift_description' |
-            'min_sale_value' | 'is_public' | 'is_active'
-        >>,
-    ): Promise<Cupom | null> {
-        const [row] = await db
-            .update(cupons)
-            .set({ ...payload, updated_at: new Date() })
-            .where(and(eq(cupons.id, id), eq(cupons.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
-
-    async remove(id: string, companyId: string): Promise<boolean> {
-        const [row] = await db
-            .delete(cupons)
-            .where(and(eq(cupons.id, id), eq(cupons.company_id, companyId)))
-            .returning();
-        return !!row;
-    },
-};
+    private static notFound() {
+        return new NotFoundError('Cupom não encontrado');
+    }
+}

@@ -226,7 +226,7 @@ export const whatsappOficialWebhookService = {
         }
 
         // Pesquisa em andamento captura a resposta antes de virar mensagem comum
-        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+        const { researchSurvey: pesquisaService } = await import('../pesquisas/pesquisa.module');
         const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
         if (wasAnswer) return;
 

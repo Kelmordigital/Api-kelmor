@@ -1,25 +1,32 @@
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../../middlewares/auth.middleware';
-import { tarefasController } from './tarefas.controller';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { TarefasController } from './tarefas.controller';
 
-export async function tarefasRoutes(app: FastifyInstance) {
-    const auth = { preHandler: authMiddleware };
+/** Central de Tarefas — qualquer usuário autenticado, sobre o próprio quadro. */
+export class TarefasRouter implements HttpRouter {
+    constructor(private readonly controller: TarefasController) {}
 
-    // Quadro (Central de Tarefas)
-    app.get('/board',              auth, tarefasController.board);
-    app.get('/arquivadas',         auth, tarefasController.archived);
-    app.get('/contato/:contactId', auth, tarefasController.byContact);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        const c = this.controller;
 
-    // Tarefas
-    app.post('/',                 auth, tarefasController.create);
-    app.put('/:id',               auth, tarefasController.update);
-    app.patch('/:id/move',        auth, tarefasController.move);
-    app.patch('/:id/concluir',    auth, tarefasController.setDone);
-    app.patch('/:id/arquivar',    auth, tarefasController.setArchived);
-    app.delete('/:id',            auth, tarefasController.remove);
+        // Quadro (Central de Tarefas)
+        app.get('/board',              c.board);
+        app.get('/arquivadas',         c.archived);
+        app.get('/contato/:contactId', c.byContact);
 
-    // Colunas customizadas
-    app.post('/colunas',          auth, tarefasController.createColumn);
-    app.put('/colunas/:id',       auth, tarefasController.renameColumn);
-    app.delete('/colunas/:id',    auth, tarefasController.deleteColumn);
+        // Tarefas
+        app.post('/',              c.create);
+        app.put('/:id',            c.update);
+        app.patch('/:id/move',     c.move);
+        app.patch('/:id/concluir', c.setDone);
+        app.patch('/:id/arquivar', c.setArchived);
+        app.delete('/:id',         c.remove);
+
+        // Colunas customizadas
+        app.post('/colunas',       c.createColumn);
+        app.put('/colunas/:id',    c.renameColumn);
+        app.delete('/colunas/:id', c.deleteColumn);
+    };
 }

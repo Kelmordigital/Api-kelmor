@@ -1,158 +1,74 @@
-import { eq } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { companies } from '../companies/company.db.schema';
-import { companyPermissions, companyEmailNotify } from './configuracao-geral.db.schema';
-import { emitToCompany } from '../../shared/socket';
-
-export interface ConfiguracaoGeralPayload {
-    // Mensagens
-    init_message?: string | null;
-    end_message?: string | null;
-    transfer_message?: string | null;
-    // Fechamento automático
-    close_open_tickets?: boolean;
-    close_open_tickets_interval?: number;
-    close_pending_tickets?: boolean;
-    close_pending_tickets_interval?: number;
-    // Intervalos
-    interval_between_ended_message?: number;
-    interval_between_init_message?: number;
-    interval_between_nps?: number;
-    research_interval?: number;
-    // Mensagens automáticas
-    show_ticket_name_message?: boolean;
-    send_ticket_protocol?: boolean;
-    send_ticket_goodbye_msg?: boolean;
-    send_ticket_transfer_msg?: boolean;
-    send_group_ticket_name_message?: boolean;
-    send_group_ticket_goodbye_msg?: boolean;
-    send_group_ticket_protocol?: boolean;
-    // Controle de acesso e fluxo
-    show_all_tickets?: boolean;
-    restrict_user?: boolean;
-    limit_services_users?: boolean;
-    number_limit_services_users?: number;
-    allow_close_pending_tickets?: boolean;
-    pullout_only_admins?: boolean;
-    transfer_between_connections?: boolean;
-    transfer_online_users?: boolean;
-    return_ticket?: boolean;
-    spy_ticket?: boolean;
-    view_queue_independent_history?: boolean;
-    allow_show_campaign_to_commom_user?: boolean;
-    not_show_pending_ticket_without_queue?: boolean;
-    idle_bot_ticket?: boolean;
-    idle_bot_ticket_queue_id?: number | null;
-    // Funcionalidades extras
-    enable_automatic_tags?: boolean;
-    update_contact_name?: boolean;
-    past_ticket_messages?: boolean;
-    allow_delete_contact?: boolean;
-    download_contacts?: boolean;
-    bot_messages_visualization?: boolean;
-    hide_name_indefinitely?: boolean;
-    hide_send_no_goodbyemsg?: boolean;
-    allow_show_name_on_chat?: boolean;
-    api_messages?: boolean;
-    create_ticket_api_msg?: boolean;
-    notify_by_email_connection?: boolean;
-    notify_emails?: string[];
-    active_crm?: boolean;
-    active_kanban?: boolean;
-    group_ticket?: boolean;
-    google_contacts_auto_sync?: boolean;
-    restrict_access_user_historic_tickets?: boolean;
-    gamification_enabled?: boolean;
-    sale_xp_amount?: number;
-}
-
-function stripHtml(html: string | null | undefined): string {
-    if (!html) return '';
-    return html.replace(/<[^>]+>/g, '').trim();
-}
+import { BadRequestError } from '../../core/errors/http-errors';
+import type { CompanyPermission } from './configuracao-geral.db.schema';
+import type { AutomaticMessages, ConfiguracaoGeralRepository } from './configuracao-geral.repository';
+import type { UpdateConfiguracaoGeralInput } from './configuracao-geral.dto';
 
 /**
- * Retorna a linha de permissões da empresa, criando-a com os defaults do schema
- * se ainda não existir. Reutilizado por visibilidade de tickets, distribuição de
- * filas e listagem de atendentes elegíveis.
+ * Permissões da empresa — tudo o que outros módulos (tickets, filas,
+ * conquistas, API de mensagens...) precisam desta configuração (ISP/DIP).
  */
-export async function getCompanyPermissions(companyId: string) {
-    const perms = await db.select().from(companyPermissions)
-        .where(eq(companyPermissions.company_id, companyId))
-        .then(rows => rows[0] ?? null);
-
-    if (perms) return perms;
-
-    const [created] = await db.insert(companyPermissions)
-        .values({ company_id: companyId })
-        .returning();
-    return created;
+export interface CompanyPermissionsReader {
+    forCompany(companyId: string): Promise<CompanyPermission>;
 }
 
-export const configuracaoGeralService = {
+/** Avisa quem está com o sistema aberto que a configuração mudou. */
+export interface CompanySettingsNotifier {
+    permissionsChanged(companyId: string): void;
+}
 
-    async get(companyId: string) {
-        const [company] = await db.select({
-            init_message: companies.init_message,
-            end_message: companies.end_message,
-            transfer_message: companies.transfer_message,
-        }).from(companies).where(eq(companies.id, companyId));
+export type ConfiguracaoGeralView = Partial<AutomaticMessages> & CompanyPermission & { notify_emails: string[] };
 
-        const perms = await getCompanyPermissions(companyId);
+const MESSAGE_FIELDS = ['init_message', 'end_message', 'transfer_message'] as const;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-        const emailRows = await db.select({ email: companyEmailNotify.email })
-            .from(companyEmailNotify)
-            .where(eq(companyEmailNotify.company_id, companyId));
+export class ConfiguracaoGeralService implements CompanyPermissionsReader {
+    constructor(
+        private readonly repository: ConfiguracaoGeralRepository,
+        private readonly notifier: CompanySettingsNotifier,
+    ) {}
 
-        return { ...company, ...perms, notify_emails: emailRows.map(r => r.email) };
-    },
+    forCompany(companyId: string): Promise<CompanyPermission> {
+        return this.repository.findOrCreatePermissions(companyId);
+    }
 
-    async update(companyId: string, payload: ConfiguracaoGeralPayload) {
-        const { init_message, end_message, transfer_message, notify_emails, ...rest } = payload;
+    async view(companyId: string): Promise<ConfiguracaoGeralView> {
+        const permissions = await this.repository.findOrCreatePermissions(companyId);
+        const [messages, emails] = await Promise.all([
+            this.repository.findMessages(companyId),
+            this.repository.listNotifyEmails(companyId),
+        ]);
+        return { ...messages, ...permissions, notify_emails: emails };
+    }
 
-        // Remove campos não-editáveis que o frontend pode reenviar acidentalmente
-        const { id: _id, company_id: _cid, created_at: _ca, updated_at: _ua, ...permPayload } = rest as any;
-
-        // Atualiza mensagens na tabela companies (null se vazio)
-        await db.update(companies).set({
-            init_message: init_message !== undefined
-                ? (stripHtml(init_message) === '' ? null : init_message)
-                : undefined,
-            end_message: end_message !== undefined
-                ? (stripHtml(end_message) === '' ? null : end_message)
-                : undefined,
-            transfer_message: transfer_message !== undefined
-                ? (stripHtml(transfer_message) === '' ? null : transfer_message)
-                : undefined,
-            updated_at: new Date(),
-        }).where(eq(companies.id, companyId));
-
-        // Upsert em company_permissions
-        if (Object.keys(permPayload).length > 0) {
-            await db.insert(companyPermissions)
-                .values({ company_id: companyId, ...permPayload })
-                .onConflictDoUpdate({
-                    target: companyPermissions.company_id,
-                    set: { ...permPayload, updated_at: new Date() },
-                });
+    async update(companyId: string, input: UpdateConfiguracaoGeralInput): Promise<ConfiguracaoGeralView> {
+        const messages: Partial<AutomaticMessages> = {};
+        for (const field of MESSAGE_FIELDS) {
+            if (input[field] !== undefined) messages[field] = ConfiguracaoGeralService.messageText(input[field]);
         }
 
-        // Substitui a lista de e-mails de notificação (apaga e recria)
-        if (notify_emails !== undefined) {
-            await db.delete(companyEmailNotify).where(eq(companyEmailNotify.company_id, companyId));
-            const uniqueEmails = [...new Set(notify_emails.map(e => e.trim()).filter(Boolean))];
-            if (uniqueEmails.length > 0) {
-                await db.insert(companyEmailNotify)
-                    .values(uniqueEmails.map(email => ({ company_id: companyId, email })));
-            }
-        }
+        await this.repository.save(companyId, {
+            messages,
+            permissions: input.permissions,
+            notifyEmails: input.notify_emails && ConfiguracaoGeralService.notifyEmails(input.notify_emails),
+        });
 
-        // Sem isso, quem já estava com o CRM aberto (qualquer aba/usuário da
-        // empresa) só veria a mudança de permissão depois do staleTime padrão
-        // do React Query (5min) ou de um refresh manual — toggles como
-        // "Permitir pré-visualização do ticket" pareceriam não fazer efeito.
-        emitToCompany(companyId, 'company_permissions:updated', {});
+        // Sem isso, quem já está com o sistema aberto só veria a mudança depois
+        // do cache do front (5 min) ou de um refresh manual.
+        this.notifier.permissionsChanged(companyId);
+        return this.view(companyId);
+    }
 
-        return this.get(companyId);
-    },
-};
+    /** Mensagem do editor rico: guardada como veio, ou null se não tiver texto além das tags. */
+    private static messageText(html: string | null | undefined): string | null {
+        if (!html || html.replace(/<[^>]+>/g, '').trim() === '') return null;
+        return html;
+    }
+
+    /** Sem espaços, em minúsculas, sem vazios nem repetidos; recusa e-mail malformado. */
+    private static notifyEmails(raw: string[]): string[] {
+        const emails = [...new Set(raw.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+        const bad = emails.find((e) => !EMAIL_PATTERN.test(e));
+        if (bad) throw new BadRequestError(`E-mail inválido: ${bad}`);
+        return emails;
+    }
+}

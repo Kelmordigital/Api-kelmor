@@ -1,305 +1,164 @@
-import { eq, and, asc, desc, isNull, isNotNull } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { taskColumns, tasks, TaskColumn, Task } from './tarefas.db.schema';
-import { contacts } from '../atendimento/atendimento.db.schema';
-import { emitToCompany } from '../../shared/socket';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../core/errors/http-errors';
+import type { CompanyDirectory } from '../companies/company-directory';
+import type { Task, TaskColumn } from './tarefas.db.schema';
+import type { BoardOwner, TaskPatch, TaskRepository, TaskWithContact } from './tarefas.repository';
+import type { CreateTaskInput, UpdateTaskInput } from './tarefas.dto';
+import { TaskBoard } from './task-board';
 
-export interface TaskWithContact extends Task {
-    contact: {
-        id: number;
-        name: string;
-        number: string | null;
-        profile_pic_url: string | null;
-    } | null;
+/** Quem está pedindo — o quadro mexido é sempre o dele; ver o de outro, só admin. */
+export interface Viewer {
+    companyId: string;
+    userId: string;
+    isAdmin: boolean;
 }
 
-function notifyBoard(companyId: string, ownerId: string) {
-    emitToCompany(companyId, 'tarefa:board_changed', { owner_id: ownerId });
+/** Avisa quem está com o quadro aberto que ele mudou. */
+export interface BoardNotifier {
+    boardChanged(owner: BoardOwner): void;
 }
 
-const taskContactSelect = {
-    id: tasks.id,
-    company_id: tasks.company_id,
-    user_id: tasks.user_id,
-    column_id: tasks.column_id,
-    contact_id: tasks.contact_id,
-    titulo: tasks.titulo,
-    descricao: tasks.descricao,
-    due_date: tasks.due_date,
-    position: tasks.position,
-    completed_at: tasks.completed_at,
-    archived_at: tasks.archived_at,
-    created_at: tasks.created_at,
-    updated_at: tasks.updated_at,
-    contact_name: contacts.name,
-    contact_number: contacts.number,
-    contact_pic: contacts.profile_pic_url,
-};
+const TASK_NOT_FOUND = 'Tarefa não encontrada';
 
-type TaskContactRow = Task & {
-    contact_name: string | null;
-    contact_number: string | null;
-    contact_pic: string | null;
-};
+/**
+ * Central de Tarefas: quadro pessoal. Cada usuário gerencia o próprio quadro;
+ * admins podem VISUALIZAR o de outro usuário da empresa (somente leitura).
+ */
+export class TarefasService {
+    constructor(
+        private readonly repository: TaskRepository,
+        private readonly directory: CompanyDirectory,
+        private readonly notifier: BoardNotifier,
+        private readonly now: () => Date = () => new Date(),
+    ) {}
 
-function shapeTask(row: TaskContactRow): TaskWithContact {
-    const { contact_name, contact_number, contact_pic, ...task } = row;
-    return {
-        ...task,
-        contact: task.contact_id != null
-            ? { id: task.contact_id, name: contact_name ?? '', number: contact_number, profile_pic_url: contact_pic }
-            : null,
-    };
-}
+    async getBoard(viewer: Viewer, ownerId?: string): Promise<{ columns: TaskColumn[]; tasks: TaskWithContact[] }> {
+        const owner = await this.boardToView(viewer, ownerId);
+        const columns = await this.repository.ensureColumns(owner);
+        return { columns, tasks: await this.repository.listTasks(owner, false) };
+    }
 
-export const tarefasService = {
+    async getArchived(viewer: Viewer, ownerId?: string): Promise<TaskWithContact[]> {
+        return this.repository.listTasks(await this.boardToView(viewer, ownerId), true);
+    }
 
-    /** Garante que o quadro do usuário tem as colunas fixas (Pilha de Ação / Concluídas). */
-    async ensureBoard(companyId: string, userId: string): Promise<TaskColumn[]> {
-        const cols = await db
-            .select()
-            .from(taskColumns)
-            .where(and(eq(taskColumns.company_id, companyId), eq(taskColumns.user_id, userId)));
+    /** Tarefas não arquivadas de um contato no quadro do próprio usuário (widget da conversa). */
+    listByContact(viewer: Viewer, contactId: number): Promise<TaskWithContact[]> {
+        return this.repository.listByContact(TarefasService.own(viewer), contactId);
+    }
 
-        const missing: { title: string; kind: string; position: number }[] = [];
-        if (!cols.some(c => c.kind === 'stack')) missing.push({ title: 'Pilha de Ação', kind: 'stack', position: 0 });
-        if (!cols.some(c => c.kind === 'done'))  missing.push({ title: 'Concluídas',    kind: 'done',  position: 9999 });
+    async create(viewer: Viewer, input: CreateTaskInput): Promise<Task> {
+        const owner = TarefasService.own(viewer);
+        await this.assertContactOfCompany(owner.companyId, input.contact_id);
 
-        if (missing.length > 0) {
-            const created = await db
-                .insert(taskColumns)
-                .values(missing.map(m => ({ ...m, company_id: companyId, user_id: userId })))
-                .returning();
-            cols.push(...created);
-        }
+        const columns = await this.repository.ensureColumns(owner);
+        const column = columns.find((c) => c.id === input.column_id) ?? TaskBoard.columnOfKind(columns, 'stack');
 
-        // stack primeiro, customizadas por posição, done por último
-        const rank = (c: TaskColumn) => c.kind === 'stack' ? -1 : c.kind === 'done' ? 1 : 0;
-        return cols.sort((a, b) => rank(a) - rank(b) || a.position - b.position);
-    },
-
-    async getBoard(companyId: string, ownerId: string): Promise<{ columns: TaskColumn[]; tasks: TaskWithContact[] }> {
-        const columns = await this.ensureBoard(companyId, ownerId);
-
-        const rows = await db
-            .select(taskContactSelect)
-            .from(tasks)
-            .leftJoin(contacts, eq(contacts.id, tasks.contact_id))
-            .where(and(
-                eq(tasks.company_id, companyId),
-                eq(tasks.user_id, ownerId),
-                isNull(tasks.archived_at),
-            ))
-            .orderBy(asc(tasks.position), desc(tasks.created_at));
-
-        return { columns, tasks: rows.map(shapeTask) };
-    },
-
-    async getArchived(companyId: string, ownerId: string): Promise<TaskWithContact[]> {
-        const rows = await db
-            .select(taskContactSelect)
-            .from(tasks)
-            .leftJoin(contacts, eq(contacts.id, tasks.contact_id))
-            .where(and(
-                eq(tasks.company_id, companyId),
-                eq(tasks.user_id, ownerId),
-                isNotNull(tasks.archived_at),
-            ))
-            .orderBy(desc(tasks.archived_at));
-
-        return rows.map(shapeTask);
-    },
-
-    /** Tarefas não-arquivadas de um contato no quadro do próprio usuário (widget da conversa). */
-    async listByContact(companyId: string, userId: string, contactId: number): Promise<TaskWithContact[]> {
-        const rows = await db
-            .select(taskContactSelect)
-            .from(tasks)
-            .leftJoin(contacts, eq(contacts.id, tasks.contact_id))
-            .where(and(
-                eq(tasks.company_id, companyId),
-                eq(tasks.user_id, userId),
-                eq(tasks.contact_id, contactId),
-                isNull(tasks.archived_at),
-            ))
-            .orderBy(asc(tasks.completed_at), desc(tasks.created_at));
-
-        return rows.map(shapeTask);
-    },
-
-    async create(companyId: string, userId: string, payload: {
-        titulo: string;
-        descricao?: string | null;
-        contact_id?: number | null;
-        due_date?: Date | null;
-        column_id?: string | null;
-    }): Promise<Task> {
-        const columns = await this.ensureBoard(companyId, userId);
-        const stack = columns.find(c => c.kind === 'stack')!;
-
-        let columnId = stack.id;
-        if (payload.column_id && columns.some(c => c.id === payload.column_id)) {
-            columnId = payload.column_id;
-        }
-
-        // Entra no topo da coluna
-        const colTasks = await db
-            .select({ position: tasks.position })
-            .from(tasks)
-            .where(and(eq(tasks.column_id, columnId), isNull(tasks.archived_at)))
-            .orderBy(asc(tasks.position))
-            .limit(1);
-        const topPosition = (colTasks[0]?.position ?? 1) - 1;
-
-        const [row] = await db
-            .insert(tasks)
-            .values({
-                company_id: companyId,
-                user_id: userId,
-                column_id: columnId,
-                contact_id: payload.contact_id ?? null,
-                titulo: payload.titulo,
-                descricao: payload.descricao ?? null,
-                due_date: payload.due_date ?? null,
-                position: topPosition,
-            })
-            .returning();
-
-        notifyBoard(companyId, userId);
-        return row;
-    },
-
-    async update(id: string, companyId: string, userId: string, payload: Partial<Pick<Task, 'titulo' | 'descricao' | 'due_date' | 'contact_id'>>): Promise<Task | null> {
-        const [row] = await db
-            .update(tasks)
-            .set({ ...payload, updated_at: new Date() })
-            .where(and(eq(tasks.id, id), eq(tasks.company_id, companyId), eq(tasks.user_id, userId)))
-            .returning();
-
-        if (row) notifyBoard(companyId, userId);
-        return row ?? null;
-    },
-
-    /** Move a tarefa para uma coluna/posição. Reindexa a coluna de destino. */
-    async move(id: string, companyId: string, userId: string, columnId: string, index: number): Promise<Task | null> {
-        const [task] = await db
-            .select()
-            .from(tasks)
-            .where(and(eq(tasks.id, id), eq(tasks.company_id, companyId), eq(tasks.user_id, userId)));
-        if (!task) return null;
-
-        const [column] = await db
-            .select()
-            .from(taskColumns)
-            .where(and(eq(taskColumns.id, columnId), eq(taskColumns.company_id, companyId), eq(taskColumns.user_id, userId)));
-        if (!column) return null;
-
-        const colTasks = (await db
-            .select({ id: tasks.id })
-            .from(tasks)
-            .where(and(eq(tasks.column_id, columnId), isNull(tasks.archived_at)))
-            .orderBy(asc(tasks.position), desc(tasks.created_at)))
-            .filter(t => t.id !== id);
-
-        const clamped = Math.max(0, Math.min(index, colTasks.length));
-        const ordered = [...colTasks.slice(0, clamped), { id }, ...colTasks.slice(clamped)];
-
-        // Concluir/reabrir conforme a coluna de destino
-        const completedAt = column.kind === 'done'
-            ? (task.completed_at ?? new Date())
-            : null;
-
-        await db.transaction(async (tx) => {
-            await tx
-                .update(tasks)
-                .set({ column_id: columnId, completed_at: completedAt, updated_at: new Date() })
-                .where(eq(tasks.id, id));
-            for (let i = 0; i < ordered.length; i++) {
-                await tx.update(tasks).set({ position: i }).where(eq(tasks.id, ordered[i].id));
-            }
+        const task = await this.repository.insertTask(owner, {
+            column_id:  column.id,
+            titulo:     input.titulo,
+            descricao:  input.descricao ?? null,
+            contact_id: input.contact_id ?? null,
+            due_date:   input.due_date ?? null,
+            position:   TaskBoard.topPosition(await this.repository.firstPositionIn(column.id)),
         });
+        this.notifier.boardChanged(owner);
+        return task;
+    }
 
-        notifyBoard(companyId, userId);
-        const [updated] = await db.select().from(tasks).where(eq(tasks.id, id));
-        return updated ?? null;
-    },
+    async update(viewer: Viewer, id: string, input: UpdateTaskInput): Promise<Task> {
+        const owner = TarefasService.own(viewer);
+        await this.assertContactOfCompany(owner.companyId, input.contact_id);
 
-    /** Concluir (move p/ Concluídas) ou reabrir (volta p/ Pilha de Ação). */
-    async setDone(id: string, companyId: string, userId: string, done: boolean): Promise<Task | null> {
-        const columns = await this.ensureBoard(companyId, userId);
-        const target = columns.find(c => c.kind === (done ? 'done' : 'stack'))!;
-        return this.move(id, companyId, userId, target.id, 0);
-    },
+        const patch: TaskPatch = {};
+        for (const [key, value] of Object.entries(input)) {
+            if (value !== undefined) Object.assign(patch, { [key]: value });
+        }
+        const task = TarefasService.orNotFound(await this.repository.updateTask(owner, id, patch), TASK_NOT_FOUND);
+        this.notifier.boardChanged(owner);
+        return task;
+    }
 
-    async setArchived(id: string, companyId: string, userId: string, archived: boolean): Promise<Task | null> {
-        const [row] = await db
-            .update(tasks)
-            .set({ archived_at: archived ? new Date() : null, updated_at: new Date() })
-            .where(and(eq(tasks.id, id), eq(tasks.company_id, companyId), eq(tasks.user_id, userId)))
-            .returning();
+    /** Move para uma coluna/posição do próprio quadro; Concluídas conclui, as outras reabrem. */
+    async move(viewer: Viewer, id: string, columnId: string, index: number): Promise<Task> {
+        const owner = TarefasService.own(viewer);
+        const task = await this.repository.findTask(owner, id);
+        const column = await this.repository.findColumn(owner, columnId);
+        if (!task || !column) throw new NotFoundError('Tarefa ou coluna não encontrada');
 
-        if (row) notifyBoard(companyId, userId);
-        return row ?? null;
-    },
+        const ordered = TaskBoard.insertAt(await this.repository.activeTaskIdsIn(column.id), id, index);
+        const moved = await this.repository.moveTask(id, column.id, TaskBoard.completedAtFor(column, task.completed_at, this.now()), ordered);
+        this.notifier.boardChanged(owner);
+        return moved;
+    }
 
-    async remove(id: string, companyId: string, userId: string): Promise<boolean> {
-        const [row] = await db
-            .delete(tasks)
-            .where(and(eq(tasks.id, id), eq(tasks.company_id, companyId), eq(tasks.user_id, userId)))
-            .returning();
+    /** Concluir (vai para o topo de Concluídas) ou reabrir (topo da Pilha de Ação). */
+    async setDone(viewer: Viewer, id: string, done: boolean): Promise<Task> {
+        const columns = await this.repository.ensureColumns(TarefasService.own(viewer));
+        return this.move(viewer, id, TaskBoard.columnOfKind(columns, done ? 'done' : 'stack').id, 0);
+    }
 
-        if (row) notifyBoard(companyId, userId);
-        return !!row;
-    },
+    async setArchived(viewer: Viewer, id: string, archived: boolean): Promise<Task> {
+        const owner = TarefasService.own(viewer);
+        const task = TarefasService.orNotFound(
+            await this.repository.setArchived(owner, id, archived ? this.now() : null), TASK_NOT_FOUND,
+        );
+        this.notifier.boardChanged(owner);
+        return task;
+    }
 
-    // ── Colunas ──────────────────────────────────────────────────────────────
+    async remove(viewer: Viewer, id: string): Promise<void> {
+        const owner = TarefasService.own(viewer);
+        if (!(await this.repository.deleteTask(owner, id))) throw new NotFoundError(TASK_NOT_FOUND);
+        this.notifier.boardChanged(owner);
+    }
 
-    async createColumn(companyId: string, userId: string, title: string): Promise<TaskColumn> {
-        const columns = await this.ensureBoard(companyId, userId);
-        const maxPos = Math.max(0, ...columns.filter(c => c.kind === 'custom').map(c => c.position));
+    async createColumn(viewer: Viewer, title: string): Promise<TaskColumn> {
+        const owner = TarefasService.own(viewer);
+        const columns = await this.repository.ensureColumns(owner);
+        const column = await this.repository.insertColumn(owner, title, TaskBoard.nextCustomPosition(columns));
+        this.notifier.boardChanged(owner);
+        return column;
+    }
 
-        const [row] = await db
-            .insert(taskColumns)
-            .values({ company_id: companyId, user_id: userId, title, kind: 'custom', position: maxPos + 1 })
-            .returning();
-
-        notifyBoard(companyId, userId);
-        return row;
-    },
-
-    async renameColumn(id: string, companyId: string, userId: string, title: string): Promise<TaskColumn | null> {
-        const [row] = await db
-            .update(taskColumns)
-            .set({ title, updated_at: new Date() })
-            .where(and(
-                eq(taskColumns.id, id),
-                eq(taskColumns.company_id, companyId),
-                eq(taskColumns.user_id, userId),
-                eq(taskColumns.kind, 'custom'),
-            ))
-            .returning();
-
-        if (row) notifyBoard(companyId, userId);
-        return row ?? null;
-    },
+    /** Só colunas customizadas são renomeadas; as fixas respondem "não encontrada". */
+    async renameColumn(viewer: Viewer, id: string, title: string): Promise<TaskColumn> {
+        const owner = TarefasService.own(viewer);
+        const column = TarefasService.orNotFound(await this.repository.renameCustomColumn(owner, id, title), 'Coluna não encontrada');
+        this.notifier.boardChanged(owner);
+        return column;
+    }
 
     /** Exclui coluna customizada; as tarefas dela voltam para a Pilha de Ação. */
-    async deleteColumn(id: string, companyId: string, userId: string): Promise<boolean> {
-        const columns = await this.ensureBoard(companyId, userId);
-        const column = columns.find(c => c.id === id);
-        if (!column || column.kind !== 'custom') return false;
+    async deleteColumn(viewer: Viewer, id: string): Promise<void> {
+        const owner = TarefasService.own(viewer);
+        const columns = await this.repository.ensureColumns(owner);
+        const column = columns.find((c) => c.id === id);
+        if (!column || column.kind !== 'custom') throw new NotFoundError('Coluna não encontrada ou não pode ser excluída');
 
-        const stack = columns.find(c => c.kind === 'stack')!;
+        await this.repository.deleteColumnMovingTasks(id, TaskBoard.columnOfKind(columns, 'stack').id);
+        this.notifier.boardChanged(owner);
+    }
 
-        await db.transaction(async (tx) => {
-            await tx
-                .update(tasks)
-                .set({ column_id: stack.id, updated_at: new Date() })
-                .where(eq(tasks.column_id, id));
-            await tx.delete(taskColumns).where(eq(taskColumns.id, id));
-        });
+    /** Quadro a exibir: o próprio, ou o de outro usuário da empresa se o viewer for admin. */
+    private async boardToView(viewer: Viewer, ownerId?: string): Promise<BoardOwner> {
+        if (!ownerId || ownerId === viewer.userId) return TarefasService.own(viewer);
+        if (!viewer.isAdmin) throw new ForbiddenError('Apenas administradores podem ver o quadro de outros usuários.');
+        if (!(await this.directory.hasUser(viewer.companyId, ownerId))) throw new NotFoundError('Usuário não encontrado');
+        return { companyId: viewer.companyId, userId: ownerId };
+    }
 
-        notifyBoard(companyId, userId);
-        return true;
-    },
-};
+    private async assertContactOfCompany(companyId: string, contactId: number | null | undefined): Promise<void> {
+        if (contactId != null && !(await this.directory.hasContact(companyId, contactId))) {
+            throw new BadRequestError('Contato não encontrado');
+        }
+    }
+
+    private static own(viewer: Viewer): BoardOwner {
+        return { companyId: viewer.companyId, userId: viewer.userId };
+    }
+
+    private static orNotFound<T>(row: T | null, message: string): T {
+        if (!row) throw new NotFoundError(message);
+        return row;
+    }
+}

@@ -16,8 +16,6 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.put('/tickets/:id/reopen',    auth, atendimentoController.reopen);
     app.put('/tickets/:id/transfer',  auth, atendimentoController.transfer);
     app.put('/tickets/:id/pin',       auth, atendimentoController.togglePin);
-    app.post('/tickets/:id/schedule-message',  auth, atendimentoController.scheduleMessage);
-    app.get('/tickets/:id/scheduled-messages', auth, atendimentoController.listScheduledMessages);
     app.post('/tickets/:id/close',    auth, atendimentoController.closeTicket);
     app.post('/tickets/:id/research', auth, atendimentoController.closeTicketWithResearch);
     app.get('/tickets/:id/research-available', auth, atendimentoController.researchAvailable);

@@ -1,181 +1,97 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { tarefasService } from './tarefas.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { requireCompanyId } from '../../core/http/http-router';
+import {
+    columnSchema, contactParamsSchema, createTaskSchema, idParamsSchema, moveTaskSchema,
+    ownerQuerySchema, setArchivedSchema, setDoneSchema, updateTaskSchema,
+} from './tarefas.dto';
+import type { TarefasService, Viewer } from './tarefas.service';
 
-/**
- * Quadro híbrido: cada usuário gerencia o próprio quadro; admins podem
- * VISUALIZAR o quadro de outro usuário via ?owner_id= (somente leitura).
- */
-function resolveOwner(req: FastifyRequest, reply: FastifyReply): string | null {
-    const { owner_id } = req.query as { owner_id?: string };
-    if (!owner_id || owner_id === req.user.id) return req.user.id;
+/** Adapta HTTP ⇄ TarefasService. */
+export class TarefasController {
+    constructor(private readonly service: TarefasService) {}
 
-    const isAdmin = req.user.profile_tag === 'admin' || req.user.profile_tag === 'superAdmin';
-    if (!isAdmin) {
-        reply.status(403).send({ error: 'Apenas administradores podem ver o quadro de outros usuários.' });
-        return null;
-    }
-    return owner_id;
-}
+    board = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { owner_id } = SchemaValidator.parse(ownerQuerySchema, req.query);
+        return reply.send(await this.service.getBoard(this.viewer(req), owner_id));
+    };
 
-export const tarefasController = {
+    archived = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { owner_id } = SchemaValidator.parse(ownerQuerySchema, req.query);
+        return reply.send(await this.service.getArchived(this.viewer(req), owner_id));
+    };
 
-    async board(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
+    byContact = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { contactId } = SchemaValidator.parse(contactParamsSchema, req.params);
+        return reply.send(await this.service.listByContact(viewer, contactId));
+    };
 
-        const ownerId = resolveOwner(req, reply);
-        if (!ownerId) return;
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const input = SchemaValidator.parse(createTaskSchema, req.body);
+        return reply.status(201).send(await this.service.create(viewer, input));
+    };
 
-        const board = await tarefasService.getBoard(companyId, ownerId);
-        return reply.send(board);
-    },
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        return reply.send(await this.service.update(viewer, id, SchemaValidator.parse(updateTaskSchema, req.body)));
+    };
 
-    async archived(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
+    move = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        const { column_id, index } = SchemaValidator.parse(moveTaskSchema, req.body);
+        return reply.send(await this.service.move(viewer, id, column_id, index ?? 0));
+    };
 
-        const ownerId = resolveOwner(req, reply);
-        if (!ownerId) return;
+    setDone = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        const body = SchemaValidator.parse(setDoneSchema, req.body);
+        return reply.send(await this.service.setDone(viewer, id, body?.done ?? true));
+    };
 
-        const rows = await tarefasService.getArchived(companyId, ownerId);
-        return reply.send(rows);
-    },
+    setArchived = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        const body = SchemaValidator.parse(setArchivedSchema, req.body);
+        return reply.send(await this.service.setArchived(viewer, id, body?.archived ?? true));
+    };
 
-    async byContact(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        await this.service.remove(viewer, id);
+        return reply.status(204).send();
+    };
 
-        const { contactId } = req.params as { contactId: string };
-        const parsed = Number(contactId);
-        if (!Number.isFinite(parsed)) return reply.status(400).send({ error: 'contactId inválido' });
+    createColumn = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { title } = SchemaValidator.parse(columnSchema, req.body);
+        return reply.status(201).send(await this.service.createColumn(viewer, title));
+    };
 
-        const rows = await tarefasService.listByContact(companyId, req.user.id, parsed);
-        return reply.send(rows);
-    },
+    renameColumn = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        const { title } = SchemaValidator.parse(columnSchema, req.body);
+        return reply.send(await this.service.renameColumn(viewer, id, title));
+    };
 
-    async create(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
+    deleteColumn = async (req: FastifyRequest, reply: FastifyReply) => {
+        const viewer = this.viewer(req);
+        const { id } = SchemaValidator.parse(idParamsSchema, req.params);
+        await this.service.deleteColumn(viewer, id);
+        return reply.status(204).send();
+    };
 
-        const body = req.body as {
-            titulo: string;
-            descricao?: string;
-            contact_id?: number;
-            due_date?: string;
-            column_id?: string;
+    private viewer(req: FastifyRequest): Viewer {
+        return {
+            companyId: requireCompanyId(req),
+            userId: req.user.id,
+            isAdmin: req.user.profile_tag === 'admin' || req.user.profile_tag === 'superAdmin',
         };
-
-        if (!body?.titulo?.trim()) return reply.status(400).send({ error: 'titulo é obrigatório' });
-
-        const row = await tarefasService.create(companyId, req.user.id, {
-            titulo: body.titulo.trim(),
-            descricao: body.descricao ?? null,
-            contact_id: body.contact_id ?? null,
-            due_date: body.due_date ? new Date(body.due_date) : null,
-            column_id: body.column_id ?? null,
-        });
-
-        return reply.status(201).send(row);
-    },
-
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const body = req.body as { titulo?: string; descricao?: string | null; due_date?: string | null; contact_id?: number | null };
-
-        const payload: Parameters<typeof tarefasService.update>[3] = {};
-        if (body.titulo     !== undefined) payload.titulo     = body.titulo.trim();
-        if (body.descricao  !== undefined) payload.descricao  = body.descricao;
-        if (body.contact_id !== undefined) payload.contact_id = body.contact_id;
-        if (body.due_date   !== undefined) payload.due_date   = body.due_date ? new Date(body.due_date) : null;
-
-        const row = await tarefasService.update(id, companyId, req.user.id, payload);
-        if (!row) return reply.status(404).send({ error: 'Tarefa não encontrada' });
-        return reply.send(row);
-    },
-
-    async move(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const { column_id, index } = req.body as { column_id: string; index?: number };
-        if (!column_id) return reply.status(400).send({ error: 'column_id é obrigatório' });
-
-        const row = await tarefasService.move(id, companyId, req.user.id, column_id, index ?? 0);
-        if (!row) return reply.status(404).send({ error: 'Tarefa ou coluna não encontrada' });
-        return reply.send(row);
-    },
-
-    async setDone(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const { done } = req.body as { done?: boolean };
-
-        const row = await tarefasService.setDone(id, companyId, req.user.id, done ?? true);
-        if (!row) return reply.status(404).send({ error: 'Tarefa não encontrada' });
-        return reply.send(row);
-    },
-
-    async setArchived(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const { archived } = req.body as { archived?: boolean };
-
-        const row = await tarefasService.setArchived(id, companyId, req.user.id, archived ?? true);
-        if (!row) return reply.status(404).send({ error: 'Tarefa não encontrada' });
-        return reply.send(row);
-    },
-
-    async remove(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const ok = await tarefasService.remove(id, companyId, req.user.id);
-        if (!ok) return reply.status(404).send({ error: 'Tarefa não encontrada' });
-        return reply.status(204).send();
-    },
-
-    // ── Colunas ──────────────────────────────────────────────────────────────
-
-    async createColumn(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { title } = req.body as { title?: string };
-        if (!title?.trim()) return reply.status(400).send({ error: 'title é obrigatório' });
-
-        const row = await tarefasService.createColumn(companyId, req.user.id, title.trim());
-        return reply.status(201).send(row);
-    },
-
-    async renameColumn(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const { title } = req.body as { title?: string };
-        if (!title?.trim()) return reply.status(400).send({ error: 'title é obrigatório' });
-
-        const row = await tarefasService.renameColumn(id, companyId, req.user.id, title.trim());
-        if (!row) return reply.status(404).send({ error: 'Coluna não encontrada' });
-        return reply.send(row);
-    },
-
-    async deleteColumn(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const ok = await tarefasService.deleteColumn(id, companyId, req.user.id);
-        if (!ok) return reply.status(404).send({ error: 'Coluna não encontrada ou não pode ser excluída' });
-        return reply.status(204).send();
-    },
-};
+    }
+}

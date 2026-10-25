@@ -13,9 +13,8 @@ import { AttendantLimitReachedError } from './attendant-capacity.service';
 import { messageService, withAttendantNamePrefix } from './message.service';
 import { users } from '../auth/auth.schema';
 import { dashboardService, parsePeriod, parseDashboardFilter, DateRangeTooLargeError, DashboardScope } from './dashboard.service';
-import { produtoService } from '../produtos/produto.service';
-import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
-import { agendamentoMensagensService, TicketSemConexaoError } from '../agendamento-mensagens/agendamento-mensagens.service';
+import { produtoCatalog } from '../produtos/produto.module';
+import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
 import { db } from '../../database/client';
 import { companies } from '../companies/company.db.schema';
 import { eq } from 'drizzle-orm';
@@ -101,7 +100,7 @@ export const atendimentoController = {
         const companyId = req.user.company_id!;
         const [company, perms] = await Promise.all([
             db.select({ end_message: companies.end_message }).from(companies).where(eq(companies.id, companyId)).then(rows => rows[0]),
-            getCompanyPermissions(companyId),
+            companyPermissionsReader.forCompany(companyId),
         ]);
         return reply.send({
             end_message: company?.end_message ?? null,
@@ -129,7 +128,7 @@ export const atendimentoController = {
         const ticket = await ticketService.get(Number(id), companyId);
         if (!ticket) return reply.status(404).send({ error: 'Ticket não encontrado' });
 
-        const { pesquisaService } = await import('../pesquisas/pesquisa.service');
+        const { researchSurvey: pesquisaService } = await import('../pesquisas/pesquisa.module');
         const research = await pesquisaService.findActiveForQueue(ticket.queue_id, companyId);
         return reply.send({ available: !!research, name: research?.name ?? null });
     },
@@ -204,34 +203,6 @@ export const atendimentoController = {
             }
             throw err;
         }
-    },
-
-    async scheduleMessage(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const companyId = req.user.company_id!;
-        const { message, send_date } = req.body as { message?: string; send_date?: string };
-        if (!message?.trim()) return reply.status(400).send({ error: 'message obrigatório' });
-        if (!send_date)       return reply.status(400).send({ error: 'send_date obrigatório' });
-
-        try {
-            const row = await agendamentoMensagensService.create(companyId, Number(id), req.user.id, {
-                message: message.trim(),
-                send_date,
-            });
-            return reply.status(201).send(row);
-        } catch (err) {
-            if (err instanceof TicketSemConexaoError) {
-                return reply.status(400).send({ error: err.message });
-            }
-            throw err;
-        }
-    },
-
-    async listScheduledMessages(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const companyId = req.user.company_id!;
-        const rows = await agendamentoMensagensService.listByTicketContact(companyId, Number(id));
-        return reply.send(rows);
     },
 
     async togglePin(req: FastifyRequest, reply: FastifyReply) {
@@ -411,7 +382,7 @@ export const atendimentoController = {
         // decidida no client conforme o modo temporário/permanente escolhido).
         let outgoingBody = body;
         if (fromMe && !hideName) {
-            const perms = await getCompanyPermissions(companyId);
+            const perms = await companyPermissionsReader.forCompany(companyId);
             if (perms.allow_show_name_on_chat) {
                 const [sender] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
                 if (sender?.name) outgoingBody = withAttendantNamePrefix(body, sender.name);
@@ -490,7 +461,7 @@ export const atendimentoController = {
     /** Catálogo de produtos para consulta durante o atendimento (carrinho no chat) — leitura, sem exigir admin. */
     async listProdutos(req: FastifyRequest, reply: FastifyReply) {
         const companyId = req.user.company_id!;
-        const list = await produtoService.list(companyId);
+        const list = await produtoCatalog.list(companyId);
         return reply.send(list.filter(p => p.is_active));
     },
 

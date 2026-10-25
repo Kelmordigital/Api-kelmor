@@ -1,21 +1,30 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.etiquetasRoutes = etiquetasRoutes;
+exports.EtiquetaRouter = void 0;
 const auth_middleware_1 = require("../../middlewares/auth.middleware");
-const etiqueta_controller_1 = require("./etiqueta.controller");
-const automatic_tag_rule_controller_1 = require("./automatic-tag-rule.controller");
-async function etiquetasRoutes(app) {
-    app.get('/etiquetas', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.list);
-    app.get('/etiquetas/stats', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.stats);
-    app.post('/etiquetas', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.create);
-    app.put('/etiquetas/:id', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.update);
-    app.delete('/etiquetas/:id', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.remove);
-    app.get('/contacts/:contactId/etiquetas', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.listDoContato);
-    app.post('/contacts/:contactId/etiquetas/:etiquetaId', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.aplicarAoContato);
-    app.delete('/contacts/:contactId/etiquetas/:etiquetaId', { preHandler: auth_middleware_1.authMiddleware }, etiqueta_controller_1.etiquetaController.removerDoContato);
-    app.get('/etiquetas/regras-automaticas', { preHandler: auth_middleware_1.authMiddleware }, automatic_tag_rule_controller_1.automaticTagRuleController.list);
-    app.post('/etiquetas/regras-automaticas', { preHandler: auth_middleware_1.authMiddleware }, automatic_tag_rule_controller_1.automaticTagRuleController.create);
-    app.put('/etiquetas/regras-automaticas/:id', { preHandler: auth_middleware_1.authMiddleware }, automatic_tag_rule_controller_1.automaticTagRuleController.update);
-    app.delete('/etiquetas/regras-automaticas/:id', { preHandler: auth_middleware_1.authMiddleware }, automatic_tag_rule_controller_1.automaticTagRuleController.remove);
+/** Etiquetas, etiquetas do contato e regras automáticas — qualquer usuário autenticado da empresa. */
+class EtiquetaRouter {
+    tags;
+    rules;
+    constructor(tags, rules) {
+        this.tags = tags;
+        this.rules = rules;
+    }
+    register = async (app) => {
+        app.addHook('preHandler', auth_middleware_1.authMiddleware);
+        app.get('/etiquetas', this.tags.list);
+        app.get('/etiquetas/stats', this.tags.stats);
+        app.post('/etiquetas', this.tags.create);
+        app.put('/etiquetas/:id', this.tags.update);
+        app.delete('/etiquetas/:id', this.tags.remove);
+        app.get('/contacts/:contactId/etiquetas', this.tags.listForContact);
+        app.post('/contacts/:contactId/etiquetas/:etiquetaId', this.tags.applyToContact);
+        app.delete('/contacts/:contactId/etiquetas/:etiquetaId', this.tags.removeFromContact);
+        app.get('/etiquetas/regras-automaticas', this.rules.list);
+        app.post('/etiquetas/regras-automaticas', this.rules.create);
+        app.put('/etiquetas/regras-automaticas/:id', this.rules.update);
+        app.delete('/etiquetas/regras-automaticas/:id', this.rules.remove);
+    };
 }
+exports.EtiquetaRouter = EtiquetaRouter;
 //# sourceMappingURL=etiqueta.routes.js.map

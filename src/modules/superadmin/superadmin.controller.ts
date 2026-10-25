@@ -1,7 +1,8 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { superadminService } from './superadmin.service';
-import { authRepository } from '../auth/auth.repository';
+import { accountApproval } from '../auth/auth.module';
+import { NotFoundError } from '../../core/errors/http-errors';
 
 const createCompanySchema = z.object({
     name: z.string().min(2),
@@ -57,9 +58,13 @@ export const superadminController = {
 
     async approveUser(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
-        const user = await authRepository.approveUser(id);
-        if (!user) return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
-        return reply.send({ message: 'Usuário aprovado com sucesso', user });
+        try {
+            const user = await accountApproval.approve(id);
+            return reply.send({ message: 'Usuário aprovado com sucesso', user });
+        } catch (err) {
+            if (err instanceof NotFoundError) return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
+            throw err;
+        }
     },
 
     async revokeUser(req: FastifyRequest, reply: FastifyReply) {

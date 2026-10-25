@@ -18,29 +18,31 @@ const error_middleware_1 = require("../middlewares/error.middleware");
 const logger_middleware_1 = require("../middlewares/logger.middleware");
 const internal_auth_middleware_1 = require("../middlewares/internal-auth.middleware");
 const auth_middleware_1 = require("../middlewares/auth.middleware");
-const auth_routes_1 = require("../modules/auth/auth.routes");
+const auth_module_1 = require("../modules/auth/auth.module");
 const whatsapp_routes_1 = require("../modules/whatsapp/whatsapp.routes");
 const whatsapp_controller_1 = require("../modules/whatsapp/whatsapp.controller");
 const whatsapp_service_1 = require("../modules/whatsapp/whatsapp.service");
 const whatsapp_oficial_routes_1 = require("../modules/whatsapp-oficial/whatsapp-oficial.routes");
 const whatsapp_oficial_controller_1 = require("../modules/whatsapp-oficial/whatsapp-oficial.controller");
 const atendimento_routes_1 = require("../modules/atendimento/atendimento.routes");
-const quick_messages_routes_1 = require("../modules/quick-messages/quick-messages.routes");
+const agendamento_mensagens_module_1 = require("../modules/agendamento-mensagens/agendamento-mensagens.module");
+const notificacao_module_1 = require("../modules/notificacoes/notificacao.module");
+const quick_messages_module_1 = require("../modules/quick-messages/quick-messages.module");
 const bots_routes_1 = require("../modules/bots/bots.routes");
-const etiqueta_routes_1 = require("../modules/etiquetas/etiqueta.routes");
+const etiqueta_module_1 = require("../modules/etiquetas/etiqueta.module");
 const fila_routes_1 = require("../modules/filas/fila.routes");
-const achievements_routes_1 = require("../modules/achievements/achievements.routes");
-const usuario_routes_1 = require("../modules/usuarios/usuario.routes");
-const meu_perfil_routes_1 = require("../modules/meu-perfil/meu-perfil.routes");
-const pesquisa_routes_1 = require("../modules/pesquisas/pesquisa.routes");
-const produto_routes_1 = require("../modules/produtos/produto.routes");
-const cupom_routes_1 = require("../modules/cupons/cupom.routes");
-const campanha_routes_1 = require("../modules/campanhas/campanha.routes");
-const integracao_routes_1 = require("../modules/integracoes/integracao.routes");
-const agenda_routes_1 = require("../modules/agenda/agenda.routes");
-const tarefas_routes_1 = require("../modules/tarefas/tarefas.routes");
-const configuracao_geral_routes_1 = require("../modules/configuracao-geral/configuracao-geral.routes");
-const api_messages_routes_1 = require("../modules/api-messages/api-messages.routes");
+const achievements_module_1 = require("../modules/achievements/achievements.module");
+const usuario_module_1 = require("../modules/usuarios/usuario.module");
+const meu_perfil_module_1 = require("../modules/meu-perfil/meu-perfil.module");
+const pesquisa_module_1 = require("../modules/pesquisas/pesquisa.module");
+const produto_module_1 = require("../modules/produtos/produto.module");
+const cupom_module_1 = require("../modules/cupons/cupom.module");
+const campanha_module_1 = require("../modules/campanhas/campanha.module");
+const integracao_module_1 = require("../modules/integracoes/integracao.module");
+const agenda_module_1 = require("../modules/agenda/agenda.module");
+const tarefas_module_1 = require("../modules/tarefas/tarefas.module");
+const configuracao_geral_module_1 = require("../modules/configuracao-geral/configuracao-geral.module");
+const api_messages_module_1 = require("../modules/api-messages/api-messages.module");
 const reports_routes_1 = require("../modules/reports/reports.routes");
 const crm_reports_routes_1 = require("../modules/crm/crm-reports.routes");
 const crm_config_routes_1 = require("../modules/crm/crm-config.routes");
@@ -107,7 +109,9 @@ function buildApp() {
         global: true,
         max: 200,
         timeWindow: '1 minute',
-        ...(redis ? { redis } : {}),
+        // Em teste, contador em memória por instância: no Redis ele seria somado
+        // entre todos os arquivos da suíte e estouraria o limite no meio dela.
+        ...(redis && env_1.env.NODE_ENV !== 'test' ? { redis } : {}),
         // IP real do usuário mesmo atrás do proxy (fallback: IP do socket)
         keyGenerator: (request) => request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.ip,
         errorResponseBuilder: (_request, context) => ({
@@ -145,35 +149,37 @@ function buildApp() {
     });
     app.register(monitoring_routes_1.monitoringRoutes);
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
-    app.register(auth_routes_1.authRoutes, { prefix: '/api/v1/auth' });
+    app.register(auth_module_1.authRouter.register, { prefix: '/api/v1/auth' });
     app.register(whatsapp_routes_1.whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(whatsapp_oficial_routes_1.whatsappOficialRoutes, { prefix: '/api/v1/whatsapp-oficial' });
     app.register(atendimento_routes_1.atendimentoRoutes, { prefix: '/api/v1/atendimento' });
-    app.register(quick_messages_routes_1.quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
-    app.register(etiqueta_routes_1.etiquetasRoutes, { prefix: '/api/v1' });
+    app.register(agendamento_mensagens_module_1.agendamentoMensagensRouter.register, { prefix: '/api/v1/atendimento' });
+    app.register(notificacao_module_1.notificacaoRouter.register, { prefix: '/api/v1/notifications' });
+    app.register(quick_messages_module_1.quickMessageRouter.register, { prefix: '/api/v1/configuracao/quick-messages' });
+    app.register(etiqueta_module_1.etiquetaRouter.register, { prefix: '/api/v1' });
     app.register(fila_routes_1.filasRoutes, { prefix: '/api/v1/configuracao/filas' });
-    app.register(achievements_routes_1.achievementsRoutes, { prefix: '/api/v1/achievements' });
-    app.register(tarefas_routes_1.tarefasRoutes, { prefix: '/api/v1/tarefas' });
-    app.register(meu_perfil_routes_1.meuPerfilRoutes, { prefix: '/api/v1/configuracao/meu-perfil' });
+    app.register(achievements_module_1.achievementsRouter.register, { prefix: '/api/v1/achievements' });
+    app.register(tarefas_module_1.tarefasRouter.register, { prefix: '/api/v1/tarefas' });
+    app.register(meu_perfil_module_1.meuPerfilRouter.register, { prefix: '/api/v1/configuracao/meu-perfil' });
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
     app.register(adminOnly(bots_routes_1.botsRoutes), { prefix: '/api/v1/bots' });
-    app.register(adminOnly(usuario_routes_1.usuariosRoutes), { prefix: '/api/v1/configuracao/usuarios' });
-    app.register(adminOnly(pesquisa_routes_1.pesquisasRoutes), { prefix: '/api/v1/configuracao/pesquisas' });
-    app.register(adminOnly(campanha_routes_1.campanhasRoutes), { prefix: '/api/v1/configuracao/mensagens-agendadas' });
-    app.register(adminOnly(produto_routes_1.produtosRoutes), { prefix: '/api/v1/configuracao/produtos' });
-    app.register(adminOnly(cupom_routes_1.cuponsRoutes), { prefix: '/api/v1/configuracao/cupons' });
+    app.register(usuario_module_1.usuarioRouter.register, { prefix: '/api/v1/configuracao/usuarios' });
+    app.register(pesquisa_module_1.pesquisaRouter.register, { prefix: '/api/v1/configuracao/pesquisas' });
+    app.register(campanha_module_1.campanhaRouter.register, { prefix: '/api/v1/configuracao/mensagens-agendadas' });
+    app.register(produto_module_1.produtoRouter.register, { prefix: '/api/v1/configuracao/produtos' });
+    app.register(cupom_module_1.cupomRouter.register, { prefix: '/api/v1/configuracao/cupons' });
     // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
     // O gating admin é feito por-rota dentro de integracao.routes.ts.
-    app.register(integracao_routes_1.integracoesRoutes, { prefix: '/api/v1/integracoes' });
+    app.register(integracao_module_1.integracaoRouter.register, { prefix: '/api/v1/integracoes' });
     // api-messages NÃO usa adminOnly: /send é público, autenticado por X-Api-Key
     // (chamado por sistemas externos, não por usuário logado). O gating admin
     // das rotas de gestão da chave é feito por-rota dentro de api-messages.routes.ts.
-    app.register(api_messages_routes_1.apiMessagesRoutes, { prefix: '/api/v1' });
-    app.register(adminOnly(agenda_routes_1.agendaRoutes), { prefix: '/api/v1/agenda' });
+    app.register(api_messages_module_1.apiMessagesRouter.register, { prefix: '/api/v1' });
+    app.register(agenda_module_1.agendaRouter.register, { prefix: '/api/v1/agenda' });
     // configuracaoGeralRoutes NÃO usa adminOnly: GET é liberado pra qualquer
     // usuário autenticado (useCompanyPermissions precisa disso pro app inteiro),
     // o gating admin do PUT é feito por-rota dentro de configuracao-geral.routes.ts.
-    app.register(configuracao_geral_routes_1.configuracaoGeralRoutes, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    app.register(configuracao_geral_module_1.configuracaoGeralRouter.register, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
     app.register(adminOnly(reports_routes_1.reportsRoutes), { prefix: '/api/v1/reports' });
     app.register(adminOnly(reports_routes_1.reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crm_reports_routes_1.crmReportsRoutes), { prefix: '/api/v1/crm-reports' });

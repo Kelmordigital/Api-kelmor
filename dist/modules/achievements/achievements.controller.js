@@ -1,40 +1,27 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.achievementsController = void 0;
-const achievements_service_1 = require("./achievements.service");
-exports.achievementsController = {
-    async getProgress(req, reply) {
-        const companyId = req.user.company_id;
-        try {
-            const progress = await achievements_service_1.achievementsService.getProgress(req.user.id, companyId);
-            return reply.send(progress);
-        }
-        catch (err) {
-            if (err instanceof achievements_service_1.GamificationDisabledError) {
-                return reply.status(403).send({ error: err.message });
-            }
-            throw err;
-        }
-    },
-    async complete(req, reply) {
-        const companyId = req.user.company_id;
-        const { mission_key } = req.body;
-        if (!mission_key) {
-            return reply.status(400).send({ error: 'Campo "mission_key" é obrigatório' });
-        }
-        try {
-            const progress = await achievements_service_1.achievementsService.completeMission(req.user.id, companyId, mission_key);
-            return reply.send(progress);
-        }
-        catch (err) {
-            if (err instanceof achievements_service_1.InvalidMissionKeyError) {
-                return reply.status(400).send({ error: err.message });
-            }
-            if (err instanceof achievements_service_1.GamificationDisabledError) {
-                return reply.status(403).send({ error: err.message });
-            }
-            throw err;
-        }
-    },
-};
+exports.AchievementsController = void 0;
+const zod_1 = require("zod");
+const schema_validator_1 = require("../../core/validation/schema-validator");
+const http_router_1 = require("../../core/http/http-router");
+const MISSION_KEY_REQUIRED = 'Campo "mission_key" é obrigatório';
+const completeMissionSchema = zod_1.z.object({
+    mission_key: zod_1.z.string({ error: MISSION_KEY_REQUIRED }).min(1, MISSION_KEY_REQUIRED),
+}, { error: MISSION_KEY_REQUIRED });
+/** Adapta HTTP ⇄ AchievementsService. Sempre sobre o usuário autenticado. */
+class AchievementsController {
+    service;
+    constructor(service) {
+        this.service = service;
+    }
+    getProgress = async (req, reply) => {
+        return reply.send(await this.service.getProgress(req.user.id, (0, http_router_1.requireCompanyId)(req)));
+    };
+    complete = async (req, reply) => {
+        const companyId = (0, http_router_1.requireCompanyId)(req);
+        const { mission_key } = schema_validator_1.SchemaValidator.parse(completeMissionSchema, req.body);
+        return reply.send(await this.service.completeMission(req.user.id, companyId, mission_key));
+    };
+}
+exports.AchievementsController = AchievementsController;
 //# sourceMappingURL=achievements.controller.js.map

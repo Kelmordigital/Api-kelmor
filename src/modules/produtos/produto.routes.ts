@@ -1,11 +1,20 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { produtoController } from './produto.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { ProdutoController } from './produto.controller';
 
-export async function produtosRoutes(app: FastifyInstance) {
-    app.get('/',       { preHandler: authMiddleware }, produtoController.list);
-    app.get('/:id',    { preHandler: authMiddleware }, produtoController.findById);
-    app.post('/',      { preHandler: authMiddleware }, produtoController.create);
-    app.put('/:id',    { preHandler: authMiddleware }, produtoController.update);
-    app.delete('/:id', { preHandler: authMiddleware }, produtoController.remove);
+/** CRUD do catálogo de produtos — restrito a admin/superAdmin. */
+export class ProdutoRouter implements HttpRouter {
+    constructor(private readonly controller: ProdutoController) {}
+
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+
+        app.get('/',       this.controller.list);
+        app.get('/:id',    this.controller.findById);
+        app.post('/',      this.controller.create);
+        app.put('/:id',    this.controller.update);
+        app.delete('/:id', this.controller.remove);
+    };
 }

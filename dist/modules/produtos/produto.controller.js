@@ -1,69 +1,36 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.produtoController = void 0;
-const produto_service_1 = require("./produto.service");
-const VALID_VALUE_TYPES = ['valor_unico', 'recorrente', 'sem_valor'];
-exports.produtoController = {
-    async list(req, reply) {
-        const companyId = req.user.company_id;
-        const list = await produto_service_1.produtoService.list(companyId);
-        return reply.send(list);
-    },
-    async findById(req, reply) {
-        const companyId = req.user.company_id;
-        const { id } = req.params;
-        const row = await produto_service_1.produtoService.findById(id, companyId);
-        if (!row)
-            return reply.status(404).send({ error: 'Produto não encontrado' });
-        return reply.send(row);
-    },
-    async create(req, reply) {
-        const companyId = req.user.company_id;
-        const { name, short_description, value_type, value, delivery_timeframe, how_it_works, full_description, } = req.body;
-        if (!name?.trim())
-            return reply.status(400).send({ error: 'name é obrigatório' });
-        const vt = (value_type ?? 'valor_unico');
-        if (!VALID_VALUE_TYPES.includes(vt)) {
-            return reply.status(400).send({ error: 'value_type inválido' });
-        }
-        const row = await produto_service_1.produtoService.create(companyId, {
-            name: name.trim(),
-            short_description: short_description ?? null,
-            value_type: vt,
-            value: vt === 'sem_valor' ? null : (value != null ? String(value) : null),
-            delivery_timeframe: delivery_timeframe ?? null,
-            how_it_works: how_it_works ?? null,
-            full_description: full_description ?? null,
-            is_active: true,
-        });
-        return reply.status(201).send(row);
-    },
-    async update(req, reply) {
-        const companyId = req.user.company_id;
-        const { id } = req.params;
-        const body = req.body;
-        if (body.value_type && !VALID_VALUE_TYPES.includes(body.value_type)) {
-            return reply.status(400).send({ error: 'value_type inválido' });
-        }
-        const patch = { ...body };
-        if (body.value !== undefined) {
-            patch.value = body.value != null ? String(body.value) : null;
-        }
-        if (body.value_type === 'sem_valor') {
-            patch.value = null;
-        }
-        const row = await produto_service_1.produtoService.update(id, companyId, patch);
-        if (!row)
-            return reply.status(404).send({ error: 'Produto não encontrado' });
-        return reply.send(row);
-    },
-    async remove(req, reply) {
-        const companyId = req.user.company_id;
-        const { id } = req.params;
-        const ok = await produto_service_1.produtoService.remove(id, companyId);
-        if (!ok)
-            return reply.status(404).send({ error: 'Produto não encontrado' });
+exports.ProdutoController = void 0;
+const schema_validator_1 = require("../../core/validation/schema-validator");
+const http_router_1 = require("../../core/http/http-router");
+const produto_dto_1 = require("./produto.dto");
+/** Adapta HTTP ⇄ ProdutoService: extrai/valida entrada e escolhe o status. */
+class ProdutoController {
+    service;
+    constructor(service) {
+        this.service = service;
+    }
+    list = async (req, reply) => {
+        return reply.send(await this.service.list((0, http_router_1.companyIdOf)(req)));
+    };
+    findById = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(produto_dto_1.produtoIdParamsSchema, req.params);
+        return reply.send(await this.service.findById(id, (0, http_router_1.companyIdOf)(req)));
+    };
+    create = async (req, reply) => {
+        const input = schema_validator_1.SchemaValidator.parse(produto_dto_1.createProdutoSchema, req.body);
+        return reply.status(201).send(await this.service.create((0, http_router_1.companyIdOf)(req), input));
+    };
+    update = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(produto_dto_1.produtoIdParamsSchema, req.params);
+        const input = schema_validator_1.SchemaValidator.parse(produto_dto_1.updateProdutoSchema, req.body);
+        return reply.send(await this.service.update(id, (0, http_router_1.companyIdOf)(req), input));
+    };
+    remove = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(produto_dto_1.produtoIdParamsSchema, req.params);
+        await this.service.remove(id, (0, http_router_1.companyIdOf)(req));
         return reply.status(204).send();
-    },
-};
+    };
+}
+exports.ProdutoController = ProdutoController;
 //# sourceMappingURL=produto.controller.js.map

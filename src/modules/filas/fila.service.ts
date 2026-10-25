@@ -4,7 +4,7 @@ import { queues, userQueues, userConnections, connectionQueues, tickets, Queue }
 import { bots, bot_nodes } from '../bots/bots.db.schema';
 import { users } from '../auth/auth.schema';
 import { isUserOnline } from '../../shared/socket';
-import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
 
 const VALID_DISTRIBUTION = ['none', 'less_attendances', 'time', 'attendant'];
 
@@ -108,7 +108,7 @@ export const filaService = {
             connectionId
                 ? db.select({ id: userConnections.user_id }).from(userConnections).where(eq(userConnections.connection_id, connectionId))
                 : Promise.resolve(null),
-            getCompanyPermissions(companyId),
+            companyPermissionsReader.forCompany(companyId),
         ]);
         let ids = inQueue.map((r) => r.id);
         if (withConn) {

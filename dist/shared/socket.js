@@ -4,6 +4,7 @@ exports.isUserOnline = isUserOnline;
 exports.initSocket = initSocket;
 exports.getIo = getIo;
 exports.emitToCompany = emitToCompany;
+exports.emitToUser = emitToUser;
 const socket_io_1 = require("socket.io");
 const env_1 = require("../config/env");
 let io = null;
@@ -29,6 +30,7 @@ function initSocket(httpServer) {
             if (!userId)
                 return;
             socket.data.userId = userId;
+            socket.join(`user:${userId}`);
             let set = onlineUsers.get(userId);
             if (!set) {
                 set = new Set();
@@ -60,5 +62,11 @@ function emitToCompany(companyId, event, payload) {
     if (!io)
         return;
     io.to(`company:${companyId}`).emit(event, payload);
+}
+/** Envia só para as abas abertas de um usuário (sala `user:<id>`). */
+function emitToUser(userId, event, payload) {
+    if (!io)
+        return;
+    io.to(`user:${userId}`).emit(event, payload);
 }
 //# sourceMappingURL=socket.js.map

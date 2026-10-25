@@ -1,159 +1,93 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.etiquetaService = void 0;
-exports.matchAndApplyAutomaticTags = matchAndApplyAutomaticTags;
-const drizzle_orm_1 = require("drizzle-orm");
-const client_1 = require("../../database/client");
-const etiqueta_db_schema_1 = require("./etiqueta.db.schema");
-const configuracao_geral_db_schema_1 = require("../configuracao-geral/configuracao-geral.db.schema");
-const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
-// contactEtiquetas não tem company_id — sem confirmar que o contato é da
-// empresa, listar/aplicar/remover etiqueta por contactId vazava e permitia
-// vandalizar tags de contatos de outras empresas.
-async function contactBelongsToCompany(contactId, companyId) {
-    const numericId = Number(contactId);
-    if (!Number.isFinite(numericId))
-        return false;
-    const [row] = await client_1.db.select({ id: atendimento_db_schema_1.contacts.id }).from(atendimento_db_schema_1.contacts)
-        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.id, numericId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.company_id, companyId)))
-        .limit(1);
-    return !!row;
-}
-exports.etiquetaService = {
-    async list(companyId) {
-        return client_1.db
-            .select()
-            .from(etiqueta_db_schema_1.etiquetas)
-            .where((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.company_id, companyId))
-            .orderBy((0, drizzle_orm_1.desc)(etiqueta_db_schema_1.etiquetas.created_at));
-    },
-    async findById(id, companyId) {
-        const [row] = await client_1.db
-            .select()
-            .from(etiqueta_db_schema_1.etiquetas)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.id, id), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.company_id, companyId)))
-            .limit(1);
-        return row ?? null;
-    },
-    async create(companyId, payload) {
-        const [row] = await client_1.db
-            .insert(etiqueta_db_schema_1.etiquetas)
-            .values({ ...payload, company_id: companyId })
-            .returning();
+exports.EtiquetaService = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
+const DEFAULT_COLOR = '#6366f1';
+const DEFAULT_ICON = 'tag';
+const STATS_DAYS = 7;
+class EtiquetaService {
+    repository;
+    directory;
+    now;
+    constructor(repository, directory, now = () => new Date()) {
+        this.repository = repository;
+        this.directory = directory;
+        this.now = now;
+    }
+    list(companyId) {
+        return this.repository.listByCompany(companyId);
+    }
+    create(companyId, input) {
+        return this.repository.create(companyId, {
+            name: input.name,
+            color: input.color ?? DEFAULT_COLOR,
+            icon: input.icon ?? DEFAULT_ICON,
+        });
+    }
+    async update(id, companyId, input) {
+        const patch = {};
+        if (input.name !== undefined)
+            patch.name = input.name;
+        if (input.color !== undefined)
+            patch.color = input.color;
+        if (input.icon !== undefined)
+            patch.icon = input.icon;
+        const row = await this.repository.update(id, companyId, patch);
+        if (!row)
+            throw EtiquetaService.tagNotFound();
         return row;
-    },
-    async update(id, companyId, payload) {
-        const [row] = await client_1.db
-            .update(etiqueta_db_schema_1.etiquetas)
-            .set({ ...payload, updated_at: new Date() })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.id, id), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
+    }
     async remove(id, companyId) {
-        const [row] = await client_1.db
-            .delete(etiqueta_db_schema_1.etiquetas)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.id, id), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.company_id, companyId)))
-            .returning();
-        return !!row;
-    },
-    async getStats(companyId) {
-        const list = await exports.etiquetaService.list(companyId);
-        const today = new Date();
-        const stats = await Promise.all(list.map(async (et) => {
-            const total = await client_1.db
-                .select({ count: (0, drizzle_orm_1.sql) `count(*)::int` })
-                .from(etiqueta_db_schema_1.contactEtiquetas)
-                .where((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.etiqueta_id, et.id))
-                .then(r => r[0]?.count ?? 0);
-            // Série dos últimos 7 dias
-            const series = Array.from({ length: 7 }, (_, i) => {
-                const d = new Date(today);
-                d.setDate(d.getDate() - (6 - i));
-                return { date: d.toISOString().slice(0, 10), count: 0 };
-            });
-            return {
-                etiqueta_id: et.id,
-                name: et.name,
-                color: et.color,
-                total_leads: total,
-                series,
-            };
-        }));
-        return stats;
-    },
-    async aplicarAoContato(contactId, etiquetaId, companyId) {
-        const et = await exports.etiquetaService.findById(etiquetaId, companyId);
-        if (!et)
-            throw new Error('Etiqueta não encontrada');
-        if (!(await contactBelongsToCompany(contactId, companyId)))
-            throw new Error('Contato não encontrado');
-        await client_1.db
-            .insert(etiqueta_db_schema_1.contactEtiquetas)
-            .values({ contact_id: contactId, etiqueta_id: etiquetaId })
-            .onConflictDoNothing();
-    },
-    async removerDoContato(contactId, etiquetaId, companyId) {
-        const [belongsContact, et] = await Promise.all([
-            contactBelongsToCompany(contactId, companyId),
-            exports.etiquetaService.findById(etiquetaId, companyId),
+        if (!(await this.repository.delete(id, companyId)))
+            throw EtiquetaService.tagNotFound();
+    }
+    /** Etiqueta e contato precisam ser da empresa. Aplicar de novo não duplica. */
+    async applyToContact(companyId, contactId, etiquetaId) {
+        if (!(await this.repository.findById(etiquetaId, companyId)))
+            throw EtiquetaService.tagNotFound();
+        if (!(await this.directory.hasContact(companyId, contactId)))
+            throw new http_errors_1.NotFoundError('Contato não encontrado');
+        await this.repository.linkToContact(contactId, etiquetaId);
+    }
+    /** Sem efeito (e sem erro) se a etiqueta ou o contato não forem da empresa. */
+    async removeFromContact(companyId, contactId, etiquetaId) {
+        const [ownsContact, tag] = await Promise.all([
+            this.directory.hasContact(companyId, contactId),
+            this.repository.findById(etiquetaId, companyId),
         ]);
-        if (!belongsContact || !et)
-            return;
-        await client_1.db
-            .delete(etiqueta_db_schema_1.contactEtiquetas)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.contact_id, contactId), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.etiqueta_id, etiquetaId)));
-    },
-    async listDoContato(contactId, companyId) {
-        if (!(await contactBelongsToCompany(contactId, companyId)))
+        if (ownsContact && tag)
+            await this.repository.unlinkFromContact(contactId, etiquetaId);
+    }
+    /** Contato de outra empresa responde lista vazia (não revela que existe). */
+    async listForContact(companyId, contactId) {
+        if (!(await this.directory.hasContact(companyId, contactId)))
             return [];
-        const rows = await client_1.db
-            .select({ etiqueta: etiqueta_db_schema_1.etiquetas })
-            .from(etiqueta_db_schema_1.contactEtiquetas)
-            .innerJoin(etiqueta_db_schema_1.etiquetas, (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.etiqueta_id, etiqueta_db_schema_1.etiquetas.id))
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.contactEtiquetas.contact_id, contactId), (0, drizzle_orm_1.eq)(etiqueta_db_schema_1.etiquetas.company_id, companyId)));
-        return rows.map(r => r.etiqueta);
-    },
-};
-/**
- * Etiquetamento automático: casa o texto de uma mensagem contra as regras
- * (at_automatic_tag_rules) cadastradas pela empresa. Cada regra tem uma
- * lista de variações de palavra-chave separadas por vírgula (ex: "fralda,
- * frauda, fraldinha") — qualquer uma delas ativa a regra — e pode apontar
- * para múltiplas etiquetas. Idempotente via ON CONFLICT DO NOTHING em
- * aplicarAoContato.
- */
-async function matchAndApplyAutomaticTags(companyId, contactId, messageText) {
-    const [perm] = await client_1.db
-        .select({ enable_automatic_tags: configuracao_geral_db_schema_1.companyPermissions.enable_automatic_tags })
-        .from(configuracao_geral_db_schema_1.companyPermissions)
-        .where((0, drizzle_orm_1.eq)(configuracao_geral_db_schema_1.companyPermissions.company_id, companyId))
-        .limit(1);
-    if (!perm?.enable_automatic_tags)
-        return;
-    const rules = await client_1.db
-        .select()
-        .from(etiqueta_db_schema_1.automaticTagRules)
-        .where((0, drizzle_orm_1.eq)(etiqueta_db_schema_1.automaticTagRules.company_id, companyId));
-    if (!rules.length)
-        return;
-    const lowerText = messageText.toLowerCase();
-    const matchedRuleIds = rules
-        .filter(rule => rule.keywords
-        .split(',')
-        .map((k) => k.trim().toLowerCase())
-        .filter(Boolean)
-        .some((kw) => lowerText.includes(kw)))
-        .map(rule => rule.id);
-    if (!matchedRuleIds.length)
-        return;
-    const tagRows = await client_1.db
-        .select({ etiqueta_id: etiqueta_db_schema_1.automaticTagRuleTags.etiqueta_id })
-        .from(etiqueta_db_schema_1.automaticTagRuleTags)
-        .where((0, drizzle_orm_1.inArray)(etiqueta_db_schema_1.automaticTagRuleTags.rule_id, matchedRuleIds));
-    const uniqueTagIds = [...new Set(tagRows.map(r => r.etiqueta_id))];
-    for (const etiquetaId of uniqueTagIds) {
-        await exports.etiquetaService.aplicarAoContato(String(contactId), etiquetaId, companyId);
+        return this.repository.listForContact(contactId, companyId);
+    }
+    /** Total de contatos por etiqueta e aplicações por dia nos últimos 7 dias (hoje incluso, UTC). */
+    async getStats(companyId) {
+        const tags = await this.repository.listByCompany(companyId);
+        const days = this.lastDays();
+        const usage = await this.repository.usage(tags.map((t) => t.id), new Date(`${days[0]}T00:00:00.000Z`));
+        return tags.map((tag) => ({
+            etiqueta_id: tag.id,
+            name: tag.name,
+            color: tag.color,
+            total_leads: usage.totals.get(tag.id) ?? 0,
+            series: days.map((date) => ({ date, count: usage.daily.get(tag.id)?.get(date) ?? 0 })),
+        }));
+    }
+    lastDays() {
+        const today = this.now();
+        return Array.from({ length: STATS_DAYS }, (_, i) => {
+            const d = new Date(today);
+            d.setUTCDate(d.getUTCDate() - (STATS_DAYS - 1 - i));
+            return d.toISOString().slice(0, 10);
+        });
+    }
+    static tagNotFound() {
+        return new http_errors_1.NotFoundError('Etiqueta não encontrada');
     }
 }
+exports.EtiquetaService = EtiquetaService;
 //# sourceMappingURL=etiqueta.service.js.map

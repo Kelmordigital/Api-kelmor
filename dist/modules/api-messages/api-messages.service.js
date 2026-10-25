@@ -1,126 +1,122 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.apiMessagesService = exports.ConnectionNotFoundError = exports.ApiMessagesDisabledError = void 0;
+exports.ApiMessageService = exports.MESSAGE_MAX_LENGTH = exports.ApiKeyService = exports.ConnectionNotFoundError = exports.ApiMessagesDisabledError = void 0;
+exports.parseSendRequest = parseSendRequest;
 const crypto_1 = require("crypto");
-const drizzle_orm_1 = require("drizzle-orm");
-const client_1 = require("../../database/client");
-const api_messages_db_schema_1 = require("./api-messages.db.schema");
-const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
-const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
-const contact_service_1 = require("../atendimento/contact.service");
-const ticket_service_1 = require("../atendimento/ticket.service");
-const KEY_PREFIX = 'kelmor_';
-function hashKey(rawKey) {
-    return (0, crypto_1.createHash)('sha256').update(rawKey).digest('hex');
-}
-class ApiMessagesDisabledError extends Error {
+const http_errors_1 = require("../../core/errors/http-errors");
+class ApiMessagesDisabledError extends http_errors_1.ForbiddenError {
     constructor() { super('Envio de mensagens via API está desativado para esta empresa'); }
 }
 exports.ApiMessagesDisabledError = ApiMessagesDisabledError;
-class ConnectionNotFoundError extends Error {
+class ConnectionNotFoundError extends http_errors_1.NotFoundError {
     constructor() { super('Conexão não encontrada para esta empresa'); }
 }
 exports.ConnectionNotFoundError = ConnectionNotFoundError;
-exports.apiMessagesService = {
-    // ── Gestão da chave (autenticado por JWT de admin) ──────────────────────
-    /** Gera (ou substitui) a chave da empresa. Retorna o valor em texto puro — única vez que ele existe. */
+const KEY_PREFIX = 'kelmor_';
+const VISIBLE_PREFIX_LENGTH = 14;
+/**
+ * Chave de API da empresa, usada por sistemas externos no header X-Api-Key.
+ * Só o hash (sha256) fica guardado: a chave em texto puro existe uma única vez,
+ * na resposta de quem a gerou.
+ */
+class ApiKeyService {
+    repository;
+    constructor(repository) {
+        this.repository = repository;
+    }
+    /** Gera (ou substitui) a chave. A anterior deixa de valer na hora. */
     async generateKey(companyId) {
-        const rawKey = `${KEY_PREFIX}${(0, crypto_1.randomBytes)(24).toString('hex')}`;
-        const prefix = rawKey.slice(0, 14);
-        const hash = hashKey(rawKey);
-        await client_1.db.insert(api_messages_db_schema_1.companyApiKeys)
-            .values({ company_id: companyId, key_hash: hash, key_prefix: prefix })
-            .onConflictDoUpdate({
-            target: api_messages_db_schema_1.companyApiKeys.company_id,
-            set: { key_hash: hash, key_prefix: prefix, created_at: new Date(), revoked_at: null },
-        });
-        return { key: rawKey, prefix };
-    },
+        const key = `${KEY_PREFIX}${(0, crypto_1.randomBytes)(24).toString('hex')}`;
+        const prefix = key.slice(0, VISIBLE_PREFIX_LENGTH);
+        await this.repository.save(companyId, ApiKeyService.hash(key), prefix);
+        return { key, prefix };
+    }
     async getKeyStatus(companyId) {
-        const [row] = await client_1.db.select().from(api_messages_db_schema_1.companyApiKeys)
-            .where((0, drizzle_orm_1.eq)(api_messages_db_schema_1.companyApiKeys.company_id, companyId))
-            .limit(1);
+        const row = await this.repository.findByCompany(companyId);
         if (!row || row.revoked_at)
             return { active: false, prefix: null, createdAt: null };
         return { active: true, prefix: row.key_prefix, createdAt: row.created_at };
-    },
-    async revokeKey(companyId) {
-        await client_1.db.update(api_messages_db_schema_1.companyApiKeys)
-            .set({ revoked_at: new Date() })
-            .where((0, drizzle_orm_1.eq)(api_messages_db_schema_1.companyApiKeys.company_id, companyId));
-    },
-    /** Resolve a empresa dona de uma chave ativa (não revogada), ou null se inválida. */
-    async resolveCompanyByKey(rawKey) {
-        const hash = hashKey(rawKey);
-        const [row] = await client_1.db.select({ company_id: api_messages_db_schema_1.companyApiKeys.company_id })
-            .from(api_messages_db_schema_1.companyApiKeys)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(api_messages_db_schema_1.companyApiKeys.key_hash, hash), (0, drizzle_orm_1.isNull)(api_messages_db_schema_1.companyApiKeys.revoked_at)))
-            .limit(1);
-        return row?.company_id ?? null;
-    },
-    // ── Envio (autenticado por X-Api-Key) ───────────────────────────────────
-    /**
-     * Envia uma mensagem transacional e grava o log de auditoria sempre. Se
-     * `create_ticket_api_msg` estiver ligado, também vincula ao histórico de
-     * conversa do contato (ticket existente ou um novo já fechado) — ver
-     * `ticketService.attachExternalMessage`.
-     */
-    async sendMessage(companyId, params) {
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    }
+    revokeKey(companyId) {
+        return this.repository.revoke(companyId);
+    }
+    /** Empresa dona de uma chave ativa, ou null se a chave é inválida ou foi revogada. */
+    resolveCompanyByKey(rawKey) {
+        return this.repository.companyByActiveHash(ApiKeyService.hash(rawKey));
+    }
+    /** Autentica uma requisição externa pela chave; lança 401 se não houver ou não valer. */
+    async authenticate(rawKey) {
+        if (!rawKey || typeof rawKey !== 'string')
+            throw new http_errors_1.UnauthorizedError('Chave de API não fornecida');
+        const companyId = await this.resolveCompanyByKey(rawKey);
+        if (!companyId)
+            throw new http_errors_1.UnauthorizedError('Chave de API inválida ou revogada');
+        return companyId;
+    }
+    static hash(rawKey) {
+        return (0, crypto_1.createHash)('sha256').update(rawKey).digest('hex');
+    }
+}
+exports.ApiKeyService = ApiKeyService;
+exports.MESSAGE_MAX_LENGTH = 4096;
+/** Valida e normaliza o corpo de POST /api-messages/send (número só com dígitos). */
+function parseSendRequest(body) {
+    const { connection_id, number, message } = (body ?? {});
+    const text = typeof message === 'string' ? message.trim() : '';
+    if (connection_id === undefined || connection_id === null || connection_id === '' || !number || !text) {
+        throw new http_errors_1.BadRequestError('connection_id, number e message são obrigatórios');
+    }
+    const connectionId = Number(connection_id);
+    if (!Number.isInteger(connectionId) || connectionId <= 0)
+        throw new http_errors_1.BadRequestError('connection_id inválido');
+    const digits = typeof number === 'string' || typeof number === 'number' ? String(number).replace(/\D/g, '') : '';
+    if (digits.length < 10 || digits.length > 15)
+        throw new http_errors_1.BadRequestError('number inválido');
+    if (text.length > exports.MESSAGE_MAX_LENGTH)
+        throw new http_errors_1.BadRequestError(`A mensagem deve ter no máximo ${exports.MESSAGE_MAX_LENGTH} caracteres`);
+    return { connectionId, number: digits, message: text };
+}
+/**
+ * Envio de mensagem transacional por sistemas externos. Todo envio feito
+ * fica no log de auditoria; com "criar ticket" ligado, a mensagem também entra
+ * no histórico de conversa do contato.
+ */
+class ApiMessageService {
+    permissions;
+    resources;
+    delivery;
+    logs;
+    conversations;
+    constructor(permissions, resources, delivery, logs, conversations) {
+        this.permissions = permissions;
+        this.resources = resources;
+        this.delivery = delivery;
+        this.logs = logs;
+        this.conversations = conversations;
+    }
+    async sendMessage(companyId, request) {
+        const perms = await this.permissions.forCompany(companyId);
         if (!perms.api_messages)
             throw new ApiMessagesDisabledError();
-        const [conn] = await client_1.db.select().from(atendimento_db_schema_1.connections)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.id, params.connectionId), (0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId)))
-            .limit(1);
-        if (!conn)
+        const [owned] = await this.resources.ownedConnectionIds(companyId, [request.connectionId]);
+        if (!owned)
             throw new ConnectionNotFoundError();
-        const { whatsappService } = await Promise.resolve().then(() => __importStar(require('../whatsapp/whatsapp.service')));
-        await whatsappService.sendTextToPhone(params.connectionId, params.number, params.message);
-        const [log] = await client_1.db.insert(api_messages_db_schema_1.apiMessagesLog).values({
-            company_id: companyId,
-            connection_id: params.connectionId,
-            to_number: params.number,
-            body: params.message,
-        }).returning();
+        try {
+            await this.delivery.sendText(request.connectionId, request.number, request.message);
+        }
+        catch (err) {
+            console.error(`[api-messages] Falha ao enviar (empresa ${companyId}, conexão ${request.connectionId}):`, err instanceof Error ? err.message : err);
+            throw new http_errors_1.BadGatewayError('Falha ao enviar a mensagem pela conexão. Verifique se ela está conectada.');
+        }
+        const logId = await this.logs.record({
+            company_id: companyId, connection_id: request.connectionId, to_number: request.number, body: request.message,
+        });
         if (!perms.create_ticket_api_msg)
             return { ticketId: null };
-        const contact = await contact_service_1.contactService.findOrCreate(companyId, params.number);
-        const ticket = await ticket_service_1.ticketService.attachExternalMessage(companyId, contact.id, params.connectionId, params.message);
-        await client_1.db.update(api_messages_db_schema_1.apiMessagesLog).set({ ticket_id: ticket.id }).where((0, drizzle_orm_1.eq)(api_messages_db_schema_1.apiMessagesLog.id, log.id));
-        return { ticketId: ticket.id };
-    },
-};
+        const ticketId = await this.conversations.attach(companyId, request.number, request.connectionId, request.message);
+        await this.logs.linkTicket(logId, ticketId);
+        return { ticketId };
+    }
+}
+exports.ApiMessageService = ApiMessageService;
 //# sourceMappingURL=api-messages.service.js.map

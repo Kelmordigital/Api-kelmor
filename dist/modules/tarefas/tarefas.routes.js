@@ -1,24 +1,32 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tarefasRoutes = tarefasRoutes;
+exports.TarefasRouter = void 0;
 const auth_middleware_1 = require("../../middlewares/auth.middleware");
-const tarefas_controller_1 = require("./tarefas.controller");
-async function tarefasRoutes(app) {
-    const auth = { preHandler: auth_middleware_1.authMiddleware };
-    // Quadro (Central de Tarefas)
-    app.get('/board', auth, tarefas_controller_1.tarefasController.board);
-    app.get('/arquivadas', auth, tarefas_controller_1.tarefasController.archived);
-    app.get('/contato/:contactId', auth, tarefas_controller_1.tarefasController.byContact);
-    // Tarefas
-    app.post('/', auth, tarefas_controller_1.tarefasController.create);
-    app.put('/:id', auth, tarefas_controller_1.tarefasController.update);
-    app.patch('/:id/move', auth, tarefas_controller_1.tarefasController.move);
-    app.patch('/:id/concluir', auth, tarefas_controller_1.tarefasController.setDone);
-    app.patch('/:id/arquivar', auth, tarefas_controller_1.tarefasController.setArchived);
-    app.delete('/:id', auth, tarefas_controller_1.tarefasController.remove);
-    // Colunas customizadas
-    app.post('/colunas', auth, tarefas_controller_1.tarefasController.createColumn);
-    app.put('/colunas/:id', auth, tarefas_controller_1.tarefasController.renameColumn);
-    app.delete('/colunas/:id', auth, tarefas_controller_1.tarefasController.deleteColumn);
+/** Central de Tarefas — qualquer usuário autenticado, sobre o próprio quadro. */
+class TarefasRouter {
+    controller;
+    constructor(controller) {
+        this.controller = controller;
+    }
+    register = async (app) => {
+        app.addHook('preHandler', auth_middleware_1.authMiddleware);
+        const c = this.controller;
+        // Quadro (Central de Tarefas)
+        app.get('/board', c.board);
+        app.get('/arquivadas', c.archived);
+        app.get('/contato/:contactId', c.byContact);
+        // Tarefas
+        app.post('/', c.create);
+        app.put('/:id', c.update);
+        app.patch('/:id/move', c.move);
+        app.patch('/:id/concluir', c.setDone);
+        app.patch('/:id/arquivar', c.setArchived);
+        app.delete('/:id', c.remove);
+        // Colunas customizadas
+        app.post('/colunas', c.createColumn);
+        app.put('/colunas/:id', c.renameColumn);
+        app.delete('/colunas/:id', c.deleteColumn);
+    };
 }
+exports.TarefasRouter = TarefasRouter;
 //# sourceMappingURL=tarefas.routes.js.map

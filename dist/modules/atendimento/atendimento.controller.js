@@ -41,9 +41,8 @@ const attendant_capacity_service_1 = require("./attendant-capacity.service");
 const message_service_1 = require("./message.service");
 const auth_schema_1 = require("../auth/auth.schema");
 const dashboard_service_1 = require("./dashboard.service");
-const produto_service_1 = require("../produtos/produto.service");
-const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
-const agendamento_mensagens_service_1 = require("../agendamento-mensagens/agendamento-mensagens.service");
+const produto_module_1 = require("../produtos/produto.module");
+const configuracao_geral_module_1 = require("../configuracao-geral/configuracao-geral.module");
 const client_1 = require("../../database/client");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const drizzle_orm_1 = require("drizzle-orm");
@@ -109,7 +108,7 @@ exports.atendimentoController = {
         const companyId = req.user.company_id;
         const [company, perms] = await Promise.all([
             client_1.db.select({ end_message: company_db_schema_1.companies.end_message }).from(company_db_schema_1.companies).where((0, drizzle_orm_1.eq)(company_db_schema_1.companies.id, companyId)).then(rows => rows[0]),
-            (0, configuracao_geral_service_1.getCompanyPermissions)(companyId),
+            configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId),
         ]);
         return reply.send({
             end_message: company?.end_message ?? null,
@@ -136,7 +135,7 @@ exports.atendimentoController = {
         const ticket = await ticket_service_1.ticketService.get(Number(id), companyId);
         if (!ticket)
             return reply.status(404).send({ error: 'Ticket não encontrado' });
-        const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
+        const { researchSurvey: pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.module')));
         const research = await pesquisaService.findActiveForQueue(ticket.queue_id, companyId);
         return reply.send({ available: !!research, name: research?.name ?? null });
     },
@@ -212,34 +211,6 @@ exports.atendimentoController = {
             }
             throw err;
         }
-    },
-    async scheduleMessage(req, reply) {
-        const { id } = req.params;
-        const companyId = req.user.company_id;
-        const { message, send_date } = req.body;
-        if (!message?.trim())
-            return reply.status(400).send({ error: 'message obrigatório' });
-        if (!send_date)
-            return reply.status(400).send({ error: 'send_date obrigatório' });
-        try {
-            const row = await agendamento_mensagens_service_1.agendamentoMensagensService.create(companyId, Number(id), req.user.id, {
-                message: message.trim(),
-                send_date,
-            });
-            return reply.status(201).send(row);
-        }
-        catch (err) {
-            if (err instanceof agendamento_mensagens_service_1.TicketSemConexaoError) {
-                return reply.status(400).send({ error: err.message });
-            }
-            throw err;
-        }
-    },
-    async listScheduledMessages(req, reply) {
-        const { id } = req.params;
-        const companyId = req.user.company_id;
-        const rows = await agendamento_mensagens_service_1.agendamentoMensagensService.listByTicketContact(companyId, Number(id));
-        return reply.send(rows);
     },
     async togglePin(req, reply) {
         const { id } = req.params;
@@ -407,7 +378,7 @@ exports.atendimentoController = {
         // decidida no client conforme o modo temporário/permanente escolhido).
         let outgoingBody = body;
         if (fromMe && !hideName) {
-            const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+            const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
             if (perms.allow_show_name_on_chat) {
                 const [sender] = await client_1.db.select({ name: auth_schema_1.users.name }).from(auth_schema_1.users).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, userId)).limit(1);
                 if (sender?.name)
@@ -481,7 +452,7 @@ exports.atendimentoController = {
     /** Catálogo de produtos para consulta durante o atendimento (carrinho no chat) — leitura, sem exigir admin. */
     async listProdutos(req, reply) {
         const companyId = req.user.company_id;
-        const list = await produto_service_1.produtoService.list(companyId);
+        const list = await produto_module_1.produtoCatalog.list(companyId);
         return reply.send(list.filter(p => p.is_active));
     },
     async listContactsReport(req, reply) {

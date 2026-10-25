@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.superadminController = void 0;
 const zod_1 = require("zod");
 const superadmin_service_1 = require("./superadmin.service");
-const auth_repository_1 = require("../auth/auth.repository");
+const auth_module_1 = require("../auth/auth.module");
+const http_errors_1 = require("../../core/errors/http-errors");
 const createCompanySchema = zod_1.z.object({
     name: zod_1.z.string().min(2),
     cnpj_cpf: zod_1.z.string().max(20).nullable().optional(),
@@ -52,10 +53,15 @@ exports.superadminController = {
     },
     async approveUser(req, reply) {
         const { id } = req.params;
-        const user = await auth_repository_1.authRepository.approveUser(id);
-        if (!user)
-            return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
-        return reply.send({ message: 'Usuário aprovado com sucesso', user });
+        try {
+            const user = await auth_module_1.accountApproval.approve(id);
+            return reply.send({ message: 'Usuário aprovado com sucesso', user });
+        }
+        catch (err) {
+            if (err instanceof http_errors_1.NotFoundError)
+                return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Usuário não encontrado' });
+            throw err;
+        }
     },
     async revokeUser(req, reply) {
         const { id } = req.params;
