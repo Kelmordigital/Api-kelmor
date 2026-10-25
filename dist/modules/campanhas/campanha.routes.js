@@ -1,21 +1,34 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.campanhasRoutes = campanhasRoutes;
+exports.CampanhaRouter = void 0;
 const auth_middleware_1 = require("../../middlewares/auth.middleware");
-const campanha_controller_1 = require("./campanha.controller");
-async function campanhasRoutes(app) {
-    app.addHook('preHandler', auth_middleware_1.authMiddleware);
-    // Literal routes first to avoid conflict with /:id
-    app.get('/selects', campanha_controller_1.campanhaController.getSelects);
-    app.get('/texts', campanha_controller_1.campanhaController.listTexts);
-    app.post('/texts', campanha_controller_1.campanhaController.upsertText);
-    app.put('/texts/:id', campanha_controller_1.campanhaController.updateText);
-    app.delete('/texts/:id', campanha_controller_1.campanhaController.removeText);
-    app.get('/', campanha_controller_1.campanhaController.list);
-    app.post('/', campanha_controller_1.campanhaController.create);
-    app.put('/:id', campanha_controller_1.campanhaController.update);
-    app.delete('/:id', campanha_controller_1.campanhaController.remove);
-    app.post('/:id/play', campanha_controller_1.campanhaController.play);
-    app.post('/:id/pause', campanha_controller_1.campanhaController.pause);
+/**
+ * Campanhas (mensagens agendadas) e textos de agendamento — gestão só de
+ * admin/superAdmin. Ler os textos é liberado a qualquer usuário da empresa:
+ * o atendente escolhe um deles no modal "Agendar mensagem" do atendimento.
+ */
+class CampanhaRouter {
+    controller;
+    constructor(controller) {
+        this.controller = controller;
+    }
+    register = async (app) => {
+        app.addHook('preHandler', auth_middleware_1.authMiddleware);
+        const c = this.controller;
+        const admin = { preHandler: auth_middleware_1.requireAdmin };
+        // Rotas literais antes das com /:id
+        app.get('/texts', c.listTexts);
+        app.post('/texts', admin, c.createText);
+        app.put('/texts/:id', admin, c.updateText);
+        app.delete('/texts/:id', admin, c.removeText);
+        app.get('/selects', admin, c.getSelects);
+        app.get('/', admin, c.list);
+        app.post('/', admin, c.create);
+        app.put('/:id', admin, c.update);
+        app.delete('/:id', admin, c.remove);
+        app.post('/:id/play', admin, c.play);
+        app.post('/:id/pause', admin, c.pause);
+    };
 }
+exports.CampanhaRouter = CampanhaRouter;
 //# sourceMappingURL=campanha.routes.js.map

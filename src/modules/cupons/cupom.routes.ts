@@ -1,12 +1,19 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { cupomController } from './cupom.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { CupomController } from './cupom.controller';
 
-export async function cuponsRoutes(app: FastifyInstance) {
-    app.addHook('preHandler', authMiddleware);
+/** CRUD de cupons de desconto — restrito a admin/superAdmin. */
+export class CupomRouter implements HttpRouter {
+    constructor(private readonly controller: CupomController) {}
 
-    app.get('/', cupomController.list);
-    app.post('/', cupomController.create);
-    app.put('/:id', cupomController.update);
-    app.delete('/:id', cupomController.remove);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+
+        app.get('/',       this.controller.list);
+        app.post('/',      this.controller.create);
+        app.put('/:id',    this.controller.update);
+        app.delete('/:id', this.controller.remove);
+    };
 }

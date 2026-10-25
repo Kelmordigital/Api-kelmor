@@ -1,104 +1,57 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.campanhaController = void 0;
-const campanha_service_1 = require("./campanha.service");
-exports.campanhaController = {
-    async list(req, reply) {
-        const data = await campanha_service_1.campanhaService.list(req.user.company_id);
-        return reply.send(data);
-    },
-    async getSelects(req, reply) {
-        const data = await campanha_service_1.campanhaService.getSelects(req.user.company_id);
-        return reply.send(data);
-    },
-    async create(req, reply) {
-        const body = req.body;
-        if (!body.title?.trim())
-            return reply.status(400).send({ message: 'O título é obrigatório' });
-        if (!body.message?.trim())
-            return reply.status(400).send({ message: 'A mensagem é obrigatória' });
-        if (!body.send_date)
-            return reply.status(400).send({ message: 'A data de envio é obrigatória' });
-        if (!body.connection_ids?.length)
-            return reply.status(400).send({ message: 'Selecione ao menos uma conexão' });
-        const campaign = await campanha_service_1.campanhaService.create(req.user.company_id, {
-            title: body.title.trim(),
-            message: body.message.trim(),
-            type: body.type,
-            send_date: body.send_date,
-            timezone: body.timezone,
-            all_contacts: body.all_contacts,
-            connection_ids: body.connection_ids,
-            contact_ids: body.contact_ids,
-        });
-        return reply.status(201).send(campaign);
-    },
-    async update(req, reply) {
-        const { id } = req.params;
-        const body = req.body;
-        const result = await campanha_service_1.campanhaService.update(Number(id), req.user.company_id, body);
-        if (!result)
-            return reply.status(404).send({ message: 'Campanha não encontrada' });
+exports.CampanhaController = void 0;
+const schema_validator_1 = require("../../core/validation/schema-validator");
+const http_router_1 = require("../../core/http/http-router");
+const campanha_dto_1 = require("./campanha.dto");
+/** Adapta HTTP ⇄ campanhas e textos de agendamento. */
+class CampanhaController {
+    campaigns;
+    texts;
+    constructor(campaigns, texts) {
+        this.campaigns = campaigns;
+        this.texts = texts;
+    }
+    list = async (req, reply) => reply.send(await this.campaigns.list((0, http_router_1.companyIdOf)(req)));
+    getSelects = async (req, reply) => reply.send(await this.campaigns.options((0, http_router_1.companyIdOf)(req)));
+    create = async (req, reply) => {
+        const input = schema_validator_1.SchemaValidator.parse(campanha_dto_1.createCampaignSchema, req.body);
+        return reply.status(201).send(await this.campaigns.create((0, http_router_1.companyIdOf)(req), input));
+    };
+    update = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(campanha_dto_1.campaignIdParamsSchema, req.params);
+        await this.campaigns.update(id, (0, http_router_1.companyIdOf)(req), schema_validator_1.SchemaValidator.parse(campanha_dto_1.updateCampaignSchema, req.body));
         return reply.send({ ok: true });
-    },
-    async remove(req, reply) {
-        const { id } = req.params;
-        const removed = await campanha_service_1.campanhaService.remove(Number(id), req.user.company_id);
-        if (!removed)
-            return reply.status(404).send({ message: 'Campanha não encontrada' });
+    };
+    remove = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(campanha_dto_1.campaignIdParamsSchema, req.params);
+        await this.campaigns.delete(id, (0, http_router_1.companyIdOf)(req));
         return reply.send({ ok: true });
-    },
-    async play(req, reply) {
-        const { id } = req.params;
-        const ok = await campanha_service_1.campanhaService.play(Number(id), req.user.company_id);
-        if (!ok)
-            return reply.status(404).send({ message: 'Campanha não encontrada' });
+    };
+    play = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(campanha_dto_1.campaignIdParamsSchema, req.params);
+        await this.campaigns.play(id, (0, http_router_1.companyIdOf)(req));
         return reply.send({ ok: true });
-    },
-    async pause(req, reply) {
-        const { id } = req.params;
-        const ok = await campanha_service_1.campanhaService.pause(Number(id), req.user.company_id);
-        if (!ok)
-            return reply.status(404).send({ message: 'Campanha não encontrada' });
+    };
+    pause = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(campanha_dto_1.campaignIdParamsSchema, req.params);
+        await this.campaigns.pause(id, (0, http_router_1.companyIdOf)(req));
         return reply.send({ ok: true });
-    },
-    // ── Textos de Agendamento ─────────────────────────────────────────────────
-    async listTexts(req, reply) {
-        const data = await campanha_service_1.campanhaService.listTexts(req.user.company_id);
-        return reply.send(data);
-    },
-    async upsertText(req, reply) {
-        const body = req.body;
-        if (!body.label?.trim())
-            return reply.status(400).send({ message: 'O rótulo é obrigatório' });
-        if (!body.type)
-            return reply.status(400).send({ message: 'O tipo é obrigatório' });
-        const result = await campanha_service_1.campanhaService.upsertText(req.user.company_id, {
-            label: body.label.trim(),
-            text: body.text,
-            type: Number(body.type),
-        });
-        return reply.send(result);
-    },
-    async updateText(req, reply) {
-        const { id } = req.params;
-        const body = req.body;
-        if (!body.label?.trim())
-            return reply.status(400).send({ message: 'O rótulo é obrigatório' });
-        const result = await campanha_service_1.campanhaService.updateText(Number(id), req.user.company_id, {
-            label: body.label.trim(),
-            text: body.text,
-        });
-        if (!result)
-            return reply.status(404).send({ message: 'Texto não encontrado' });
-        return reply.send(result);
-    },
-    async removeText(req, reply) {
-        const { id } = req.params;
-        const removed = await campanha_service_1.campanhaService.removeText(Number(id), req.user.company_id);
-        if (!removed)
-            return reply.status(404).send({ message: 'Texto não encontrado' });
+    };
+    listTexts = async (req, reply) => reply.send(await this.texts.list((0, http_router_1.companyIdOf)(req)));
+    createText = async (req, reply) => {
+        const input = schema_validator_1.SchemaValidator.parse(campanha_dto_1.textSchema, req.body);
+        return reply.status(201).send(await this.texts.create((0, http_router_1.companyIdOf)(req), input));
+    };
+    updateText = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(campanha_dto_1.textIdParamsSchema, req.params);
+        return reply.send(await this.texts.update(id, (0, http_router_1.companyIdOf)(req), schema_validator_1.SchemaValidator.parse(campanha_dto_1.textSchema, req.body)));
+    };
+    removeText = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(campanha_dto_1.textIdParamsSchema, req.params);
+        await this.texts.remove(id, (0, http_router_1.companyIdOf)(req));
         return reply.send({ ok: true });
-    },
-};
+    };
+}
+exports.CampanhaController = CampanhaController;
 //# sourceMappingURL=campanha.controller.js.map

@@ -1,80 +1,81 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.agendaService = void 0;
-const drizzle_orm_1 = require("drizzle-orm");
-const client_1 = require("../../database/client");
-const agenda_db_schema_1 = require("./agenda.db.schema");
-const integracao_service_1 = require("../integracoes/integracao.service");
-const google_calendar_client_1 = require("../integracoes/google-calendar.client");
-exports.agendaService = {
-    async list(companyId, start, end) {
-        return client_1.db
-            .select()
-            .from(agenda_db_schema_1.agendamentos)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(agenda_db_schema_1.agendamentos.company_id, companyId), (0, drizzle_orm_1.between)(agenda_db_schema_1.agendamentos.start_at, start, end)));
-    },
-    async create(companyId, userId, payload) {
-        const [row] = await client_1.db
-            .insert(agenda_db_schema_1.agendamentos)
-            .values({ ...payload, company_id: companyId, created_by: userId })
-            .returning();
-        const integration = await integracao_service_1.integracaoService.getValidTokens(companyId);
-        if (integration) {
-            try {
-                const googleId = await (0, google_calendar_client_1.createCalendarEvent)(integration.access_token, integration.refresh_token, { title: row.title, start_at: row.start_at, end_at: row.end_at, notes: row.notes });
-                const [updated] = await client_1.db
-                    .update(agenda_db_schema_1.agendamentos)
-                    .set({ google_event_id: googleId })
-                    .where((0, drizzle_orm_1.eq)(agenda_db_schema_1.agendamentos.id, row.id))
-                    .returning();
-                return updated;
-            }
-            catch (err) {
-                console.error('[agenda] Erro ao sincronizar com Google Calendar:', err);
-            }
+exports.AgendaService = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
+const DEFAULT_COLOR = '#6366f1';
+/**
+ * Agendamentos da empresa. Cada alteração é espelhada na agenda externa
+ * (CalendarSync) em melhor esforço: falha lá nunca desfaz nada aqui.
+ */
+class AgendaService {
+    repository;
+    calendar;
+    constructor(repository, calendar) {
+        this.repository = repository;
+        this.calendar = calendar;
+    }
+    list(companyId, period) {
+        return this.repository.listStartingBetween(companyId, period.start, period.end);
+    }
+    async create(companyId, userId, input) {
+        if (!input.start_at || !input.end_at)
+            throw new http_errors_1.BadRequestError('start_at e end_at são obrigatórios');
+        AgendaService.assertEndNotBeforeStart(input.start_at, input.end_at);
+        const row = await this.repository.create(companyId, userId, {
+            title: input.title,
+            lead_id: input.lead_id ?? null,
+            start_at: input.start_at,
+            end_at: input.end_at,
+            color: input.color ?? DEFAULT_COLOR,
+            notes: input.notes ?? null,
+            notify_on_create: input.notify_on_create ?? true,
+            reminder_minutes: input.reminder_minutes ?? null,
+            remind_at_exact: input.remind_at_exact ?? false,
+            notify_groups: input.notify_groups ?? [],
+        });
+        const googleEventId = await this.calendar.createEvent(companyId, AgendaService.toCalendarEvent(row));
+        if (!googleEventId)
+            return row;
+        try {
+            return await this.repository.setGoogleEventId(row.id, googleEventId);
         }
-        return row;
-    },
-    async update(id, companyId, payload) {
-        const [row] = await client_1.db
-            .update(agenda_db_schema_1.agendamentos)
-            .set({ ...payload, updated_at: new Date() })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(agenda_db_schema_1.agendamentos.id, id), (0, drizzle_orm_1.eq)(agenda_db_schema_1.agendamentos.company_id, companyId)))
-            .returning();
-        if (!row)
-            return null;
+        catch (err) {
+            console.error('[agenda] Erro ao salvar o id do evento do Google Calendar:', err);
+            return row;
+        }
+    }
+    async update(id, companyId, input) {
+        const existing = AgendaService.orNotFound(await this.repository.findById(id, companyId));
+        AgendaService.assertEndNotBeforeStart(input.start_at ?? existing.start_at, input.end_at ?? existing.end_at);
+        const patch = {};
+        for (const [key, value] of Object.entries(input)) {
+            if (value !== undefined)
+                Object.assign(patch, { [key]: value });
+        }
+        const row = AgendaService.orNotFound(await this.repository.update(id, companyId, patch));
         if (row.google_event_id) {
-            const integration = await integracao_service_1.integracaoService.getValidTokens(companyId);
-            if (integration) {
-                try {
-                    await (0, google_calendar_client_1.updateCalendarEvent)(integration.access_token, integration.refresh_token, row.google_event_id, { title: row.title, start_at: row.start_at, end_at: row.end_at, notes: row.notes });
-                }
-                catch (err) {
-                    console.error('[agenda] Erro ao atualizar evento no Google Calendar:', err);
-                }
-            }
+            await this.calendar.updateEvent(companyId, row.google_event_id, AgendaService.toCalendarEvent(row));
         }
         return row;
-    },
+    }
     async remove(id, companyId) {
-        const [row] = await client_1.db
-            .delete(agenda_db_schema_1.agendamentos)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(agenda_db_schema_1.agendamentos.id, id), (0, drizzle_orm_1.eq)(agenda_db_schema_1.agendamentos.company_id, companyId)))
-            .returning();
+        const row = AgendaService.orNotFound(await this.repository.delete(id, companyId));
+        if (row.google_event_id)
+            await this.calendar.deleteEvent(companyId, row.google_event_id);
+    }
+    /** Início e fim iguais são permitidos (evento sem duração). */
+    static assertEndNotBeforeStart(start, end) {
+        if (end.getTime() < start.getTime())
+            throw new http_errors_1.BadRequestError('end_at não pode ser antes de start_at');
+    }
+    static toCalendarEvent(row) {
+        return { title: row.title, start_at: row.start_at, end_at: row.end_at, notes: row.notes };
+    }
+    static orNotFound(row) {
         if (!row)
-            return false;
-        if (row.google_event_id) {
-            const integration = await integracao_service_1.integracaoService.getValidTokens(companyId);
-            if (integration) {
-                try {
-                    await (0, google_calendar_client_1.deleteCalendarEvent)(integration.access_token, integration.refresh_token, row.google_event_id);
-                }
-                catch (err) {
-                    console.error('[agenda] Erro ao deletar evento do Google Calendar:', err);
-                }
-            }
-        }
-        return true;
-    },
-};
+            throw new http_errors_1.NotFoundError('Agendamento não encontrado');
+        return row;
+    }
+}
+exports.AgendaService = AgendaService;
 //# sourceMappingURL=agenda.service.js.map

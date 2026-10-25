@@ -6,7 +6,7 @@ import { runMigrations } from './database/migrate';
 import { initSocket } from './shared/socket';
 import { startConnectionHealthJob, initSessionsGauge } from './jobs/connection-health.job';
 import { startReconnectionWorker } from './jobs/reconnection.queue';
-import { restoreScheduledMessages } from './modules/agendamento-mensagens/agendamento-mensagens.scheduler';
+import { scheduledMessageLoop } from './modules/agendamento-mensagens/agendamento-mensagens.module';
 import { startRabbitConsumer, stopRabbitConsumer } from './shared/rabbitmq';
 import type { Worker } from 'bullmq';
 
@@ -30,6 +30,7 @@ async function main() {
     async function shutdown(signal: string) {
         console.log(`[shutdown] Sinal ${signal} recebido — encerrando graciosamente...`);
         if (healthInterval) clearInterval(healthInterval);
+        scheduledMessageLoop.stop();
         if (reconnectWorker) await reconnectWorker.close().catch(() => {});
         await stopRabbitConsumer().catch(() => {});
         await app.close().catch(() => {});
@@ -46,7 +47,8 @@ async function main() {
         healthInterval    = startConnectionHealthJob();
         initSessionsGauge().catch(() => {});
         reconnectWorker   = startReconnectionWorker();
-        restoreScheduledMessages().catch(() => {});
+        // Envia as mensagens agendadas que vencerem (seguro com várias réplicas)
+        scheduledMessageLoop.start();
         startRabbitConsumer().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
         console.log(`Servidor rodando na porta ${env.PORT}`);
     } catch (err) {

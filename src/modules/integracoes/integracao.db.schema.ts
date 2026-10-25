@@ -9,6 +9,8 @@ export const companyIntegrations = pgTable('at_company_integrations', {
     refresh_token: text('refresh_token').notNull(),
     token_expiry:  timestamp('token_expiry'),
     google_email:  varchar('google_email', { length: 255 }),
+    // Preenchido quando o Google recusa os tokens (acesso revogado); limpo ao reconectar
+    reconnect_required_at: timestamp('reconnect_required_at'),
     created_at:    timestamp('created_at').defaultNow(),
     updated_at:    timestamp('updated_at').defaultNow(),
 });

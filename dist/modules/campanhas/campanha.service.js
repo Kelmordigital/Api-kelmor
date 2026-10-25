@@ -1,151 +1,88 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.campanhaService = void 0;
-const drizzle_orm_1 = require("drizzle-orm");
-const client_1 = require("../../database/client");
-const env_1 = require("../../config/env");
-const campanha_db_schema_1 = require("./campanha.db.schema");
-const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
+exports.ScheduledTextService = exports.CampaignService = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
 /**
- * Defesa em profundidade: o `campaigns` também valida isso, mas o proxy não
- * deve repassar connection_ids/contact_ids de outra empresa mesmo que a
- * validação do outro lado falhe ou fique desatualizada.
+ * Campanhas de disparo: validadas e escopadas pela empresa aqui, executadas
+ * pelo microsserviço `campaigns`. Conexões e contatos de outra empresa nunca
+ * são repassados (defesa em profundidade: o microsserviço também confere).
  */
-async function filterOwnedConnectionIds(companyId, ids) {
-    if (ids.length === 0)
-        return [];
-    const owned = await client_1.db.select({ id: atendimento_db_schema_1.connections.id }).from(atendimento_db_schema_1.connections)
-        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.connections.id, ids)));
-    return owned.map(o => o.id);
+class CampaignService {
+    gateway;
+    resources;
+    repository;
+    constructor(gateway, resources, repository) {
+        this.gateway = gateway;
+        this.resources = resources;
+        this.repository = repository;
+    }
+    list(companyId) {
+        return this.gateway.list(companyId);
+    }
+    options(companyId) {
+        return this.repository.options(companyId);
+    }
+    async create(companyId, input) {
+        const payload = await this.scoped(companyId, input);
+        if (!payload.connection_ids?.length)
+            throw new http_errors_1.BadRequestError('Selecione ao menos uma conexão');
+        return this.gateway.create(companyId, payload);
+    }
+    async update(id, companyId, input) {
+        await this.gateway.update(id, companyId, await this.scoped(companyId, input));
+    }
+    delete(id, companyId) {
+        return this.gateway.delete(id, companyId);
+    }
+    play(id, companyId) {
+        return this.gateway.play(id, companyId);
+    }
+    pause(id, companyId) {
+        return this.gateway.pause(id, companyId);
+    }
+    /** Só campos conhecidos, com conexões/contatos filtrados para os da empresa. */
+    async scoped(companyId, input) {
+        const { connection_ids, contact_ids, ...fields } = input;
+        const payload = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+        if (connection_ids !== undefined)
+            payload.connection_ids = await this.resources.ownedConnectionIds(companyId, connection_ids);
+        if (contact_ids !== undefined)
+            payload.contact_ids = await this.resources.ownedContactIds(companyId, contact_ids);
+        return payload;
+    }
 }
-async function filterOwnedContactIds(companyId, ids) {
-    if (ids.length === 0)
-        return [];
-    const owned = await client_1.db.select({ id: atendimento_db_schema_1.contacts.id }).from(atendimento_db_schema_1.contacts)
-        .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.company_id, companyId), (0, drizzle_orm_1.inArray)(atendimento_db_schema_1.contacts.id, ids)));
-    return owned.map(o => o.id);
-}
-async function campaignsApi(path, init) {
-    return fetch(`${env_1.env.CAMPAIGNS_API_URL}${path}`, {
-        ...init,
-        headers: {
-            'Content-Type': 'application/json',
-            'x-internal-secret': env_1.env.INTERNAL_API_SECRET,
-            ...init?.headers,
-        },
-    });
-}
-exports.campanhaService = {
-    // ── Campanhas — proxy pro microsserviço `campaigns` ─────────────────────
-    // Quem persiste, agenda (BullMQ) e efetivamente dispara é o `campaigns`;
-    // este serviço só repassa a chamada já validada e escopada por empresa.
-    async list(companyId) {
-        const res = await campaignsApi(`/campaign?company_id=${companyId}`);
-        if (!res.ok)
-            throw new Error(`Erro ao listar campanhas (${res.status})`);
-        return res.json();
-    },
-    async create(companyId, payload) {
-        const safeConnectionIds = await filterOwnedConnectionIds(companyId, payload.connection_ids);
-        const safeContactIds = payload.contact_ids?.length
-            ? await filterOwnedContactIds(companyId, payload.contact_ids)
-            : payload.contact_ids;
-        const res = await campaignsApi('/campaign', {
-            method: 'POST',
-            body: JSON.stringify({
-                company_id: companyId,
-                ...payload,
-                connection_ids: safeConnectionIds,
-                contact_ids: safeContactIds,
-            }),
-        });
-        if (!res.ok)
-            throw new Error(`Erro ao criar campanha (${res.status})`);
-        return res.json();
-    },
-    async update(id, companyId, payload) {
-        const safeConnectionIds = payload.connection_ids !== undefined
-            ? await filterOwnedConnectionIds(companyId, payload.connection_ids)
-            : undefined;
-        const safeContactIds = payload.contact_ids !== undefined
-            ? await filterOwnedContactIds(companyId, payload.contact_ids)
-            : undefined;
-        await campaignsApi(`/campaign/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                company_id: companyId,
-                ...payload,
-                ...(safeConnectionIds !== undefined ? { connection_ids: safeConnectionIds } : {}),
-                ...(safeContactIds !== undefined ? { contact_ids: safeContactIds } : {}),
-            }),
-        });
-        return { id };
-    },
+exports.CampaignService = CampaignService;
+/**
+ * Textos prontos de agendamento da empresa, oferecidos ao atendente no modal
+ * "Agendar mensagem" do atendimento. Cada empresa cadastra os seus; a ordem
+ * de exibição é a de criação.
+ */
+class ScheduledTextService {
+    repository;
+    constructor(repository) {
+        this.repository = repository;
+    }
+    list(companyId) {
+        return this.repository.listTexts(companyId);
+    }
+    async create(companyId, input) {
+        const position = (await this.repository.lastTextPosition(companyId)) + 1;
+        const [created] = await this.repository.insertTexts(companyId, [{ label: input.label, text: input.text ?? null, type: position }]);
+        return created;
+    }
+    async update(id, companyId, input) {
+        const row = await this.repository.updateText(id, companyId, { label: input.label, text: input.text ?? null });
+        if (!row)
+            throw ScheduledTextService.notFound();
+        return row;
+    }
     async remove(id, companyId) {
-        const res = await campaignsApi(`/campaign/${id}?company_id=${companyId}`, { method: 'DELETE' });
-        return res.ok;
-    },
-    async play(id, companyId) {
-        const res = await campaignsApi(`/campaign/${id}/play?company_id=${companyId}`, { method: 'POST' });
-        return res.ok;
-    },
-    async pause(id, companyId) {
-        const res = await campaignsApi(`/campaign/${id}/pause?company_id=${companyId}`, { method: 'POST' });
-        return res.ok;
-    },
-    // ── Seletores auxiliares (conexões/contatos) — locais, sem relação com o motor de envio ──
-    async getSelects(companyId) {
-        const [conns, cts] = await Promise.all([
-            client_1.db.select({ id: atendimento_db_schema_1.connections.id, name: atendimento_db_schema_1.connections.name, status: atendimento_db_schema_1.connections.status })
-                .from(atendimento_db_schema_1.connections)
-                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.connections.company_id, companyId)),
-            client_1.db.select({ id: atendimento_db_schema_1.contacts.id, name: atendimento_db_schema_1.contacts.name, number: atendimento_db_schema_1.contacts.number })
-                .from(atendimento_db_schema_1.contacts)
-                .where((0, drizzle_orm_1.eq)(atendimento_db_schema_1.contacts.company_id, companyId)),
-        ]);
-        return { connections: conns, contacts: cts };
-    },
-    // ── Textos de Agendamento — locais, usados no modal do atendimento ──────
-    async listTexts(companyId) {
-        const existing = await client_1.db.select().from(campanha_db_schema_1.scheduledMessageTexts)
-            .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.company_id, companyId));
-        const existingTypes = new Set(existing.map(t => t.type));
-        const defaults = [
-            { type: 1, label: 'Recorrência', text: 'Olá! Passando para avisar que o seu medicamento contínuo pode estar acabando. Podemos separar para você?' },
-            { type: 2, label: 'Pós-venda/Antibiótico', text: 'Olá! Como está se sentindo? Passando para acompanhar o seu tratamento com o antibiótico.' },
-            { type: 3, label: 'Suplementação', text: 'Olá! O seu suplemento pode estar no fim. Posso verificar a disponibilidade para você?' },
-            { type: 4, label: 'Personalizar', text: '' },
-        ];
-        const missing = defaults.filter(d => !existingTypes.has(d.type));
-        if (missing.length > 0) {
-            await client_1.db.insert(campanha_db_schema_1.scheduledMessageTexts).values(missing.map(d => ({ company_id: companyId, ...d })));
-            return client_1.db.select().from(campanha_db_schema_1.scheduledMessageTexts)
-                .where((0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.company_id, companyId));
-        }
-        return existing;
-    },
-    async upsertText(companyId, payload) {
-        const [result] = await client_1.db.insert(campanha_db_schema_1.scheduledMessageTexts)
-            .values({ company_id: companyId, label: payload.label, text: payload.text, type: payload.type })
-            .onConflictDoUpdate({
-            target: [campanha_db_schema_1.scheduledMessageTexts.company_id, campanha_db_schema_1.scheduledMessageTexts.type],
-            set: { label: payload.label, text: payload.text },
-        })
-            .returning();
-        return result;
-    },
-    async updateText(id, companyId, payload) {
-        const [result] = await client_1.db.update(campanha_db_schema_1.scheduledMessageTexts)
-            .set({ label: payload.label, text: payload.text })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.id, id), (0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.company_id, companyId)))
-            .returning();
-        return result ?? null;
-    },
-    async removeText(id, companyId) {
-        const [row] = await client_1.db.delete(campanha_db_schema_1.scheduledMessageTexts)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.id, id), (0, drizzle_orm_1.eq)(campanha_db_schema_1.scheduledMessageTexts.company_id, companyId)))
-            .returning({ id: campanha_db_schema_1.scheduledMessageTexts.id });
-        return !!row;
-    },
-};
+        if (!(await this.repository.deleteText(id, companyId)))
+            throw ScheduledTextService.notFound();
+    }
+    static notFound() {
+        return new http_errors_1.NotFoundError('Texto não encontrado');
+    }
+}
+exports.ScheduledTextService = ScheduledTextService;
 //# sourceMappingURL=campanha.service.js.map

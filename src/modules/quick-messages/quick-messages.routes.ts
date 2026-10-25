@@ -1,12 +1,18 @@
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../../middlewares/auth.middleware';
-import { quickMessagesController } from './quick-messages.controller';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { QuickMessageController } from './quick-messages.controller';
 
-export async function quickMessagesRoutes(app: FastifyInstance) {
-    const auth = { preHandler: authMiddleware };
+/** Mensagens rápidas — qualquer usuário autenticado da empresa. */
+export class QuickMessageRouter implements HttpRouter {
+    constructor(private readonly controller: QuickMessageController) {}
 
-    app.get('/',       auth, quickMessagesController.list);
-    app.post('/',      auth, quickMessagesController.create);
-    app.put('/:id',    auth, quickMessagesController.update);
-    app.delete('/:id', auth, quickMessagesController.remove);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+
+        app.get('/',       this.controller.list);
+        app.post('/',      this.controller.create);
+        app.put('/:id',    this.controller.update);
+        app.delete('/:id', this.controller.remove);
+    };
 }

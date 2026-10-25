@@ -2,8 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.errorHandler = errorHandler;
 const zod_1 = require("zod");
+const http_errors_1 = require("../core/errors/http-errors");
 function errorHandler(error, request, reply) {
     request.log.error(error);
+    // Erros de aplicação (src/core/errors) — cada um define status e corpo
+    if (error instanceof http_errors_1.AppError) {
+        return reply.status(error.statusCode).send(error.toResponse());
+    }
     // Erros de validação do Zod
     if (error instanceof zod_1.ZodError) {
         return reply.status(400).send({

@@ -1,103 +1,39 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { agendaService } from './agenda.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { requireCompanyId } from '../../core/http/http-router';
+import {
+    agendaListQuerySchema, agendamentoIdParamsSchema, createAgendamentoSchema, updateAgendamentoSchema,
+} from './agenda.dto';
+import { AgendaPeriod } from './agenda-period';
+import type { AgendaService } from './agenda.service';
 
-export const agendaController = {
+/** Adapta HTTP ⇄ AgendaService: extrai/valida entrada e escolhe o status. */
+export class AgendaController {
+    constructor(private readonly service: AgendaService) {}
 
-    async list(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
+    list = async (req: FastifyRequest, reply: FastifyReply) => {
+        const companyId = requireCompanyId(req);
+        const { start, end } = SchemaValidator.parse(agendaListQuerySchema, req.query);
+        return reply.send(await this.service.list(companyId, AgendaPeriod.of(start, end)));
+    };
 
-        const { start, end } = req.query as { start?: string; end?: string };
-        const now = new Date();
-        const startDate = start ? new Date(start) : new Date(now.getFullYear(), now.getMonth(), 1);
-        const endDate   = end   ? new Date(end)   : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const companyId = requireCompanyId(req);
+        const input = SchemaValidator.parse(createAgendamentoSchema, req.body);
+        return reply.status(201).send(await this.service.create(companyId, req.user.id, input));
+    };
 
-        const events = await agendaService.list(companyId, startDate, endDate);
-        return reply.send(events);
-    },
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const companyId = requireCompanyId(req);
+        const { id } = SchemaValidator.parse(agendamentoIdParamsSchema, req.params);
+        const input = SchemaValidator.parse(updateAgendamentoSchema, req.body);
+        return reply.send(await this.service.update(id, companyId, input));
+    };
 
-    async create(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        const userId    = req.user.id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const {
-            title, lead_id, start_at, end_at, color, notes,
-            notify_on_create, reminder_minutes, remind_at_exact, notify_groups,
-        } = req.body as {
-            title: string;
-            lead_id?: string;
-            start_at: string;
-            end_at: string;
-            color?: string;
-            notes?: string;
-            notify_on_create?: boolean;
-            reminder_minutes?: number;
-            remind_at_exact?: boolean;
-            notify_groups?: number[];
-        };
-
-        if (!title?.trim()) return reply.status(400).send({ error: 'title é obrigatório' });
-        if (!start_at || !end_at) return reply.status(400).send({ error: 'start_at e end_at são obrigatórios' });
-
-        const row = await agendaService.create(companyId, userId, {
-            title:            title.trim(),
-            lead_id:          lead_id ?? null,
-            start_at:         new Date(start_at),
-            end_at:           new Date(end_at),
-            color:            color ?? '#6366f1',
-            notes:            notes ?? null,
-            notify_on_create: notify_on_create ?? true,
-            reminder_minutes: reminder_minutes ?? null,
-            remind_at_exact:  remind_at_exact ?? false,
-            notify_groups:    notify_groups ?? [],
-        });
-
-        return reply.status(201).send(row);
-    },
-
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const body = req.body as {
-            title?: string;
-            lead_id?: string;
-            start_at?: string;
-            end_at?: string;
-            color?: string;
-            notes?: string;
-            notify_on_create?: boolean;
-            reminder_minutes?: number;
-            remind_at_exact?: boolean;
-            notify_groups?: number[];
-        };
-
-        const payload: Parameters<typeof agendaService.update>[2] = {};
-        if (body.title            !== undefined) payload.title            = body.title;
-        if (body.lead_id          !== undefined) payload.lead_id          = body.lead_id;
-        if (body.start_at         !== undefined) payload.start_at         = new Date(body.start_at);
-        if (body.end_at           !== undefined) payload.end_at           = new Date(body.end_at);
-        if (body.color            !== undefined) payload.color            = body.color;
-        if (body.notes            !== undefined) payload.notes            = body.notes;
-        if (body.notify_on_create !== undefined) payload.notify_on_create = body.notify_on_create;
-        if (body.reminder_minutes !== undefined) payload.reminder_minutes = body.reminder_minutes;
-        if (body.remind_at_exact  !== undefined) payload.remind_at_exact  = body.remind_at_exact;
-        if (body.notify_groups    !== undefined) payload.notify_groups    = body.notify_groups;
-
-        const row = await agendaService.update(id, companyId, payload);
-        if (!row) return reply.status(404).send({ error: 'Agendamento não encontrado' });
-        return reply.send(row);
-    },
-
-    async remove(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id;
-        if (!companyId) return reply.status(403).send({ error: 'Empresa não encontrada' });
-
-        const { id } = req.params as { id: string };
-        const ok = await agendaService.remove(id, companyId);
-        if (!ok) return reply.status(404).send({ error: 'Agendamento não encontrado' });
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const companyId = requireCompanyId(req);
+        const { id } = SchemaValidator.parse(agendamentoIdParamsSchema, req.params);
+        await this.service.remove(id, companyId);
         return reply.status(204).send();
-    },
-};
+    };
+}

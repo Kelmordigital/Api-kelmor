@@ -78,8 +78,8 @@ exports.messageService = {
         (0, socket_1.emitToCompany)(companyId, 'message:created', { message: msg, ticketId });
         if (body && contactId !== null) {
             try {
-                const { matchAndApplyAutomaticTags } = await Promise.resolve().then(() => __importStar(require('../etiquetas/etiqueta.service')));
-                await matchAndApplyAutomaticTags(companyId, contactId, body);
+                const { messageAutoTagger } = await Promise.resolve().then(() => __importStar(require('../etiquetas/etiqueta.module')));
+                await messageAutoTagger.applyFor(companyId, contactId, body);
             }
             catch (err) {
                 console.error(`[AutoTags] Falha ao aplicar etiquetas automáticas (ticket ${ticketId}):`, err instanceof Error ? err.message : err);

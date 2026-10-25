@@ -1,10 +1,19 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { agendaController } from './agenda.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { AgendaController } from './agenda.controller';
 
-export async function agendaRoutes(app: FastifyInstance) {
-    app.get('/',       { preHandler: authMiddleware }, agendaController.list);
-    app.post('/',      { preHandler: authMiddleware }, agendaController.create);
-    app.put('/:id',    { preHandler: authMiddleware }, agendaController.update);
-    app.delete('/:id', { preHandler: authMiddleware }, agendaController.remove);
+/** Agenda da empresa — restrita a admin/superAdmin. */
+export class AgendaRouter implements HttpRouter {
+    constructor(private readonly controller: AgendaController) {}
+
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+
+        app.get('/',       this.controller.list);
+        app.post('/',      this.controller.create);
+        app.put('/:id',    this.controller.update);
+        app.delete('/:id', this.controller.remove);
+    };
 }

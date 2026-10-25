@@ -33,4 +33,5 @@ __exportStar(require("../modules/agendamento-mensagens/agendamento-mensagens.db.
 __exportStar(require("../modules/meu-perfil/meu-perfil.db.schema"), exports);
 __exportStar(require("../modules/achievements/achievements.db.schema"), exports);
 __exportStar(require("../modules/api-messages/api-messages.db.schema"), exports);
+__exportStar(require("../modules/notificacoes/notificacao.db.schema"), exports);
 //# sourceMappingURL=shema.js.map

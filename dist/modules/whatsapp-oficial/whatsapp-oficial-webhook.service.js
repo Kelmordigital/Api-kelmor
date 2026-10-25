@@ -197,7 +197,7 @@ exports.whatsappOficialWebhookService = {
             mediaUrl = await this.downloadMedia(conn, mediaId, msg.id, mimeType, filename) ?? undefined;
         }
         // Pesquisa em andamento captura a resposta antes de virar mensagem comum
-        const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
+        const { researchSurvey: pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.module')));
         const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
         if (wasAnswer)
             return;

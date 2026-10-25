@@ -7,11 +7,11 @@ import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
 import {
-    achievementsService,
     InvalidMissionKeyError,
     GamificationDisabledError,
     MISSION_KEYS,
 } from '../../src/modules/achievements/achievements.service';
+import { achievementsService } from '../../src/modules/achievements/achievements.module';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
 import { runSeed } from '../../src/database/seed';
 import { buildApp } from '../../src/shared/server';

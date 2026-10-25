@@ -1,25 +1,43 @@
-import { FastifyInstance } from 'fastify';
-import { authController } from './auth.controller';
+import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../core/errors/http-errors';
+import type { HttpRouter } from '../../core/http/http-router';
+import { publicApiErrorBody } from '../../core/http/public-api-error';
 import { adminMiddleware, authMiddleware, requireSuperAdmin } from '../../middlewares/auth.middleware';
-import { env } from '../../config/env';
+import { errorHandler } from '../../middlewares/error.middleware';
+import type { AuthController } from './auth.controller';
 
-export async function authRoutes(app: FastifyInstance) {
-    // 5 tentativas/min por IP contra força bruta; na suíte de testes fica desligado
-    const loginLimit = env.NODE_ENV === 'test'
-        ? {}
-        : { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } };
+/**
+ * Autenticação. Os erros saem no formato `{ statusCode, error, message }` —
+ * contrato do login com o front, o app desktop e as integrações.
+ */
+export class AuthRouter implements HttpRouter {
+    constructor(
+        private readonly controller: AuthController,
+        /** 5 tentativas/min por IP contra força bruta (desligado na suíte de testes). */
+        private readonly bruteForceLimit: boolean,
+    ) {}
 
-    app.post('/register', { preHandler: adminMiddleware }, authController.register);
-    app.post('/login',      loginLimit, authController.login);
-    app.post('/login/totp', loginLimit, authController.loginTotp);
-    app.post('/refresh', authController.refresh);
-    app.delete('/logout', authController.logout);
-    app.get('/me', { preHandler: authMiddleware }, authController.me);
-    app.patch('/approve/:id', { preHandler: [authMiddleware, requireSuperAdmin] }, authController.approve);
+    register = async (app: FastifyInstance) => {
+        app.setErrorHandler((error, req, reply) => {
+            if (error instanceof AppError) return reply.status(error.statusCode).send(publicApiErrorBody(error));
+            return errorHandler(error as Error, req, reply);
+        });
 
-    const superGuard = { preHandler: [authMiddleware, requireSuperAdmin] };
-    // enable/disable verificam códigos → mesmo rate limit do login contra força bruta
-    app.get('/totp/setup',    superGuard, authController.totpSetup);
-    app.post('/totp/enable',  { ...superGuard, ...loginLimit }, authController.totpEnable);
-    app.post('/totp/disable', { ...superGuard, ...loginLimit }, authController.totpDisable);
+        const c = this.controller;
+        const limited = this.bruteForceLimit ? { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } } : {};
+        const superGuard = { preHandler: [authMiddleware, requireSuperAdmin] };
+
+        app.post('/register',   { preHandler: adminMiddleware }, c.register);
+        app.post('/login',      limited, c.login);
+        app.post('/login/totp', limited, c.loginTotp);
+        app.post('/refresh',    c.refresh);
+        app.delete('/logout',   c.logout);
+        app.get('/me',          { preHandler: authMiddleware }, c.me);
+        app.patch('/approve/:id', superGuard, c.approve);
+
+        // enable/disable conferem códigos → mesmo limite do login contra força bruta
+        app.get('/totp/setup',    superGuard, c.totpSetup);
+        app.post('/totp/enable',  { ...superGuard, ...limited }, c.totpEnable);
+        app.post('/totp/disable', { ...superGuard, ...limited }, c.totpDisable);
+    };
 }

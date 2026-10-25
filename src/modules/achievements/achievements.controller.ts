@@ -1,40 +1,26 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { achievementsService, InvalidMissionKeyError, GamificationDisabledError } from './achievements.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { z } from 'zod';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { requireCompanyId } from '../../core/http/http-router';
+import type { AchievementsService } from './achievements.service';
 
-export const achievementsController = {
+const MISSION_KEY_REQUIRED = 'Campo "mission_key" é obrigatório';
 
-    async getProgress(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        try {
-            const progress = await achievementsService.getProgress(req.user.id, companyId);
-            return reply.send(progress);
-        } catch (err) {
-            if (err instanceof GamificationDisabledError) {
-                return reply.status(403).send({ error: err.message });
-            }
-            throw err;
-        }
-    },
+const completeMissionSchema = z.object({
+    mission_key: z.string({ error: MISSION_KEY_REQUIRED }).min(1, MISSION_KEY_REQUIRED),
+}, { error: MISSION_KEY_REQUIRED });
 
-    async complete(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { mission_key } = req.body as { mission_key?: string };
+/** Adapta HTTP ⇄ AchievementsService. Sempre sobre o usuário autenticado. */
+export class AchievementsController {
+    constructor(private readonly service: AchievementsService) {}
 
-        if (!mission_key) {
-            return reply.status(400).send({ error: 'Campo "mission_key" é obrigatório' });
-        }
+    getProgress = async (req: FastifyRequest, reply: FastifyReply) => {
+        return reply.send(await this.service.getProgress(req.user.id, requireCompanyId(req)));
+    };
 
-        try {
-            const progress = await achievementsService.completeMission(req.user.id, companyId, mission_key);
-            return reply.send(progress);
-        } catch (err) {
-            if (err instanceof InvalidMissionKeyError) {
-                return reply.status(400).send({ error: err.message });
-            }
-            if (err instanceof GamificationDisabledError) {
-                return reply.status(403).send({ error: err.message });
-            }
-            throw err;
-        }
-    },
-};
+    complete = async (req: FastifyRequest, reply: FastifyReply) => {
+        const companyId = requireCompanyId(req);
+        const { mission_key } = SchemaValidator.parse(completeMissionSchema, req.body);
+        return reply.send(await this.service.completeMission(req.user.id, companyId, mission_key));
+    };
+}

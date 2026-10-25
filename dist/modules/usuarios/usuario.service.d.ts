@@ -1,68 +1,46 @@
-export declare const usuarioService: {
-    list(companyId: string): Promise<{
-        queue_ids: number[];
-        connection_ids: number[];
+import type { PasswordHasher } from '../../core/auth/password-hasher';
+import type { SessionRevoker } from '../../core/auth/session';
+import type { AchievementProgressReader } from '../achievements/achievements.service';
+import { type CompanyUser, type UserRepository } from './usuario.repository';
+import type { UserInput } from './usuario.dto';
+export interface Actor {
+    userId: string;
+    companyId: string;
+}
+/**
+ * Gestão dos usuários da empresa pelo admin. Mudanças que afetam o acesso
+ * (senha, perfil, exclusão) derrubam as sessões abertas do usuário.
+ */
+export declare class UsuarioService {
+    private readonly repository;
+    private readonly hasher;
+    private readonly sessions;
+    private readonly progress;
+    constructor(repository: UserRepository, hasher: PasswordHasher, sessions: SessionRevoker, progress: AchievementProgressReader);
+    list(companyId: string): Promise<(CompanyUser & {
         patente: string;
         patente_sub_level: number | null;
-        id: string;
-        name: string;
-        nickname: string | null;
-        email: string;
-        profile_id: number;
-        profile_tag: string;
-        profile_name: string;
-        is_approved: boolean;
-        created_at: Date | null;
-        avatar_url: string | null;
-    }[]>;
-    create(companyId: string, payload: {
-        name: string;
-        email: string;
-        password: string;
-        profile_id: number;
-        queue_ids?: number[];
-        connection_ids?: number[];
-    }): Promise<{
+    })[]>;
+    options(companyId: string): Promise<{
+        queues: {
+            id: number;
+            name: string;
+            color: string | null;
+        }[];
+        connections: {
+            id: number;
+            name: string;
+            status: string | null;
+        }[];
+    }>;
+    create(actor: Actor, input: UserInput): Promise<import("./usuario.repository").PublicUser & {
         queue_ids: number[];
         connection_ids: number[];
-        id: string;
-        name: string;
-        created_at: Date | null;
-        updated_at: Date | null;
-        nickname: string | null;
-        email: string;
-        password_hash: string;
-        profile_id: number;
-        company_id: string | null;
-        email_verified: boolean;
-        is_approved: boolean;
-        finance: boolean;
-        totp_secret: string | null;
-        totp_enabled: boolean;
-        totp_recovery_codes: unknown;
-        xp: number;
-        hide_name_active: boolean;
     }>;
-    update(id: string, companyId: string, payload: {
-        name?: string;
-        email?: string;
-        password?: string;
-        profile_id?: number;
-        queue_ids?: number[];
-        connection_ids?: number[];
-    }): Promise<{
-        id: string;
-    } | null>;
-    remove(id: string, companyId: string): Promise<boolean>;
-    listQueues(companyId: string): Promise<{
-        id: number;
-        name: string;
-        color: string | null;
-    }[]>;
-    listConnections(companyId: string): Promise<{
-        id: number;
-        name: string;
-        status: string | null;
-    }[]>;
-};
+    update(actor: Actor, id: string, input: UserInput): Promise<void>;
+    remove(actor: Actor, id: string): Promise<void>;
+    /** Perfil existente e que não seja superAdmin; sem perfil, atendente. */
+    private allowedProfileId;
+    private static notFound;
+}
 //# sourceMappingURL=usuario.service.d.ts.map

@@ -5,7 +5,7 @@ import {
 } from '../atendimento/atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { isUserOnline } from '../../shared/socket';
-import { getCompanyPermissions } from '../configuracao-geral/configuracao-geral.service';
+import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
 import { filterByCapacity } from '../atendimento/attendant-capacity.service';
 
 function pickRandom<T>(arr: T[]): T {
@@ -73,7 +73,7 @@ export async function distributeTicket(
     // simultâneos (config "Limitar atendimentos por usuário") sai da disputa
     // antes do ranking — a distribuição automática nunca empurra ticket pra
     // quem não tem vaga, mesmo sendo o "melhor" candidato relativo aos outros.
-    const perms = await getCompanyPermissions(companyId);
+    const perms = await companyPermissionsReader.forCompany(companyId);
     eligible = await filterByCapacity(eligible, perms);
 
     if (eligible.length === 0) return undefined;

@@ -1,92 +1,35 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { usuarioService } from './usuario.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { companyIdOf } from '../../core/http/http-router';
+import { createUserSchema, updateUserSchema, userIdParamsSchema } from './usuario.dto';
+import type { Actor, UsuarioService } from './usuario.service';
 
-export const usuarioController = {
+/** Adapta HTTP ⇄ UsuarioService. */
+export class UsuarioController {
+    constructor(private readonly service: UsuarioService) {}
 
-    async listSelects(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const [queues, connections] = await Promise.all([
-            usuarioService.listQueues(companyId),
-            usuarioService.listConnections(companyId),
-        ]);
-        return reply.send({ queues, connections });
-    },
+    listSelects = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.service.options(companyIdOf(req)));
 
-    async list(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const data = await usuarioService.list(companyId);
-        return reply.send(data);
-    },
+    list = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.service.list(companyIdOf(req)));
 
-    async create(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const body = req.body as {
-            name?: string;
-            email?: string;
-            password?: string;
-            profile_id?: number;
-            queue_ids?: number[];
-            connection_ids?: number[];
-        };
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const input = SchemaValidator.parse(createUserSchema, req.body);
+        return reply.status(201).send(await this.service.create(this.actor(req), input));
+    };
 
-        if (!body.name?.trim() || !body.email?.trim() || !body.password?.trim()) {
-            return reply.status(400).send({ message: 'Nome, e-mail e senha são obrigatórios' });
-        }
-        if (body.profile_id === 3) {
-            return reply.status(403).send({ message: 'Não é permitido criar superAdmin' });
-        }
-
-        try {
-            const user = await usuarioService.create(companyId, {
-                name: body.name.trim(),
-                email: body.email.trim(),
-                password: body.password.trim(),
-                profile_id: body.profile_id ?? 1,
-                queue_ids: body.queue_ids ?? [],
-                connection_ids: body.connection_ids ?? [],
-            });
-            return reply.status(201).send(user);
-        } catch (err: any) {
-            if (err.message === 'EMAIL_TAKEN') {
-                return reply.status(409).send({ message: 'E-mail já cadastrado' });
-            }
-            throw err;
-        }
-    },
-
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const companyId = req.user.company_id!;
-        const body = req.body as {
-            name?: string;
-            email?: string;
-            password?: string;
-            profile_id?: number;
-            queue_ids?: number[];
-            connection_ids?: number[];
-        };
-
-        if (body.profile_id === 3) {
-            return reply.status(403).send({ message: 'Não é permitido definir superAdmin' });
-        }
-
-        const result = await usuarioService.update(id, companyId, body);
-        if (!result) return reply.status(404).send({ message: 'Usuário não encontrado' });
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(userIdParamsSchema, req.params);
+        await this.service.update(this.actor(req), id, SchemaValidator.parse(updateUserSchema, req.body));
         return reply.send({ ok: true });
-    },
+    };
 
-    async remove(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const companyId = req.user.company_id!;
-
-        if (id === req.user.id) {
-            return reply.status(400).send({ message: 'Você não pode excluir seu próprio usuário' });
-        }
-
-        const removed = await usuarioService.remove(id, companyId);
-        if (!removed) {
-            return reply.status(404).send({ message: 'Usuário não encontrado' });
-        }
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(userIdParamsSchema, req.params);
+        await this.service.remove(this.actor(req), id);
         return reply.send({ ok: true });
-    },
-};
+    };
+
+    private actor(req: FastifyRequest): Actor {
+        return { userId: req.user.id, companyId: companyIdOf(req) };
+    }
+}

@@ -1,77 +1,45 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pesquisaController = void 0;
-const pesquisa_service_1 = require("./pesquisa.service");
-exports.pesquisaController = {
-    async list(req, reply) {
-        const companyId = req.user.company_id;
-        const data = await pesquisa_service_1.pesquisaService.list(companyId);
-        return reply.send(data);
-    },
-    async listActive(req, reply) {
-        const companyId = req.user.company_id;
-        const data = await pesquisa_service_1.pesquisaService.listActive(companyId);
-        return reply.send(data);
-    },
-    async create(req, reply) {
-        const companyId = req.user.company_id;
-        const body = req.body;
-        if (!body.name?.trim()) {
-            return reply.status(400).send({ message: 'O nome da pesquisa é obrigatório' });
-        }
-        if (!body.answers?.length) {
-            return reply.status(400).send({ message: 'Adicione ao menos uma opção de resposta' });
-        }
-        const research = await pesquisa_service_1.pesquisaService.create(companyId, {
-            name: body.name.trim(),
-            type: body.type,
-            active: body.active,
-            default_research: body.default_research,
-            answers: body.answers,
-            queue_ids: body.queue_ids,
-        });
-        return reply.status(201).send(research);
-    },
-    async update(req, reply) {
-        const { id } = req.params;
-        const companyId = req.user.company_id;
-        const body = req.body;
-        await pesquisa_service_1.pesquisaService.update(Number(id), companyId, body);
+exports.PesquisaController = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
+const schema_validator_1 = require("../../core/validation/schema-validator");
+const http_router_1 = require("../../core/http/http-router");
+const pesquisa_dto_1 = require("./pesquisa.dto");
+/** Adapta HTTP ⇄ cadastro e relatório de pesquisas. */
+class PesquisaController {
+    catalog;
+    reports;
+    constructor(catalog, reports) {
+        this.catalog = catalog;
+        this.reports = reports;
+    }
+    list = async (req, reply) => reply.send(await this.catalog.list((0, http_router_1.companyIdOf)(req)));
+    listActive = async (req, reply) => reply.send(await this.catalog.listActive((0, http_router_1.companyIdOf)(req)));
+    create = async (req, reply) => {
+        const input = schema_validator_1.SchemaValidator.parse(pesquisa_dto_1.createResearchSchema, req.body);
+        return reply.status(201).send(await this.catalog.create((0, http_router_1.companyIdOf)(req), input));
+    };
+    update = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(pesquisa_dto_1.researchIdParamsSchema, req.params);
+        await this.catalog.update(id, (0, http_router_1.companyIdOf)(req), schema_validator_1.SchemaValidator.parse(pesquisa_dto_1.updateResearchSchema, req.body));
         return reply.send({ ok: true });
-    },
-    async remove(req, reply) {
-        const { id } = req.params;
-        const companyId = req.user.company_id;
-        const removed = await pesquisa_service_1.pesquisaService.remove(Number(id), companyId);
-        if (!removed)
-            return reply.status(404).send({ message: 'Pesquisa não encontrada' });
+    };
+    remove = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(pesquisa_dto_1.researchIdParamsSchema, req.params);
+        await this.catalog.remove(id, (0, http_router_1.companyIdOf)(req));
         return reply.send({ ok: true });
-    },
-    async report(req, reply) {
-        const companyId = req.user.company_id;
-        const { dateInit, dateEnd, userId, limit, offset } = req.query;
-        const data = await pesquisa_service_1.pesquisaService.getReport(companyId, {
-            dateInit: dateInit ?? undefined,
-            dateEnd: dateEnd ?? undefined,
-            userId: userId ?? undefined,
-            limit: limit ? Number(limit) : undefined,
-            offset: offset ? Number(offset) : undefined,
-        });
-        return reply.send(data);
-    },
-    async reportView(req, reply) {
-        const companyId = req.user.company_id;
-        const { answerId, dateInit, dateEnd, limit, offset } = req.query;
-        if (!answerId)
-            return reply.status(400).send({ message: 'answerId obrigatório' });
-        const data = await pesquisa_service_1.pesquisaService.getReportDrillDown(companyId, {
-            answerId: Number(answerId),
-            dateInit: dateInit ?? undefined,
-            dateEnd: dateEnd ?? undefined,
-            limit: limit ? Number(limit) : 50,
-            offset: offset ? Number(offset) : 0,
-        });
-        return reply.send(data);
-    },
-};
+    };
+    report = async (req, reply) => {
+        const query = schema_validator_1.SchemaValidator.parse(pesquisa_dto_1.reportQuerySchema, req.query);
+        return reply.send(await this.reports.report((0, http_router_1.companyIdOf)(req), query));
+    };
+    reportView = async (req, reply) => {
+        const raw = req.query;
+        if (!raw.answerId)
+            throw new http_errors_1.BadRequestError('answerId obrigatório');
+        const query = schema_validator_1.SchemaValidator.parse(pesquisa_dto_1.reportViewQuerySchema, req.query);
+        return reply.send(await this.reports.drillDown((0, http_router_1.companyIdOf)(req), query));
+    };
+}
+exports.PesquisaController = PesquisaController;
 //# sourceMappingURL=pesquisa.controller.js.map

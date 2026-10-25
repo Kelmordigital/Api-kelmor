@@ -1,14 +1,21 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.integracoesRoutes = integracoesRoutes;
+exports.IntegracaoRouter = void 0;
 const auth_middleware_1 = require("../../middlewares/auth.middleware");
-const integracao_controller_1 = require("./integracao.controller");
-async function integracoesRoutes(app) {
-    const adminAuth = { preHandler: [auth_middleware_1.authMiddleware, auth_middleware_1.requireAdmin] };
-    app.get('/google/auth-url', adminAuth, integracao_controller_1.integracaoController.getAuthUrl);
-    app.get('/google/status', adminAuth, integracao_controller_1.integracaoController.getStatus);
-    app.delete('/google', adminAuth, integracao_controller_1.integracaoController.disconnect);
-    // Público: redirect de OAuth do Google (sem bearer token)
-    app.get('/google/callback', integracao_controller_1.integracaoController.callback);
+/** Integração Google Calendar — gestão só de admin; callback é público. */
+class IntegracaoRouter {
+    controller;
+    constructor(controller) {
+        this.controller = controller;
+    }
+    register = async (app) => {
+        const adminOnly = { preHandler: [auth_middleware_1.authMiddleware, auth_middleware_1.requireAdmin] };
+        app.get('/google/auth-url', adminOnly, this.controller.getAuthUrl);
+        app.get('/google/status', adminOnly, this.controller.getStatus);
+        app.delete('/google', adminOnly, this.controller.disconnect);
+        // Público: redirect de OAuth do Google (sem bearer token); a segurança é o state assinado
+        app.get('/google/callback', this.controller.callback);
+    };
 }
+exports.IntegracaoRouter = IntegracaoRouter;
 //# sourceMappingURL=integracao.routes.js.map

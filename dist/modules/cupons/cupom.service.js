@@ -1,57 +1,47 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cupomService = void 0;
-const drizzle_orm_1 = require("drizzle-orm");
-const client_1 = require("../../database/client");
-const cupom_db_schema_1 = require("./cupom.db.schema");
-exports.cupomService = {
-    async list(companyId) {
-        return client_1.db
-            .select()
-            .from(cupom_db_schema_1.cupons)
-            .where((0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.company_id, companyId))
-            .orderBy((0, drizzle_orm_1.desc)(cupom_db_schema_1.cupons.created_at));
-    },
-    async findById(id, companyId) {
-        const [row] = await client_1.db
-            .select()
-            .from(cupom_db_schema_1.cupons)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.id, id), (0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.company_id, companyId)))
-            .limit(1);
-        return row ?? null;
-    },
-    async isCodeTaken(companyId, code, excludeId) {
-        const conditions = [(0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.company_id, companyId), (0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.code, code)];
-        if (excludeId)
-            conditions.push((0, drizzle_orm_1.ne)(cupom_db_schema_1.cupons.id, excludeId));
-        const [row] = await client_1.db
-            .select({ id: cupom_db_schema_1.cupons.id })
-            .from(cupom_db_schema_1.cupons)
-            .where((0, drizzle_orm_1.and)(...conditions))
-            .limit(1);
-        return !!row;
-    },
-    async create(companyId, payload) {
-        const [row] = await client_1.db
-            .insert(cupom_db_schema_1.cupons)
-            .values({ ...payload, company_id: companyId })
-            .returning();
-        return row;
-    },
-    async update(id, companyId, payload) {
-        const [row] = await client_1.db
-            .update(cupom_db_schema_1.cupons)
-            .set({ ...payload, updated_at: new Date() })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.id, id), (0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
+exports.CupomService = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
+const cupom_repository_1 = require("./cupom.repository");
+const cupom_definition_1 = require("./cupom.definition");
+class CupomService {
+    repository;
+    policies;
+    constructor(repository, policies) {
+        this.repository = repository;
+        this.policies = policies;
+    }
+    list(companyId) {
+        return this.repository.listByCompany(companyId);
+    }
+    async create(companyId, input) {
+        const cupom = cupom_definition_1.CupomDefinition.create(input, this.policies);
+        await this.ensureCodeAvailable(companyId, cupom.code);
+        return this.repository.create(companyId, cupom.toPersistence());
+    }
+    async update(id, companyId, patch) {
+        const existing = this.orNotFound(await this.repository.findById(id, companyId));
+        const cupom = cupom_definition_1.CupomDefinition.revise(existing, patch, this.policies);
+        await this.ensureCodeAvailable(companyId, cupom.code, id);
+        return this.orNotFound(await this.repository.update(id, companyId, cupom.toPersistence()));
+    }
     async remove(id, companyId) {
-        const [row] = await client_1.db
-            .delete(cupom_db_schema_1.cupons)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.id, id), (0, drizzle_orm_1.eq)(cupom_db_schema_1.cupons.company_id, companyId)))
-            .returning();
-        return !!row;
-    },
-};
+        if (!(await this.repository.delete(id, companyId)))
+            throw CupomService.notFound();
+    }
+    async ensureCodeAvailable(companyId, code, excludeId) {
+        if (await this.repository.isCodeTaken(companyId, code, excludeId)) {
+            throw new http_errors_1.ConflictError(cupom_repository_1.DUPLICATE_CODE_MESSAGE);
+        }
+    }
+    orNotFound(row) {
+        if (!row)
+            throw CupomService.notFound();
+        return row;
+    }
+    static notFound() {
+        return new http_errors_1.NotFoundError('Cupom não encontrado');
+    }
+}
+exports.CupomService = CupomService;
 //# sourceMappingURL=cupom.service.js.map

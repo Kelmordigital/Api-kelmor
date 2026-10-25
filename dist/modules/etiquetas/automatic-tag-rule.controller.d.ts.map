@@ -1,1 +1,0 @@
-{"version":3,"file":"automatic-tag-rule.controller.d.ts","sourceRoot":"","sources":["../../../src/modules/etiquetas/automatic-tag-rule.controller.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAE,YAAY,EAAE,MAAM,SAAS,CAAC;AAGvD,eAAO,MAAM,0BAA0B;cAEnB,cAAc,SAAS,YAAY;gBAMjC,cAAc,SAAS,YAAY;gBAanC,cAAc,SAAS,YAAY;gBAWnC,cAAc,SAAS,YAAY;CAOxD,CAAC"}

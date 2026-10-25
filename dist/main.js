@@ -7,7 +7,7 @@ const migrate_1 = require("./database/migrate");
 const socket_1 = require("./shared/socket");
 const connection_health_job_1 = require("./jobs/connection-health.job");
 const reconnection_queue_1 = require("./jobs/reconnection.queue");
-const agendamento_mensagens_scheduler_1 = require("./modules/agendamento-mensagens/agendamento-mensagens.scheduler");
+const agendamento_mensagens_module_1 = require("./modules/agendamento-mensagens/agendamento-mensagens.module");
 const rabbitmq_1 = require("./shared/rabbitmq");
 process.on('uncaughtException', (err) => {
     console.error('[uncaughtException] Erro não capturado — processo continuando:', err);
@@ -25,6 +25,7 @@ async function main() {
         console.log(`[shutdown] Sinal ${signal} recebido — encerrando graciosamente...`);
         if (healthInterval)
             clearInterval(healthInterval);
+        agendamento_mensagens_module_1.scheduledMessageLoop.stop();
         if (reconnectWorker)
             await reconnectWorker.close().catch(() => { });
         await (0, rabbitmq_1.stopRabbitConsumer)().catch(() => { });
@@ -40,7 +41,8 @@ async function main() {
         healthInterval = (0, connection_health_job_1.startConnectionHealthJob)();
         (0, connection_health_job_1.initSessionsGauge)().catch(() => { });
         reconnectWorker = (0, reconnection_queue_1.startReconnectionWorker)();
-        (0, agendamento_mensagens_scheduler_1.restoreScheduledMessages)().catch(() => { });
+        // Envia as mensagens agendadas que vencerem (seguro com várias réplicas)
+        agendamento_mensagens_module_1.scheduledMessageLoop.start();
         (0, rabbitmq_1.startRabbitConsumer)().catch((err) => console.error('[rabbitmq] start falhou:', err?.message));
         console.log(`Servidor rodando na porta ${env_1.env.PORT}`);
     }

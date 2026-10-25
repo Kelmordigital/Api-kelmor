@@ -6,7 +6,7 @@ const client_1 = require("../../database/client");
 const atendimento_db_schema_1 = require("../atendimento/atendimento.db.schema");
 const auth_schema_1 = require("../auth/auth.schema");
 const socket_1 = require("../../shared/socket");
-const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const configuracao_geral_module_1 = require("../configuracao-geral/configuracao-geral.module");
 const attendant_capacity_service_1 = require("../atendimento/attendant-capacity.service");
 function pickRandom(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -71,7 +71,7 @@ async function distributeTicket(companyId, queueId, connectionId) {
     // simultâneos (config "Limitar atendimentos por usuário") sai da disputa
     // antes do ranking — a distribuição automática nunca empurra ticket pra
     // quem não tem vaga, mesmo sendo o "melhor" candidato relativo aos outros.
-    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
     eligible = await (0, attendant_capacity_service_1.filterByCapacity)(eligible, perms);
     if (eligible.length === 0)
         return undefined;

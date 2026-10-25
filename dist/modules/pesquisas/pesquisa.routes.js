@@ -1,17 +1,26 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pesquisasRoutes = pesquisasRoutes;
+exports.PesquisaRouter = void 0;
 const auth_middleware_1 = require("../../middlewares/auth.middleware");
-const pesquisa_controller_1 = require("./pesquisa.controller");
-async function pesquisasRoutes(app) {
-    app.addHook('preHandler', auth_middleware_1.authMiddleware);
-    app.get('/active', pesquisa_controller_1.pesquisaController.listActive);
-    app.get('/', pesquisa_controller_1.pesquisaController.list);
-    app.post('/', pesquisa_controller_1.pesquisaController.create);
-    app.put('/:id', pesquisa_controller_1.pesquisaController.update);
-    app.delete('/:id', pesquisa_controller_1.pesquisaController.remove);
-    // Relatório
-    app.get('/report', pesquisa_controller_1.pesquisaController.report);
-    app.get('/report/view', pesquisa_controller_1.pesquisaController.reportView);
+/** Cadastro e relatório de pesquisas — restrito a admin/superAdmin. */
+class PesquisaRouter {
+    controller;
+    constructor(controller) {
+        this.controller = controller;
+    }
+    register = async (app) => {
+        app.addHook('preHandler', auth_middleware_1.authMiddleware);
+        app.addHook('preHandler', auth_middleware_1.requireAdmin);
+        const c = this.controller;
+        app.get('/active', c.listActive);
+        app.get('/', c.list);
+        app.post('/', c.create);
+        app.put('/:id', c.update);
+        app.delete('/:id', c.remove);
+        // Relatório
+        app.get('/report', c.report);
+        app.get('/report/view', c.reportView);
+    };
 }
+exports.PesquisaRouter = PesquisaRouter;
 //# sourceMappingURL=pesquisa.routes.js.map

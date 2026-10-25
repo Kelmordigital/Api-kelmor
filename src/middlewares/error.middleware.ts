@@ -1,5 +1,6 @@
 import { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
+import { AppError } from '../core/errors/http-errors';
 
 export function errorHandler(
     error: FastifyError | Error,
@@ -7,6 +8,11 @@ export function errorHandler(
     reply: FastifyReply
 ) {
     request.log.error(error);
+
+    // Erros de aplicação (src/core/errors) — cada um define status e corpo
+    if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toResponse());
+    }
 
     // Erros de validação do Zod
     if (error instanceof ZodError) {

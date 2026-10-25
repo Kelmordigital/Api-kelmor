@@ -280,8 +280,8 @@ async function runNode(node: BotNode, envr: ExecEnv, bot: Bot): Promise<string |
 
         case 'add_tag': {
             if (data.tag_id && envr.contactId != null) {
-                const { etiquetaService } = await import('../etiquetas/etiqueta.service');
-                await etiquetaService.aplicarAoContato(String(envr.contactId), data.tag_id, envr.companyId)
+                const { contactTagger } = await import('../etiquetas/etiqueta.module');
+                await contactTagger.applyToContact(envr.companyId, Number(envr.contactId), data.tag_id)
                     .catch((err: Error) => console.error('[ChatbotExecutor] Falha ao aplicar etiqueta:', err.message));
             }
             return node.next_node_id ?? null;

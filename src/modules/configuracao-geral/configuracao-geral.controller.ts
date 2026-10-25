@@ -1,16 +1,20 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { configuracaoGeralService, ConfiguracaoGeralPayload } from './configuracao-geral.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { requireCompanyId } from '../../core/http/http-router';
+import { updateConfiguracaoGeralSchema, updateInputFrom } from './configuracao-geral.dto';
+import type { ConfiguracaoGeralService } from './configuracao-geral.service';
 
-export const configuracaoGeralController = {
+/** Adapta HTTP ⇄ ConfiguracaoGeralService. */
+export class ConfiguracaoGeralController {
+    constructor(private readonly service: ConfiguracaoGeralService) {}
 
-    async get(req: FastifyRequest, reply: FastifyReply) {
-        const data = await configuracaoGeralService.get(req.user.company_id!);
-        return reply.send(data);
-    },
+    get = async (req: FastifyRequest, reply: FastifyReply) => {
+        return reply.send(await this.service.view(requireCompanyId(req)));
+    };
 
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const body = req.body as ConfiguracaoGeralPayload;
-        const data = await configuracaoGeralService.update(req.user.company_id!, body);
-        return reply.send(data);
-    },
-};
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const companyId = requireCompanyId(req);
+        const body = SchemaValidator.parse(updateConfiguracaoGeralSchema, req.body);
+        return reply.send(await this.service.update(companyId, updateInputFrom(body)));
+    };
+}

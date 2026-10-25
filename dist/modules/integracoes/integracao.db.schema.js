@@ -11,6 +11,8 @@ exports.companyIntegrations = (0, pg_core_1.pgTable)('at_company_integrations', 
     refresh_token: (0, pg_core_1.text)('refresh_token').notNull(),
     token_expiry: (0, pg_core_1.timestamp)('token_expiry'),
     google_email: (0, pg_core_1.varchar)('google_email', { length: 255 }),
+    // Preenchido quando o Google recusa os tokens (acesso revogado); limpo ao reconectar
+    reconnect_required_at: (0, pg_core_1.timestamp)('reconnect_required_at'),
     created_at: (0, pg_core_1.timestamp)('created_at').defaultNow(),
     updated_at: (0, pg_core_1.timestamp)('updated_at').defaultNow(),
 });

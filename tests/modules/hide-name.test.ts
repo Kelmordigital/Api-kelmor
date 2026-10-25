@@ -10,7 +10,7 @@ import {
 } from '../../src/modules/atendimento/atendimento.db.schema';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
 import { withAttendantNamePrefix } from '../../src/modules/atendimento/message.service';
-import { meuPerfilService } from '../../src/modules/meu-perfil/meu-perfil.service';
+import { meuPerfilService } from '../../src/modules/meu-perfil/meu-perfil.module';
 import { buildApp } from '../../src/shared/server';
 
 describe('withAttendantNamePrefix — função pura', () => {

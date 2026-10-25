@@ -1,66 +1,34 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { apiMessagesService, ApiMessagesDisabledError, ConnectionNotFoundError } from './api-messages.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { AppError } from '../../core/errors/http-errors';
+import { requireCompanyId } from '../../core/http/http-router';
+import { publicApiErrorBody } from '../../core/http/public-api-error';
+import { parseSendRequest, type ApiKeyService, type ApiMessageService } from './api-messages.service';
 
-interface SendBody {
-    connection_id?: number;
-    number?: string;
-    message?: string;
-}
+/** Adapta HTTP ⇄ envio por API (público) e gestão da chave (admin). */
+export class ApiMessagesController {
+    constructor(
+        private readonly keys: ApiKeyService,
+        private readonly messages: ApiMessageService,
+    ) {}
 
-export const apiMessagesController = {
-
-    /** POST /api-messages/send — autenticado por header X-Api-Key, não por JWT de usuário. */
-    async send(req: FastifyRequest, reply: FastifyReply) {
-        const rawKey = req.headers['x-api-key'];
-        if (!rawKey || typeof rawKey !== 'string') {
-            return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Chave de API não fornecida' });
-        }
-
-        const companyId = await apiMessagesService.resolveCompanyByKey(rawKey);
-        if (!companyId) {
-            return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Chave de API inválida ou revogada' });
-        }
-
-        const body = req.body as SendBody;
-        if (!body.connection_id || !body.number || !body.message) {
-            return reply.status(400).send({
-                statusCode: 400, error: 'Bad Request',
-                message: 'connection_id, number e message são obrigatórios',
-            });
-        }
-
+    /** POST /api-messages/send — autenticado por X-Api-Key; erros no formato da API pública. */
+    send = async (req: FastifyRequest, reply: FastifyReply) => {
         try {
-            const result = await apiMessagesService.sendMessage(companyId, {
-                connectionId: Number(body.connection_id),
-                number: body.number,
-                message: body.message,
-            });
+            const companyId = await this.keys.authenticate(req.headers['x-api-key']);
+            const result = await this.messages.sendMessage(companyId, parseSendRequest(req.body));
             return reply.status(200).send({ sent: true, ticket_id: result.ticketId });
         } catch (err) {
-            if (err instanceof ApiMessagesDisabledError) {
-                return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: err.message });
-            }
-            if (err instanceof ConnectionNotFoundError) {
-                return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: err.message });
-            }
+            if (err instanceof AppError) return reply.status(err.statusCode).send(publicApiErrorBody(err));
             throw err;
         }
-    },
+    };
 
-    // ── Gestão da chave (JWT + admin) ───────────────────────────────────────
+    status = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.keys.getKeyStatus(requireCompanyId(req)));
 
-    async status(req: FastifyRequest, reply: FastifyReply) {
-        const data = await apiMessagesService.getKeyStatus(req.user.company_id!);
-        return reply.send(data);
-    },
+    generate = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.keys.generateKey(requireCompanyId(req)));
 
-    async generate(req: FastifyRequest, reply: FastifyReply) {
-        const data = await apiMessagesService.generateKey(req.user.company_id!);
-        return reply.send(data);
-    },
-
-    async revoke(req: FastifyRequest, reply: FastifyReply) {
-        await apiMessagesService.revokeKey(req.user.company_id!);
+    revoke = async (req: FastifyRequest, reply: FastifyReply) => {
+        await this.keys.revokeKey(requireCompanyId(req));
         return reply.status(204).send();
-    },
-};
+    };
+}

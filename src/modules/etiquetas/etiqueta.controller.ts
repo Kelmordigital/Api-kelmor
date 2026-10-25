@@ -1,75 +1,76 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { etiquetaService } from './etiqueta.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { companyIdOf } from '../../core/http/http-router';
+import {
+    automaticTagRuleSchema, contactEtiquetaParamsSchema, contactParamsSchema, createEtiquetaSchema,
+    etiquetaIdParamsSchema, ruleIdParamsSchema, updateEtiquetaSchema,
+} from './etiqueta.dto';
+import type { EtiquetaService } from './etiqueta.service';
+import type { AutomaticTagRuleService } from './automatic-tag-rule.service';
 
-export const etiquetaController = {
+/** Adapta HTTP ⇄ EtiquetaService. */
+export class EtiquetaController {
+    constructor(private readonly service: EtiquetaService) {}
 
-    async list(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const list = await etiquetaService.list(companyId);
-        return reply.send(list);
-    },
+    list = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.service.list(companyIdOf(req)));
 
-    async stats(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const data = await etiquetaService.getStats(companyId);
-        return reply.send(data);
-    },
+    stats = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.service.getStats(companyIdOf(req)));
 
-    async create(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { name, color, icon } = req.body as {
-            name: string;
-            color?: string;
-            icon?: string;
-        };
-        if (!name?.trim()) return reply.status(400).send({ error: 'name é obrigatório' });
-        const row = await etiquetaService.create(companyId, {
-            name: name.trim(),
-            color: color ?? '#6366f1',
-            icon: icon ?? 'tag',
-        });
-        return reply.status(201).send(row);
-    },
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const input = SchemaValidator.parse(createEtiquetaSchema, req.body);
+        return reply.status(201).send(await this.service.create(companyIdOf(req), input));
+    };
 
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { id } = req.params as { id: string };
-        const body = req.body as {
-            name?: string;
-            color?: string;
-            icon?: string;
-        };
-        const row = await etiquetaService.update(id, companyId, body);
-        if (!row) return reply.status(404).send({ error: 'Etiqueta não encontrada' });
-        return reply.send(row);
-    },
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(etiquetaIdParamsSchema, req.params);
+        const input = SchemaValidator.parse(updateEtiquetaSchema, req.body);
+        return reply.send(await this.service.update(id, companyIdOf(req), input));
+    };
 
-    async remove(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { id } = req.params as { id: string };
-        const ok = await etiquetaService.remove(id, companyId);
-        if (!ok) return reply.status(404).send({ error: 'Etiqueta não encontrada' });
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(etiquetaIdParamsSchema, req.params);
+        await this.service.remove(id, companyIdOf(req));
         return reply.status(204).send();
-    },
+    };
 
-    async aplicarAoContato(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { contactId, etiquetaId } = req.params as { contactId: string; etiquetaId: string };
-        await etiquetaService.aplicarAoContato(contactId, etiquetaId, companyId);
+    listForContact = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { contactId } = SchemaValidator.parse(contactParamsSchema, req.params);
+        return reply.send(await this.service.listForContact(companyIdOf(req), contactId));
+    };
+
+    applyToContact = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { contactId, etiquetaId } = SchemaValidator.parse(contactEtiquetaParamsSchema, req.params);
+        await this.service.applyToContact(companyIdOf(req), contactId, etiquetaId);
         return reply.status(204).send();
-    },
+    };
 
-    async removerDoContato(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { contactId, etiquetaId } = req.params as { contactId: string; etiquetaId: string };
-        await etiquetaService.removerDoContato(contactId, etiquetaId, companyId);
+    removeFromContact = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { contactId, etiquetaId } = SchemaValidator.parse(contactEtiquetaParamsSchema, req.params);
+        await this.service.removeFromContact(companyIdOf(req), contactId, etiquetaId);
         return reply.status(204).send();
-    },
+    };
+}
 
-    async listDoContato(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { contactId } = req.params as { contactId: string };
-        const list = await etiquetaService.listDoContato(contactId, companyId);
-        return reply.send(list);
-    },
-};
+/** Adapta HTTP ⇄ AutomaticTagRuleService. */
+export class AutomaticTagRuleController {
+    constructor(private readonly service: AutomaticTagRuleService) {}
+
+    list = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.service.list(companyIdOf(req)));
+
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { keywords, etiqueta_ids } = SchemaValidator.parse(automaticTagRuleSchema, req.body);
+        return reply.status(201).send(await this.service.create(companyIdOf(req), keywords, etiqueta_ids ?? []));
+    };
+
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(ruleIdParamsSchema, req.params);
+        const { keywords, etiqueta_ids } = SchemaValidator.parse(automaticTagRuleSchema, req.body);
+        return reply.send(await this.service.update(id, companyIdOf(req), keywords, etiqueta_ids ?? []));
+    };
+
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(ruleIdParamsSchema, req.params);
+        await this.service.remove(id, companyIdOf(req));
+        return reply.status(204).send();
+    };
+}

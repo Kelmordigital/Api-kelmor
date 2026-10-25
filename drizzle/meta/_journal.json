@@ -281,6 +281,27 @@
       "when": 1786672123175,
       "tag": "0039_freezing_synch",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791599946273,
+      "tag": "0040_integration_reconnect_required",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792938149691,
+      "tag": "0041_remove_pharmacy_default_texts",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792941054001,
+      "tag": "0042_notifications",
+      "breakpoints": true
     }
   ]
 }

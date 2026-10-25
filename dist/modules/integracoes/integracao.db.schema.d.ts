@@ -125,6 +125,23 @@ export declare const companyIntegrations: import("drizzle-orm/pg-core").PgTableW
         }, {}, {
             length: 255;
         }>;
+        reconnect_required_at: import("drizzle-orm/pg-core").PgColumn<{
+            name: "reconnect_required_at";
+            tableName: "at_company_integrations";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         created_at: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "at_company_integrations";

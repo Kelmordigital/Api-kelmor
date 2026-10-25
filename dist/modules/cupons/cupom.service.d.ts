@@ -1,10 +1,17 @@
-import { Cupom, NewCupom } from './cupom.db.schema';
-export declare const cupomService: {
+import type { Cupom } from './cupom.db.schema';
+import { type CupomRepository } from './cupom.repository';
+import type { CupomTypePolicies } from './cupom-type.policies';
+import type { CupomInput } from './cupom.dto';
+export declare class CupomService {
+    private readonly repository;
+    private readonly policies;
+    constructor(repository: CupomRepository, policies: CupomTypePolicies);
     list(companyId: string): Promise<Cupom[]>;
-    findById(id: string, companyId: string): Promise<Cupom | null>;
-    isCodeTaken(companyId: string, code: string, excludeId?: string): Promise<boolean>;
-    create(companyId: string, payload: Omit<NewCupom, "id" | "company_id" | "created_at" | "updated_at">): Promise<Cupom>;
-    update(id: string, companyId: string, payload: Partial<Pick<Cupom, "code" | "type" | "value" | "gift_description" | "min_sale_value" | "is_public" | "is_active">>): Promise<Cupom | null>;
-    remove(id: string, companyId: string): Promise<boolean>;
-};
+    create(companyId: string, input: CupomInput): Promise<Cupom>;
+    update(id: string, companyId: string, patch: CupomInput): Promise<Cupom>;
+    remove(id: string, companyId: string): Promise<void>;
+    private ensureCodeAvailable;
+    private orNotFound;
+    private static notFound;
+}
 //# sourceMappingURL=cupom.service.d.ts.map

@@ -1,123 +1,66 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { campanhaService } from './campanha.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { companyIdOf } from '../../core/http/http-router';
+import {
+    campaignIdParamsSchema, createCampaignSchema, textIdParamsSchema, textSchema, updateCampaignSchema,
+} from './campanha.dto';
+import type { CampaignService, ScheduledTextService } from './campanha.service';
 
-export const campanhaController = {
+/** Adapta HTTP ⇄ campanhas e textos de agendamento. */
+export class CampanhaController {
+    constructor(
+        private readonly campaigns: CampaignService,
+        private readonly texts: ScheduledTextService,
+    ) {}
 
-    async list(req: FastifyRequest, reply: FastifyReply) {
-        const data = await campanhaService.list(req.user.company_id!);
-        return reply.send(data);
-    },
+    list = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.campaigns.list(companyIdOf(req)));
 
-    async getSelects(req: FastifyRequest, reply: FastifyReply) {
-        const data = await campanhaService.getSelects(req.user.company_id!);
-        return reply.send(data);
-    },
+    getSelects = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.campaigns.options(companyIdOf(req)));
 
-    async create(req: FastifyRequest, reply: FastifyReply) {
-        const body = req.body as {
-            title?: string;
-            message?: string;
-            type?: string;
-            send_date?: string;
-            timezone?: string;
-            all_contacts?: boolean;
-            connection_ids?: number[];
-            contact_ids?: number[];
-        };
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const input = SchemaValidator.parse(createCampaignSchema, req.body);
+        return reply.status(201).send(await this.campaigns.create(companyIdOf(req), input));
+    };
 
-        if (!body.title?.trim())   return reply.status(400).send({ message: 'O título é obrigatório' });
-        if (!body.message?.trim()) return reply.status(400).send({ message: 'A mensagem é obrigatória' });
-        if (!body.send_date)       return reply.status(400).send({ message: 'A data de envio é obrigatória' });
-        if (!body.connection_ids?.length) return reply.status(400).send({ message: 'Selecione ao menos uma conexão' });
-
-        const campaign = await campanhaService.create(req.user.company_id!, {
-            title:          body.title.trim(),
-            message:        body.message.trim(),
-            type:           body.type,
-            send_date:      body.send_date,
-            timezone:       body.timezone,
-            all_contacts:   body.all_contacts,
-            connection_ids: body.connection_ids,
-            contact_ids:    body.contact_ids,
-        });
-        return reply.status(201).send(campaign);
-    },
-
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const body = req.body as {
-            title?: string;
-            message?: string;
-            send_date?: string;
-            timezone?: string;
-            all_contacts?: boolean;
-            connection_ids?: number[];
-            contact_ids?: number[];
-        };
-
-        const result = await campanhaService.update(Number(id), req.user.company_id!, body);
-        if (!result) return reply.status(404).send({ message: 'Campanha não encontrada' });
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(campaignIdParamsSchema, req.params);
+        await this.campaigns.update(id, companyIdOf(req), SchemaValidator.parse(updateCampaignSchema, req.body));
         return reply.send({ ok: true });
-    },
+    };
 
-    async remove(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const removed = await campanhaService.remove(Number(id), req.user.company_id!);
-        if (!removed) return reply.status(404).send({ message: 'Campanha não encontrada' });
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(campaignIdParamsSchema, req.params);
+        await this.campaigns.delete(id, companyIdOf(req));
         return reply.send({ ok: true });
-    },
+    };
 
-    async play(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const ok = await campanhaService.play(Number(id), req.user.company_id!);
-        if (!ok) return reply.status(404).send({ message: 'Campanha não encontrada' });
+    play = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(campaignIdParamsSchema, req.params);
+        await this.campaigns.play(id, companyIdOf(req));
         return reply.send({ ok: true });
-    },
+    };
 
-    async pause(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const ok = await campanhaService.pause(Number(id), req.user.company_id!);
-        if (!ok) return reply.status(404).send({ message: 'Campanha não encontrada' });
+    pause = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(campaignIdParamsSchema, req.params);
+        await this.campaigns.pause(id, companyIdOf(req));
         return reply.send({ ok: true });
-    },
+    };
 
-    // ── Textos de Agendamento ─────────────────────────────────────────────────
+    listTexts = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.texts.list(companyIdOf(req)));
 
-    async listTexts(req: FastifyRequest, reply: FastifyReply) {
-        const data = await campanhaService.listTexts(req.user.company_id!);
-        return reply.send(data);
-    },
+    createText = async (req: FastifyRequest, reply: FastifyReply) => {
+        const input = SchemaValidator.parse(textSchema, req.body);
+        return reply.status(201).send(await this.texts.create(companyIdOf(req), input));
+    };
 
-    async upsertText(req: FastifyRequest, reply: FastifyReply) {
-        const body = req.body as { label?: string; text?: string; type?: number };
-        if (!body.label?.trim()) return reply.status(400).send({ message: 'O rótulo é obrigatório' });
-        if (!body.type)          return reply.status(400).send({ message: 'O tipo é obrigatório' });
+    updateText = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(textIdParamsSchema, req.params);
+        return reply.send(await this.texts.update(id, companyIdOf(req), SchemaValidator.parse(textSchema, req.body)));
+    };
 
-        const result = await campanhaService.upsertText(req.user.company_id!, {
-            label: body.label.trim(),
-            text: body.text,
-            type: Number(body.type),
-        });
-        return reply.send(result);
-    },
-
-    async updateText(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const body = req.body as { label?: string; text?: string };
-        if (!body.label?.trim()) return reply.status(400).send({ message: 'O rótulo é obrigatório' });
-
-        const result = await campanhaService.updateText(Number(id), req.user.company_id!, {
-            label: body.label.trim(),
-            text: body.text,
-        });
-        if (!result) return reply.status(404).send({ message: 'Texto não encontrado' });
-        return reply.send(result);
-    },
-
-    async removeText(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const removed = await campanhaService.removeText(Number(id), req.user.company_id!);
-        if (!removed) return reply.status(404).send({ message: 'Texto não encontrado' });
+    removeText = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(textIdParamsSchema, req.params);
+        await this.texts.remove(id, companyIdOf(req));
         return reply.send({ ok: true });
-    },
-};
+    };
+}

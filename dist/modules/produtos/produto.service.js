@@ -1,46 +1,57 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.produtoService = void 0;
-const drizzle_orm_1 = require("drizzle-orm");
-const client_1 = require("../../database/client");
-const produto_db_schema_1 = require("./produto.db.schema");
-exports.produtoService = {
-    async list(companyId) {
-        return client_1.db
-            .select()
-            .from(produto_db_schema_1.produtos)
-            .where((0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.company_id, companyId))
-            .orderBy((0, drizzle_orm_1.desc)(produto_db_schema_1.produtos.created_at));
-    },
+exports.ProdutoService = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
+class ProdutoService {
+    repository;
+    constructor(repository) {
+        this.repository = repository;
+    }
+    list(companyId) {
+        return this.repository.listByCompany(companyId);
+    }
     async findById(id, companyId) {
-        const [row] = await client_1.db
-            .select()
-            .from(produto_db_schema_1.produtos)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.id, id), (0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.company_id, companyId)))
-            .limit(1);
-        return row ?? null;
-    },
-    async create(companyId, payload) {
-        const [row] = await client_1.db
-            .insert(produto_db_schema_1.produtos)
-            .values({ ...payload, company_id: companyId })
-            .returning();
-        return row;
-    },
-    async update(id, companyId, payload) {
-        const [row] = await client_1.db
-            .update(produto_db_schema_1.produtos)
-            .set({ ...payload, updated_at: new Date() })
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.id, id), (0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
+        return this.orNotFound(await this.repository.findById(id, companyId));
+    }
+    create(companyId, input) {
+        return this.repository.create(companyId, {
+            name: input.name,
+            short_description: input.short_description ?? null,
+            value_type: input.value_type,
+            value: ProdutoService.priceFor(input.value_type, input.value),
+            delivery_timeframe: input.delivery_timeframe ?? null,
+            how_it_works: input.how_it_works ?? null,
+            full_description: input.full_description ?? null,
+            is_active: true,
+        });
+    }
+    async update(id, companyId, input) {
+        const { value, ...rest } = input;
+        const patch = { ...rest };
+        if (value !== undefined)
+            patch.value = ProdutoService.priceFor(input.value_type, value);
+        if (input.value_type === 'sem_valor')
+            patch.value = null;
+        return this.orNotFound(await this.repository.update(id, companyId, patch));
+    }
     async remove(id, companyId) {
-        const [row] = await client_1.db
-            .delete(produto_db_schema_1.produtos)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.id, id), (0, drizzle_orm_1.eq)(produto_db_schema_1.produtos.company_id, companyId)))
-            .returning();
-        return !!row;
-    },
-};
+        if (!(await this.repository.delete(id, companyId)))
+            throw ProdutoService.notFound();
+    }
+    /** Produto "sem_valor" nunca tem preço; o numeric do banco recebe string. */
+    static priceFor(valueType, value) {
+        if (valueType === 'sem_valor' || value == null)
+            return null;
+        return String(value);
+    }
+    orNotFound(row) {
+        if (!row)
+            throw ProdutoService.notFound();
+        return row;
+    }
+    static notFound() {
+        return new http_errors_1.NotFoundError('Produto não encontrado');
+    }
+}
+exports.ProdutoService = ProdutoService;
 //# sourceMappingURL=produto.service.js.map

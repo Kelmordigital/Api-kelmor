@@ -1,96 +1,32 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cupomController = void 0;
-const cupom_service_1 = require("./cupom.service");
-const cupom_db_schema_1 = require("./cupom.db.schema");
-function validatePayload(body) {
-    if (!body.code?.trim())
-        return 'code é obrigatório';
-    if (body.code.trim().length > 50)
-        return 'code não pode passar de 50 caracteres';
-    const type = body.type ?? 'percentual';
-    if (!cupom_db_schema_1.CUPOM_TYPES.includes(type))
-        return 'type inválido';
-    if (type === 'fixo' || type === 'percentual') {
-        if (body.value == null || body.value <= 0)
-            return 'value deve ser maior que zero para este tipo de cupom';
-        if (type === 'percentual' && (body.value < 1 || body.value > 100))
-            return 'value (percentual) deve estar entre 1 e 100';
+exports.CupomController = void 0;
+const schema_validator_1 = require("../../core/validation/schema-validator");
+const http_router_1 = require("../../core/http/http-router");
+const cupom_dto_1 = require("./cupom.dto");
+/** Adapta HTTP ⇄ CupomService: extrai/valida entrada e escolhe o status. */
+class CupomController {
+    service;
+    constructor(service) {
+        this.service = service;
     }
-    if (type === 'brinde' && !body.gift_description?.trim()) {
-        return 'gift_description é obrigatório para cupons do tipo brinde';
-    }
-    if (body.min_sale_value != null && body.min_sale_value < 0)
-        return 'min_sale_value não pode ser negativo';
-    return null;
-}
-function toRow(body) {
-    const type = (body.type ?? 'percentual');
-    return {
-        code: body.code.trim().toUpperCase(),
-        type,
-        value: type === 'brinde' ? null : (body.value != null ? String(body.value) : null),
-        gift_description: type === 'brinde' ? (body.gift_description?.trim() ?? null) : null,
-        min_sale_value: body.min_sale_value != null ? String(body.min_sale_value) : null,
-        is_public: body.is_public ?? false,
-        is_active: body.is_active ?? true,
+    list = async (req, reply) => {
+        return reply.send(await this.service.list((0, http_router_1.companyIdOf)(req)));
+    };
+    create = async (req, reply) => {
+        const input = schema_validator_1.SchemaValidator.parse(cupom_dto_1.cupomInputSchema, req.body);
+        return reply.status(201).send(await this.service.create((0, http_router_1.companyIdOf)(req), input));
+    };
+    update = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(cupom_dto_1.cupomIdParamsSchema, req.params);
+        const patch = schema_validator_1.SchemaValidator.parse(cupom_dto_1.cupomInputSchema, req.body);
+        return reply.send(await this.service.update(id, (0, http_router_1.companyIdOf)(req), patch));
+    };
+    remove = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(cupom_dto_1.cupomIdParamsSchema, req.params);
+        await this.service.remove(id, (0, http_router_1.companyIdOf)(req));
+        return reply.status(204).send();
     };
 }
-exports.cupomController = {
-    async list(req, reply) {
-        const companyId = req.user.company_id;
-        const list = await cupom_service_1.cupomService.list(companyId);
-        return reply.send(list);
-    },
-    async create(req, reply) {
-        const companyId = req.user.company_id;
-        const body = req.body;
-        const error = validatePayload(body);
-        if (error)
-            return reply.status(400).send({ error });
-        const row = toRow(body);
-        if (await cupom_service_1.cupomService.isCodeTaken(companyId, row.code)) {
-            return reply.status(409).send({ error: 'Já existe um cupom com esse código' });
-        }
-        const created = await cupom_service_1.cupomService.create(companyId, row);
-        return reply.status(201).send(created);
-    },
-    async update(req, reply) {
-        const companyId = req.user.company_id;
-        const { id } = req.params;
-        const body = req.body;
-        const existing = await cupom_service_1.cupomService.findById(id, companyId);
-        if (!existing)
-            return reply.status(404).send({ error: 'Cupom não encontrado' });
-        const typeChanged = body.type !== undefined && body.type !== existing.type;
-        const merged = {
-            code: body.code ?? existing.code,
-            type: body.type ?? existing.type,
-            value: body.value !== undefined ? body.value : (typeChanged ? null : (existing.value != null ? Number(existing.value) : null)),
-            gift_description: body.gift_description !== undefined ? body.gift_description : existing.gift_description,
-            min_sale_value: body.min_sale_value !== undefined ? body.min_sale_value : (existing.min_sale_value != null ? Number(existing.min_sale_value) : null),
-            is_public: body.is_public !== undefined ? body.is_public : existing.is_public,
-            is_active: body.is_active !== undefined ? body.is_active : existing.is_active,
-        };
-        const error = validatePayload(merged);
-        if (error)
-            return reply.status(400).send({ error });
-        const row = toRow(merged);
-        if (await cupom_service_1.cupomService.isCodeTaken(companyId, row.code, id)) {
-            return reply.status(409).send({ error: 'Já existe um cupom com esse código' });
-        }
-        const updated = await cupom_service_1.cupomService.update(id, companyId, row);
-        if (!updated)
-            return reply.status(404).send({ error: 'Cupom não encontrado' });
-        return reply.send(updated);
-    },
-    async remove(req, reply) {
-        const companyId = req.user.company_id;
-        const { id } = req.params;
-        const ok = await cupom_service_1.cupomService.remove(id, companyId);
-        if (!ok)
-            return reply.status(404).send({ error: 'Cupom não encontrado' });
-        return reply.status(204).send();
-    },
-};
+exports.CupomController = CupomController;
 //# sourceMappingURL=cupom.controller.js.map

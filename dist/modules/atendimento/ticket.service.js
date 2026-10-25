@@ -46,7 +46,7 @@ const auth_schema_1 = require("../auth/auth.schema");
 const profile_db_schema_1 = require("../profiles/profile.db.schema");
 const company_db_schema_1 = require("../companies/company.db.schema");
 const socket_1 = require("../../shared/socket");
-const configuracao_geral_service_1 = require("../configuracao-geral/configuracao-geral.service");
+const configuracao_geral_module_1 = require("../configuracao-geral/configuracao-geral.module");
 const fila_service_1 = require("../filas/fila.service");
 const attendant_capacity_service_1 = require("./attendant-capacity.service");
 const funil_stage_service_1 = require("./funil-stage.service");
@@ -56,7 +56,7 @@ const funil_stage_service_1 = require("./funil-stage.service");
 // (users.xp), não recalculado a partir do histórico de tickets. A quantidade
 // por venda é configurável pelo dono (company_permissions.sale_xp_amount).
 async function grantSaleXp(userId, companyId) {
-    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
     if (!perms.gamification_enabled)
         return;
     await client_1.db.update(auth_schema_1.users).set({ xp: (0, drizzle_orm_1.sql) `${auth_schema_1.users.xp} + ${perms.sale_xp_amount}` }).where((0, drizzle_orm_1.eq)(auth_schema_1.users.id, userId));
@@ -86,7 +86,7 @@ exports.TicketAssignConflictError = TicketAssignConflictError;
 async function ensureReturnTicketPermission(companyId, profileTag) {
     if (profileTag === 'admin' || profileTag === 'superAdmin')
         return;
-    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
     if (!perms.return_ticket)
         throw new ReturnTicketPermissionError();
 }
@@ -115,7 +115,7 @@ async function ensureCanViewTicketMessages(ticket, userId, profileTag) {
     }
     else if (ticket.status_id === 1) {
         if (!isAdmin) {
-            const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(ticket.company_id);
+            const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(ticket.company_id);
             if (!perms.spy_ticket)
                 throw new SpyTicketPermissionError();
         }
@@ -154,7 +154,7 @@ async function ticketVisibilityCondition(companyId, userId, profileTag) {
     const isAdmin = profileTag === 'admin' || profileTag === 'superAdmin';
     if (isAdmin)
         return undefined;
-    const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+    const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
     if (perms.show_all_tickets)
         return undefined;
     const [myQueues, myConns] = await Promise.all([
@@ -254,7 +254,7 @@ exports.ticketService = {
         // Alimenta o gráfico de conversão do Kanban (visão "Funil") — só grava
         // pra empresas com o toggle ligado, senão toda empresa (mesmo sem usar
         // Kanban) ganharia etapas provisionadas e histórico crescendo à toa.
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
         if (perms.active_kanban) {
             const stages = await funil_stage_service_1.funilStageService.listStages(companyId);
             const waitingStage = stages.find((s) => s.is_waiting_stage);
@@ -405,7 +405,7 @@ exports.ticketService = {
         const lockKey = `ticket:${ticketId}`;
         if (!acquireLock(lockKey))
             throw new TicketAssignConflictError('Ticket já está sendo assumido por outro atendente');
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
         // Serializa por atendente (não só por ticket): sem isso, dois aceites
         // simultâneos de tickets DIFERENTES pelo mesmo atendente passariam na
         // contagem do limite antes que qualquer um dos dois efetivasse — cada
@@ -585,7 +585,7 @@ exports.ticketService = {
     /** Reabre um ticket finalizado (3 → 2). Verifica se não há outro aberto para o mesmo contato. */
     async reopen(ticketId, userId, companyId, profileTag) {
         await ensureReturnTicketPermission(companyId, profileTag);
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
         const attendantLockKey = `attendant-limit:${userId}`;
         const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
         if (!attendantLocked) {
@@ -629,7 +629,7 @@ exports.ticketService = {
     async transfer(ticketId, fromUserId, toUserId, companyId, queueId) {
         if (fromUserId === toUserId)
             throw new TransferenciaParaSiMesmoError();
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
         const attendantLockKey = `attendant-limit:${toUserId}`;
         const attendantLocked = !perms.limit_services_users || acquireLock(attendantLockKey);
         if (!attendantLocked) {
@@ -689,7 +689,7 @@ exports.ticketService = {
     async _sendTransferMessage(ticket, companyId, fromName, toName) {
         if (!ticket.connection_id || !ticket.contact_id)
             return;
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
         if (!perms.send_ticket_transfer_msg)
             return;
         const [companyRow] = await client_1.db
@@ -776,7 +776,7 @@ exports.ticketService = {
             .limit(1);
         if (!current)
             throw new Error('Ticket não encontrado');
-        const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
+        const { researchSurvey: pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.module')));
         const research = await pesquisaService.findActiveForQueue(current.queue_id, companyId);
         if (!research)
             throw new Error('Nenhuma pesquisa de satisfação configurada para este atendimento');
@@ -829,7 +829,7 @@ exports.ticketService = {
             return;
         if (sendGoodbye === false)
             return;
-        const perms = await (0, configuracao_geral_service_1.getCompanyPermissions)(companyId);
+        const perms = await configuracao_geral_module_1.companyPermissionsReader.forCompany(companyId);
         if (sendGoodbye === undefined && !perms.send_ticket_goodbye_msg)
             return;
         const [companyRow] = await client_1.db

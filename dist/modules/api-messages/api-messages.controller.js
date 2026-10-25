@@ -1,55 +1,37 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.apiMessagesController = void 0;
+exports.ApiMessagesController = void 0;
+const http_errors_1 = require("../../core/errors/http-errors");
+const http_router_1 = require("../../core/http/http-router");
+const public_api_error_1 = require("../../core/http/public-api-error");
 const api_messages_service_1 = require("./api-messages.service");
-exports.apiMessagesController = {
-    /** POST /api-messages/send — autenticado por header X-Api-Key, não por JWT de usuário. */
-    async send(req, reply) {
-        const rawKey = req.headers['x-api-key'];
-        if (!rawKey || typeof rawKey !== 'string') {
-            return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Chave de API não fornecida' });
-        }
-        const companyId = await api_messages_service_1.apiMessagesService.resolveCompanyByKey(rawKey);
-        if (!companyId) {
-            return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Chave de API inválida ou revogada' });
-        }
-        const body = req.body;
-        if (!body.connection_id || !body.number || !body.message) {
-            return reply.status(400).send({
-                statusCode: 400, error: 'Bad Request',
-                message: 'connection_id, number e message são obrigatórios',
-            });
-        }
+/** Adapta HTTP ⇄ envio por API (público) e gestão da chave (admin). */
+class ApiMessagesController {
+    keys;
+    messages;
+    constructor(keys, messages) {
+        this.keys = keys;
+        this.messages = messages;
+    }
+    /** POST /api-messages/send — autenticado por X-Api-Key; erros no formato da API pública. */
+    send = async (req, reply) => {
         try {
-            const result = await api_messages_service_1.apiMessagesService.sendMessage(companyId, {
-                connectionId: Number(body.connection_id),
-                number: body.number,
-                message: body.message,
-            });
+            const companyId = await this.keys.authenticate(req.headers['x-api-key']);
+            const result = await this.messages.sendMessage(companyId, (0, api_messages_service_1.parseSendRequest)(req.body));
             return reply.status(200).send({ sent: true, ticket_id: result.ticketId });
         }
         catch (err) {
-            if (err instanceof api_messages_service_1.ApiMessagesDisabledError) {
-                return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: err.message });
-            }
-            if (err instanceof api_messages_service_1.ConnectionNotFoundError) {
-                return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: err.message });
-            }
+            if (err instanceof http_errors_1.AppError)
+                return reply.status(err.statusCode).send((0, public_api_error_1.publicApiErrorBody)(err));
             throw err;
         }
-    },
-    // ── Gestão da chave (JWT + admin) ───────────────────────────────────────
-    async status(req, reply) {
-        const data = await api_messages_service_1.apiMessagesService.getKeyStatus(req.user.company_id);
-        return reply.send(data);
-    },
-    async generate(req, reply) {
-        const data = await api_messages_service_1.apiMessagesService.generateKey(req.user.company_id);
-        return reply.send(data);
-    },
-    async revoke(req, reply) {
-        await api_messages_service_1.apiMessagesService.revokeKey(req.user.company_id);
+    };
+    status = async (req, reply) => reply.send(await this.keys.getKeyStatus((0, http_router_1.requireCompanyId)(req)));
+    generate = async (req, reply) => reply.send(await this.keys.generateKey((0, http_router_1.requireCompanyId)(req)));
+    revoke = async (req, reply) => {
+        await this.keys.revokeKey((0, http_router_1.requireCompanyId)(req));
         return reply.status(204).send();
-    },
-};
+    };
+}
+exports.ApiMessagesController = ApiMessagesController;
 //# sourceMappingURL=api-messages.controller.js.map

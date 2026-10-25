@@ -12,29 +12,31 @@ import { errorHandler } from '../middlewares/error.middleware';
 import { registerRequestLogger } from '../middlewares/logger.middleware';
 import { internalAuthMiddleware, baysWebhookMiddleware } from '../middlewares/internal-auth.middleware';
 import { authMiddleware, requireAdmin } from '../middlewares/auth.middleware';
-import { authRoutes } from '../modules/auth/auth.routes';
+import { authRouter } from '../modules/auth/auth.module';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
 import { whatsappOficialRoutes } from '../modules/whatsapp-oficial/whatsapp-oficial.routes';
 import { whatsappOficialController } from '../modules/whatsapp-oficial/whatsapp-oficial.controller';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
-import { quickMessagesRoutes } from '../modules/quick-messages/quick-messages.routes';
+import { agendamentoMensagensRouter } from '../modules/agendamento-mensagens/agendamento-mensagens.module';
+import { notificacaoRouter } from '../modules/notificacoes/notificacao.module';
+import { quickMessageRouter } from '../modules/quick-messages/quick-messages.module';
 import { botsRoutes } from '../modules/bots/bots.routes';
-import { etiquetasRoutes } from '../modules/etiquetas/etiqueta.routes';
+import { etiquetaRouter } from '../modules/etiquetas/etiqueta.module';
 import { filasRoutes } from '../modules/filas/fila.routes';
-import { achievementsRoutes } from '../modules/achievements/achievements.routes';
-import { usuariosRoutes } from '../modules/usuarios/usuario.routes';
-import { meuPerfilRoutes } from '../modules/meu-perfil/meu-perfil.routes';
-import { pesquisasRoutes } from '../modules/pesquisas/pesquisa.routes';
-import { produtosRoutes } from '../modules/produtos/produto.routes';
-import { cuponsRoutes } from '../modules/cupons/cupom.routes';
-import { campanhasRoutes } from '../modules/campanhas/campanha.routes';
-import { integracoesRoutes } from '../modules/integracoes/integracao.routes';
-import { agendaRoutes } from '../modules/agenda/agenda.routes';
-import { tarefasRoutes } from '../modules/tarefas/tarefas.routes';
-import { configuracaoGeralRoutes } from '../modules/configuracao-geral/configuracao-geral.routes';
-import { apiMessagesRoutes } from '../modules/api-messages/api-messages.routes';
+import { achievementsRouter } from '../modules/achievements/achievements.module';
+import { usuarioRouter } from '../modules/usuarios/usuario.module';
+import { meuPerfilRouter } from '../modules/meu-perfil/meu-perfil.module';
+import { pesquisaRouter } from '../modules/pesquisas/pesquisa.module';
+import { produtoRouter } from '../modules/produtos/produto.module';
+import { cupomRouter } from '../modules/cupons/cupom.module';
+import { campanhaRouter } from '../modules/campanhas/campanha.module';
+import { integracaoRouter } from '../modules/integracoes/integracao.module';
+import { agendaRouter } from '../modules/agenda/agenda.module';
+import { tarefasRouter } from '../modules/tarefas/tarefas.module';
+import { configuracaoGeralRouter } from '../modules/configuracao-geral/configuracao-geral.module';
+import { apiMessagesRouter } from '../modules/api-messages/api-messages.module';
 import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
 import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
@@ -99,7 +101,9 @@ export function buildApp() {
         global: true,
         max: 200,
         timeWindow: '1 minute',
-        ...(redis ? { redis } : {}),
+        // Em teste, contador em memória por instância: no Redis ele seria somado
+        // entre todos os arquivos da suíte e estouraria o limite no meio dela.
+        ...(redis && env.NODE_ENV !== 'test' ? { redis } : {}),
         // IP real do usuário mesmo atrás do proxy (fallback: IP do socket)
         keyGenerator: (request) =>
             (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || request.ip,
@@ -145,36 +149,38 @@ export function buildApp() {
     app.register(monitoringRoutes);
 
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
-    app.register(authRoutes, { prefix: '/api/v1/auth' });
+    app.register(authRouter.register, { prefix: '/api/v1/auth' });
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
     app.register(whatsappOficialRoutes, { prefix: '/api/v1/whatsapp-oficial' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
-    app.register(quickMessagesRoutes, { prefix: '/api/v1/configuracao/quick-messages' });
-    app.register(etiquetasRoutes, { prefix: '/api/v1' });
+    app.register(agendamentoMensagensRouter.register, { prefix: '/api/v1/atendimento' });
+    app.register(notificacaoRouter.register, { prefix: '/api/v1/notifications' });
+    app.register(quickMessageRouter.register, { prefix: '/api/v1/configuracao/quick-messages' });
+    app.register(etiquetaRouter.register, { prefix: '/api/v1' });
     app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
-    app.register(achievementsRoutes, { prefix: '/api/v1/achievements' });
-    app.register(tarefasRoutes, { prefix: '/api/v1/tarefas' });
-    app.register(meuPerfilRoutes, { prefix: '/api/v1/configuracao/meu-perfil' });
+    app.register(achievementsRouter.register, { prefix: '/api/v1/achievements' });
+    app.register(tarefasRouter.register, { prefix: '/api/v1/tarefas' });
+    app.register(meuPerfilRouter.register, { prefix: '/api/v1/configuracao/meu-perfil' });
 
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
     app.register(adminOnly(botsRoutes), { prefix: '/api/v1/bots' });
-    app.register(adminOnly(usuariosRoutes), { prefix: '/api/v1/configuracao/usuarios' });
-    app.register(adminOnly(pesquisasRoutes), { prefix: '/api/v1/configuracao/pesquisas' });
-    app.register(adminOnly(campanhasRoutes), { prefix: '/api/v1/configuracao/mensagens-agendadas' });
-    app.register(adminOnly(produtosRoutes), { prefix: '/api/v1/configuracao/produtos' });
-    app.register(adminOnly(cuponsRoutes), { prefix: '/api/v1/configuracao/cupons' });
+    app.register(usuarioRouter.register, { prefix: '/api/v1/configuracao/usuarios' });
+    app.register(pesquisaRouter.register, { prefix: '/api/v1/configuracao/pesquisas' });
+    app.register(campanhaRouter.register, { prefix: '/api/v1/configuracao/mensagens-agendadas' });
+    app.register(produtoRouter.register, { prefix: '/api/v1/configuracao/produtos' });
+    app.register(cupomRouter.register, { prefix: '/api/v1/configuracao/cupons' });
     // integracoes NÃO usa adminOnly: /google/callback é público (redirect OAuth do Google).
     // O gating admin é feito por-rota dentro de integracao.routes.ts.
-    app.register(integracoesRoutes, { prefix: '/api/v1/integracoes' });
+    app.register(integracaoRouter.register, { prefix: '/api/v1/integracoes' });
     // api-messages NÃO usa adminOnly: /send é público, autenticado por X-Api-Key
     // (chamado por sistemas externos, não por usuário logado). O gating admin
     // das rotas de gestão da chave é feito por-rota dentro de api-messages.routes.ts.
-    app.register(apiMessagesRoutes, { prefix: '/api/v1' });
-    app.register(adminOnly(agendaRoutes), { prefix: '/api/v1/agenda' });
+    app.register(apiMessagesRouter.register, { prefix: '/api/v1' });
+    app.register(agendaRouter.register, { prefix: '/api/v1/agenda' });
     // configuracaoGeralRoutes NÃO usa adminOnly: GET é liberado pra qualquer
     // usuário autenticado (useCompanyPermissions precisa disso pro app inteiro),
     // o gating admin do PUT é feito por-rota dentro de configuracao-geral.routes.ts.
-    app.register(configuracaoGeralRoutes, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
+    app.register(configuracaoGeralRouter.register, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
     app.register(adminOnly(reportsRoutes),       { prefix: '/api/v1/reports' });
     app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });

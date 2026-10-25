@@ -1,103 +1,108 @@
-import { eq, and } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { companyIntegrations, CompanyIntegration } from './integracao.db.schema';
-import { exchangeCode, refreshAccessToken } from './google-calendar.client';
+import type { IntegrationRepository } from './integracao.repository';
+import { GoogleAccessRevokedError, type GoogleCredentials, type GoogleOAuthGateway } from './google.gateways';
+import type { OAuthStateSigner } from './oauth-state';
 
-export const integracaoService = {
+/** Resultado do callback; vira `?connected=true` ou `?error=<motivo>` no front. */
+export type CallbackOutcome = 'connected' | 'missing_params' | 'invalid_state' | 'access_denied' | 'oauth_failed';
 
-    async handleCallback(companyId: string, code: string): Promise<void> {
-        const tokens = await exchangeCode(code);
+export interface CallbackParams {
+    code?: string;
+    state?: string;
+    /** Preenchido pelo Google quando o usuário cancela ou algo dá errado lá. */
+    error?: string;
+}
 
-        const [existing] = await db
-            .select()
-            .from(companyIntegrations)
-            .where(
-                and(
-                    eq(companyIntegrations.company_id, companyId),
-                    eq(companyIntegrations.provider, 'google_calendar'),
-                ),
-            )
-            .limit(1);
+export interface IntegrationStatus {
+    connected: boolean;
+    email?: string;
+    /** O Google recusou os tokens: o admin precisa reconectar a conta. */
+    needs_reconnect: boolean;
+}
 
-        if (existing) {
-            await db
-                .update(companyIntegrations)
-                .set({
-                    access_token:  tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                    token_expiry:  tokens.token_expiry,
-                    google_email:  tokens.google_email,
-                    updated_at:    new Date(),
-                })
-                .where(eq(companyIntegrations.id, existing.id));
-        } else {
-            await db.insert(companyIntegrations).values({
-                company_id:    companyId,
-                provider:      'google_calendar',
-                access_token:  tokens.access_token,
-                refresh_token: tokens.refresh_token,
-                token_expiry:  tokens.token_expiry,
-                google_email:  tokens.google_email,
-            });
+/** Quem precisa falar com o Google em nome da empresa só depende disto (ISP). */
+export interface GoogleCredentialsProvider {
+    /** null se a empresa não está conectada ou precisa reconectar. */
+    validCredentials(companyId: string): Promise<GoogleCredentials | null>;
+    /** O Google recusou os tokens: marca a integração para o admin reconectar. */
+    reportAccessRevoked(companyId: string): Promise<void>;
+}
+
+/** Renova o access token um pouco antes de expirar, para não falhar no meio da chamada. */
+const REFRESH_MARGIN_MS = 60_000;
+
+export class GoogleCalendarIntegrationService implements GoogleCredentialsProvider {
+    constructor(
+        private readonly repository: IntegrationRepository,
+        private readonly oauth: GoogleOAuthGateway,
+        private readonly stateSigner: OAuthStateSigner,
+        private readonly now: () => Date = () => new Date(),
+    ) {}
+
+    authUrl(companyId: string): string {
+        return this.oauth.authUrl(this.stateSigner.sign(companyId));
+    }
+
+    async handleCallback({ code, state, error }: CallbackParams): Promise<CallbackOutcome> {
+        if (error) return error === 'access_denied' ? 'access_denied' : 'oauth_failed';
+        if (!code || !state) return 'missing_params';
+
+        const companyId = this.stateSigner.verify(state);
+        if (!companyId) return 'invalid_state';
+
+        try {
+            await this.connect(companyId, code);
+            return 'connected';
+        } catch (err) {
+            console.error('[integracoes/callback] Erro:', err);
+            return 'oauth_failed';
         }
-    },
+    }
 
-    async getStatus(companyId: string): Promise<{ connected: boolean; email?: string }> {
-        const [row] = await db
-            .select()
-            .from(companyIntegrations)
-            .where(
-                and(
-                    eq(companyIntegrations.company_id, companyId),
-                    eq(companyIntegrations.provider, 'google_calendar'),
-                ),
-            )
-            .limit(1);
+    async getStatus(companyId: string): Promise<IntegrationStatus> {
+        const row = await this.repository.findByCompany(companyId);
+        if (!row) return { connected: false, needs_reconnect: false };
+        return { connected: true, email: row.google_email ?? undefined, needs_reconnect: !!row.reconnect_required_at };
+    }
 
-        if (!row) return { connected: false };
-        return { connected: true, email: row.google_email ?? undefined };
-    },
+    disconnect(companyId: string): Promise<void> {
+        return this.repository.deleteByCompany(companyId);
+    }
 
-    async disconnect(companyId: string): Promise<void> {
-        await db
-            .delete(companyIntegrations)
-            .where(
-                and(
-                    eq(companyIntegrations.company_id, companyId),
-                    eq(companyIntegrations.provider, 'google_calendar'),
-                ),
-            );
-    },
+    async validCredentials(companyId: string): Promise<GoogleCredentials | null> {
+        const row = await this.repository.findByCompany(companyId);
+        // Marcada para reconectar: não insiste com tokens que o Google já recusou
+        if (!row || row.reconnect_required_at) return null;
 
-    async getValidTokens(companyId: string): Promise<CompanyIntegration | null> {
-        const [row] = await db
-            .select()
-            .from(companyIntegrations)
-            .where(
-                and(
-                    eq(companyIntegrations.company_id, companyId),
-                    eq(companyIntegrations.provider, 'google_calendar'),
-                ),
-            )
-            .limit(1);
+        const expiresSoon = row.token_expiry && row.token_expiry.getTime() - REFRESH_MARGIN_MS < this.now().getTime();
+        if (!expiresSoon) return { access_token: row.access_token, refresh_token: row.refresh_token };
 
-        if (!row) return null;
-
-        const isExpired = row.token_expiry && row.token_expiry < new Date();
-        if (isExpired) {
-            const refreshed = await refreshAccessToken(row.refresh_token);
-            const [updated] = await db
-                .update(companyIntegrations)
-                .set({
-                    access_token: refreshed.access_token,
-                    token_expiry: refreshed.token_expiry,
-                    updated_at:   new Date(),
-                })
-                .where(eq(companyIntegrations.id, row.id))
-                .returning();
-            return updated;
+        try {
+            const refreshed = await this.oauth.refreshAccessToken(row.refresh_token);
+            const updated = await this.repository.updateAccessToken(row.id, refreshed.access_token, refreshed.token_expiry);
+            return { access_token: updated.access_token, refresh_token: updated.refresh_token };
+        } catch (err) {
+            if (!(err instanceof GoogleAccessRevokedError)) throw err;
+            await this.reportAccessRevoked(companyId);
+            return null;
         }
+    }
 
-        return row;
-    },
-};
+    async reportAccessRevoked(companyId: string): Promise<void> {
+        console.warn(`[integracoes] Google recusou os tokens da empresa ${companyId}: admin precisa reconectar`);
+        await this.repository.markReconnectRequired(companyId, this.now());
+    }
+
+    private async connect(companyId: string, code: string): Promise<void> {
+        const tokens = await this.oauth.exchangeCode(code);
+        // Numa reconexão o Google pode não mandar refresh_token: mantém o atual
+        const refreshToken = tokens.refresh_token ?? (await this.repository.findByCompany(companyId))?.refresh_token;
+        if (!refreshToken) throw new Error('Google não devolveu refresh_token');
+
+        await this.repository.saveConnection(companyId, {
+            access_token:  tokens.access_token,
+            refresh_token: refreshToken,
+            token_expiry:  tokens.token_expiry,
+            google_email:  tokens.google_email,
+        });
+    }
+}

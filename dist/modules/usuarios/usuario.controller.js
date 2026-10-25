@@ -1,71 +1,34 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.usuarioController = void 0;
-const usuario_service_1 = require("./usuario.service");
-exports.usuarioController = {
-    async listSelects(req, reply) {
-        const companyId = req.user.company_id;
-        const [queues, connections] = await Promise.all([
-            usuario_service_1.usuarioService.listQueues(companyId),
-            usuario_service_1.usuarioService.listConnections(companyId),
-        ]);
-        return reply.send({ queues, connections });
-    },
-    async list(req, reply) {
-        const companyId = req.user.company_id;
-        const data = await usuario_service_1.usuarioService.list(companyId);
-        return reply.send(data);
-    },
-    async create(req, reply) {
-        const companyId = req.user.company_id;
-        const body = req.body;
-        if (!body.name?.trim() || !body.email?.trim() || !body.password?.trim()) {
-            return reply.status(400).send({ message: 'Nome, e-mail e senha são obrigatórios' });
-        }
-        if (body.profile_id === 3) {
-            return reply.status(403).send({ message: 'Não é permitido criar superAdmin' });
-        }
-        try {
-            const user = await usuario_service_1.usuarioService.create(companyId, {
-                name: body.name.trim(),
-                email: body.email.trim(),
-                password: body.password.trim(),
-                profile_id: body.profile_id ?? 1,
-                queue_ids: body.queue_ids ?? [],
-                connection_ids: body.connection_ids ?? [],
-            });
-            return reply.status(201).send(user);
-        }
-        catch (err) {
-            if (err.message === 'EMAIL_TAKEN') {
-                return reply.status(409).send({ message: 'E-mail já cadastrado' });
-            }
-            throw err;
-        }
-    },
-    async update(req, reply) {
-        const { id } = req.params;
-        const companyId = req.user.company_id;
-        const body = req.body;
-        if (body.profile_id === 3) {
-            return reply.status(403).send({ message: 'Não é permitido definir superAdmin' });
-        }
-        const result = await usuario_service_1.usuarioService.update(id, companyId, body);
-        if (!result)
-            return reply.status(404).send({ message: 'Usuário não encontrado' });
+exports.UsuarioController = void 0;
+const schema_validator_1 = require("../../core/validation/schema-validator");
+const http_router_1 = require("../../core/http/http-router");
+const usuario_dto_1 = require("./usuario.dto");
+/** Adapta HTTP ⇄ UsuarioService. */
+class UsuarioController {
+    service;
+    constructor(service) {
+        this.service = service;
+    }
+    listSelects = async (req, reply) => reply.send(await this.service.options((0, http_router_1.companyIdOf)(req)));
+    list = async (req, reply) => reply.send(await this.service.list((0, http_router_1.companyIdOf)(req)));
+    create = async (req, reply) => {
+        const input = schema_validator_1.SchemaValidator.parse(usuario_dto_1.createUserSchema, req.body);
+        return reply.status(201).send(await this.service.create(this.actor(req), input));
+    };
+    update = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(usuario_dto_1.userIdParamsSchema, req.params);
+        await this.service.update(this.actor(req), id, schema_validator_1.SchemaValidator.parse(usuario_dto_1.updateUserSchema, req.body));
         return reply.send({ ok: true });
-    },
-    async remove(req, reply) {
-        const { id } = req.params;
-        const companyId = req.user.company_id;
-        if (id === req.user.id) {
-            return reply.status(400).send({ message: 'Você não pode excluir seu próprio usuário' });
-        }
-        const removed = await usuario_service_1.usuarioService.remove(id, companyId);
-        if (!removed) {
-            return reply.status(404).send({ message: 'Usuário não encontrado' });
-        }
+    };
+    remove = async (req, reply) => {
+        const { id } = schema_validator_1.SchemaValidator.parse(usuario_dto_1.userIdParamsSchema, req.params);
+        await this.service.remove(this.actor(req), id);
         return reply.send({ ok: true });
-    },
-};
+    };
+    actor(req) {
+        return { userId: req.user.id, companyId: (0, http_router_1.companyIdOf)(req) };
+    }
+}
+exports.UsuarioController = UsuarioController;
 //# sourceMappingURL=usuario.controller.js.map

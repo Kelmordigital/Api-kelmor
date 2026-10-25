@@ -1,52 +1,27 @@
-import { QuickMessage } from './quick-messages.db.schema';
-import { Readable } from 'stream';
-interface ListParams {
-    page?: number;
-    limit?: number;
-    search?: string;
+import type { MediaStorage, StoredFile } from '../../core/storage/media-storage';
+import type { Page, Pagination } from '../../core/http/pagination';
+import type { QuickMessage } from './quick-messages.db.schema';
+import type { QuickMessageRepository } from './quick-messages.repository';
+import type { QuickMessageInput } from './quick-messages.dto';
+/**
+ * Mensagens rápidas da empresa. O arquivo enviado chega já gravado; se a
+ * operação falhar, ele é apagado — nenhum upload fica órfão no storage.
+ */
+export declare class QuickMessageService {
+    private readonly repository;
+    private readonly storage;
+    constructor(repository: QuickMessageRepository, storage: MediaStorage);
+    list(companyId: string, pagination: Pagination, search?: string): Promise<Page<QuickMessage>>;
+    create(companyId: string, input: QuickMessageInput, media?: StoredFile): Promise<QuickMessage>;
+    update(id: number, companyId: string, input: QuickMessageInput, media?: StoredFile): Promise<QuickMessage>;
+    remove(id: number, companyId: string): Promise<void>;
+    private discardOnFailure;
+    private static requiredTitle;
+    private static text;
+    /** Uma mensagem rápida precisa ter texto, mídia ou os dois. */
+    private static assertHasContent;
+    private static mediaColumns;
+    private static orNotFound;
+    private static notFound;
 }
-interface CreatePayload {
-    title: string;
-    message?: string | null;
-    media_path?: string | null;
-    media_type?: string | null;
-    media_size?: number | null;
-}
-interface UpdatePayload {
-    title?: string;
-    message?: string | null;
-    media_path?: string | null;
-    media_type?: string | null;
-    media_size?: number | null;
-    remove_media?: boolean;
-}
-export declare const quickMessageService: {
-    list(companyId: string, params?: ListParams): Promise<{
-        data: {
-            id: number;
-            company_id: string;
-            title: string;
-            message: string | null;
-            media_path: string | null;
-            media_type: string | null;
-            media_size: number | null;
-            created_at: Date | null;
-            updated_at: Date | null;
-        }[];
-        total: number;
-        page: number;
-        limit: number;
-        totalPages: number;
-    }>;
-    findById(id: number, companyId: string): Promise<QuickMessage | undefined>;
-    create(companyId: string, payload: CreatePayload): Promise<QuickMessage>;
-    update(id: number, companyId: string, payload: UpdatePayload): Promise<QuickMessage | null>;
-    remove(id: number, companyId: string): Promise<QuickMessage | null>;
-    saveFile(companyId: string, originalName: string, stream: Readable): Promise<{
-        filePath: string;
-        size: number;
-    }>;
-    deleteFile(mediaPath: string): Promise<void>;
-};
-export {};
 //# sourceMappingURL=quick-messages.service.d.ts.map

@@ -1,101 +1,49 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { pesquisaService } from './pesquisa.service';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { BadRequestError } from '../../core/errors/http-errors';
+import { SchemaValidator } from '../../core/validation/schema-validator';
+import { companyIdOf } from '../../core/http/http-router';
+import {
+    createResearchSchema, reportQuerySchema, reportViewQuerySchema, researchIdParamsSchema, updateResearchSchema,
+} from './pesquisa.dto';
+import type { ResearchCatalogService, ResearchReportService } from './pesquisa.service';
 
-export const pesquisaController = {
+/** Adapta HTTP ⇄ cadastro e relatório de pesquisas. */
+export class PesquisaController {
+    constructor(
+        private readonly catalog: ResearchCatalogService,
+        private readonly reports: ResearchReportService,
+    ) {}
 
-    async list(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const data = await pesquisaService.list(companyId);
-        return reply.send(data);
-    },
+    list = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.catalog.list(companyIdOf(req)));
 
-    async listActive(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const data = await pesquisaService.listActive(companyId);
-        return reply.send(data);
-    },
+    listActive = async (req: FastifyRequest, reply: FastifyReply) => reply.send(await this.catalog.listActive(companyIdOf(req)));
 
-    async create(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const body = req.body as {
-            name?: string;
-            type?: string;
-            active?: boolean;
-            default_research?: boolean;
-            answers?: string[];
-            queue_ids?: number[];
-        };
+    create = async (req: FastifyRequest, reply: FastifyReply) => {
+        const input = SchemaValidator.parse(createResearchSchema, req.body);
+        return reply.status(201).send(await this.catalog.create(companyIdOf(req), input));
+    };
 
-        if (!body.name?.trim()) {
-            return reply.status(400).send({ message: 'O nome da pesquisa é obrigatório' });
-        }
-        if (!body.answers?.length) {
-            return reply.status(400).send({ message: 'Adicione ao menos uma opção de resposta' });
-        }
-
-        const research = await pesquisaService.create(companyId, {
-            name: body.name.trim(),
-            type: body.type,
-            active: body.active,
-            default_research: body.default_research,
-            answers: body.answers,
-            queue_ids: body.queue_ids,
-        });
-        return reply.status(201).send(research);
-    },
-
-    async update(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const companyId = req.user.company_id!;
-        const body = req.body as {
-            name?: string;
-            type?: string;
-            active?: boolean;
-            default_research?: boolean;
-            answers?: string[];
-            queue_ids?: number[];
-        };
-
-        await pesquisaService.update(Number(id), companyId, body);
+    update = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(researchIdParamsSchema, req.params);
+        await this.catalog.update(id, companyIdOf(req), SchemaValidator.parse(updateResearchSchema, req.body));
         return reply.send({ ok: true });
-    },
+    };
 
-    async remove(req: FastifyRequest, reply: FastifyReply) {
-        const { id } = req.params as { id: string };
-        const companyId = req.user.company_id!;
-        const removed = await pesquisaService.remove(Number(id), companyId);
-        if (!removed) return reply.status(404).send({ message: 'Pesquisa não encontrada' });
+    remove = async (req: FastifyRequest, reply: FastifyReply) => {
+        const { id } = SchemaValidator.parse(researchIdParamsSchema, req.params);
+        await this.catalog.remove(id, companyIdOf(req));
         return reply.send({ ok: true });
-    },
+    };
 
-    async report(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { dateInit, dateEnd, userId, limit, offset } = req.query as {
-            dateInit?: string; dateEnd?: string; userId?: string; limit?: string; offset?: string;
-        };
-        const data = await pesquisaService.getReport(companyId, {
-            dateInit: dateInit ?? undefined,
-            dateEnd:  dateEnd  ?? undefined,
-            userId:   userId   ?? undefined,
-            limit:    limit  ? Number(limit)  : undefined,
-            offset:   offset ? Number(offset) : undefined,
-        });
-        return reply.send(data);
-    },
+    report = async (req: FastifyRequest, reply: FastifyReply) => {
+        const query = SchemaValidator.parse(reportQuerySchema, req.query);
+        return reply.send(await this.reports.report(companyIdOf(req), query));
+    };
 
-    async reportView(req: FastifyRequest, reply: FastifyReply) {
-        const companyId = req.user.company_id!;
-        const { answerId, dateInit, dateEnd, limit, offset } = req.query as {
-            answerId: string; dateInit?: string; dateEnd?: string; limit?: string; offset?: string;
-        };
-        if (!answerId) return reply.status(400).send({ message: 'answerId obrigatório' });
-        const data = await pesquisaService.getReportDrillDown(companyId, {
-            answerId: Number(answerId),
-            dateInit: dateInit ?? undefined,
-            dateEnd:  dateEnd  ?? undefined,
-            limit:    limit  ? Number(limit)  : 50,
-            offset:   offset ? Number(offset) : 0,
-        });
-        return reply.send(data);
-    },
-};
+    reportView = async (req: FastifyRequest, reply: FastifyReply) => {
+        const raw = req.query as { answerId?: string };
+        if (!raw.answerId) throw new BadRequestError('answerId obrigatório');
+        const query = SchemaValidator.parse(reportViewQuerySchema, req.query);
+        return reply.send(await this.reports.drillDown(companyIdOf(req), query));
+    };
+}

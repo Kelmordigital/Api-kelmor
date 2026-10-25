@@ -641,7 +641,7 @@ exports.whatsappService = {
         (0, socket_1.emitToCompany)(companyId, 'contact:upserted', { contact });
         if (body && !fromMe) {
             // Tenta capturar resposta de pesquisa antes de salvar mensagem
-            const { pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.service')));
+            const { researchSurvey: pesquisaService } = await Promise.resolve().then(() => __importStar(require('../pesquisas/pesquisa.module')));
             const wasAnswer = await pesquisaService.tryRecordAnswer(companyId, contact.id, body).catch(() => false);
             if (!wasAnswer) {
                 const media = msg.media;

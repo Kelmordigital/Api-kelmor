@@ -1,114 +1,85 @@
-import { eq, and, between } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { agendamentos, Agendamento, NewAgendamento } from './agenda.db.schema';
-import { integracaoService } from '../integracoes/integracao.service';
-import {
-    createCalendarEvent,
-    updateCalendarEvent,
-    deleteCalendarEvent,
-} from '../integracoes/google-calendar.client';
+import { BadRequestError, NotFoundError } from '../../core/errors/http-errors';
+import type { CalendarEvent, CalendarSync } from '../integracoes/calendar-sync';
+import type { Agendamento } from './agenda.db.schema';
+import type { AgendamentoPatch, AgendamentoRepository } from './agenda.repository';
+import type { AgendaPeriod } from './agenda-period';
+import type { CreateAgendamentoInput, UpdateAgendamentoInput } from './agenda.dto';
 
-export const agendaService = {
+const DEFAULT_COLOR = '#6366f1';
 
-    async list(companyId: string, start: Date, end: Date): Promise<Agendamento[]> {
-        return db
-            .select()
-            .from(agendamentos)
-            .where(
-                and(
-                    eq(agendamentos.company_id, companyId),
-                    between(agendamentos.start_at, start, end),
-                ),
-            );
-    },
+/**
+ * Agendamentos da empresa. Cada alteração é espelhada na agenda externa
+ * (CalendarSync) em melhor esforço: falha lá nunca desfaz nada aqui.
+ */
+export class AgendaService {
+    constructor(
+        private readonly repository: AgendamentoRepository,
+        private readonly calendar: CalendarSync,
+    ) {}
 
-    async create(
-        companyId: string,
-        userId: string,
-        payload: Omit<NewAgendamento, 'id' | 'company_id' | 'created_by' | 'google_event_id' | 'created_at' | 'updated_at'>,
-    ): Promise<Agendamento> {
-        const [row] = await db
-            .insert(agendamentos)
-            .values({ ...payload, company_id: companyId, created_by: userId })
-            .returning();
+    list(companyId: string, period: AgendaPeriod): Promise<Agendamento[]> {
+        return this.repository.listStartingBetween(companyId, period.start, period.end);
+    }
 
-        const integration = await integracaoService.getValidTokens(companyId);
-        if (integration) {
-            try {
-                const googleId = await createCalendarEvent(
-                    integration.access_token,
-                    integration.refresh_token,
-                    { title: row.title, start_at: row.start_at, end_at: row.end_at, notes: row.notes },
-                );
-                const [updated] = await db
-                    .update(agendamentos)
-                    .set({ google_event_id: googleId })
-                    .where(eq(agendamentos.id, row.id))
-                    .returning();
-                return updated;
-            } catch (err) {
-                console.error('[agenda] Erro ao sincronizar com Google Calendar:', err);
-            }
+    async create(companyId: string, userId: string, input: CreateAgendamentoInput): Promise<Agendamento> {
+        if (!input.start_at || !input.end_at) throw new BadRequestError('start_at e end_at são obrigatórios');
+        AgendaService.assertEndNotBeforeStart(input.start_at, input.end_at);
+
+        const row = await this.repository.create(companyId, userId, {
+            title:            input.title,
+            lead_id:          input.lead_id ?? null,
+            start_at:         input.start_at,
+            end_at:           input.end_at,
+            color:            input.color ?? DEFAULT_COLOR,
+            notes:            input.notes ?? null,
+            notify_on_create: input.notify_on_create ?? true,
+            reminder_minutes: input.reminder_minutes ?? null,
+            remind_at_exact:  input.remind_at_exact ?? false,
+            notify_groups:    input.notify_groups ?? [],
+        });
+
+        const googleEventId = await this.calendar.createEvent(companyId, AgendaService.toCalendarEvent(row));
+        if (!googleEventId) return row;
+        try {
+            return await this.repository.setGoogleEventId(row.id, googleEventId);
+        } catch (err) {
+            console.error('[agenda] Erro ao salvar o id do evento do Google Calendar:', err);
+            return row;
+        }
+    }
+
+    async update(id: string, companyId: string, input: UpdateAgendamentoInput): Promise<Agendamento> {
+        const existing = AgendaService.orNotFound(await this.repository.findById(id, companyId));
+        AgendaService.assertEndNotBeforeStart(input.start_at ?? existing.start_at, input.end_at ?? existing.end_at);
+
+        const patch: AgendamentoPatch = {};
+        for (const [key, value] of Object.entries(input)) {
+            if (value !== undefined) Object.assign(patch, { [key]: value });
         }
 
-        return row;
-    },
-
-    async update(
-        id: string,
-        companyId: string,
-        payload: Partial<Pick<Agendamento, 'title' | 'lead_id' | 'start_at' | 'end_at' | 'color' | 'notes' | 'notify_on_create' | 'reminder_minutes' | 'remind_at_exact' | 'notify_groups'>>,
-    ): Promise<Agendamento | null> {
-        const [row] = await db
-            .update(agendamentos)
-            .set({ ...payload, updated_at: new Date() })
-            .where(and(eq(agendamentos.id, id), eq(agendamentos.company_id, companyId)))
-            .returning();
-
-        if (!row) return null;
-
+        const row = AgendaService.orNotFound(await this.repository.update(id, companyId, patch));
         if (row.google_event_id) {
-            const integration = await integracaoService.getValidTokens(companyId);
-            if (integration) {
-                try {
-                    await updateCalendarEvent(
-                        integration.access_token,
-                        integration.refresh_token,
-                        row.google_event_id,
-                        { title: row.title, start_at: row.start_at, end_at: row.end_at, notes: row.notes },
-                    );
-                } catch (err) {
-                    console.error('[agenda] Erro ao atualizar evento no Google Calendar:', err);
-                }
-            }
+            await this.calendar.updateEvent(companyId, row.google_event_id, AgendaService.toCalendarEvent(row));
         }
-
         return row;
-    },
+    }
 
-    async remove(id: string, companyId: string): Promise<boolean> {
-        const [row] = await db
-            .delete(agendamentos)
-            .where(and(eq(agendamentos.id, id), eq(agendamentos.company_id, companyId)))
-            .returning();
+    async remove(id: string, companyId: string): Promise<void> {
+        const row = AgendaService.orNotFound(await this.repository.delete(id, companyId));
+        if (row.google_event_id) await this.calendar.deleteEvent(companyId, row.google_event_id);
+    }
 
-        if (!row) return false;
+    /** Início e fim iguais são permitidos (evento sem duração). */
+    private static assertEndNotBeforeStart(start: Date, end: Date): void {
+        if (end.getTime() < start.getTime()) throw new BadRequestError('end_at não pode ser antes de start_at');
+    }
 
-        if (row.google_event_id) {
-            const integration = await integracaoService.getValidTokens(companyId);
-            if (integration) {
-                try {
-                    await deleteCalendarEvent(
-                        integration.access_token,
-                        integration.refresh_token,
-                        row.google_event_id,
-                    );
-                } catch (err) {
-                    console.error('[agenda] Erro ao deletar evento do Google Calendar:', err);
-                }
-            }
-        }
+    private static toCalendarEvent(row: Agendamento): CalendarEvent {
+        return { title: row.title, start_at: row.start_at, end_at: row.end_at, notes: row.notes };
+    }
 
-        return true;
-    },
-};
+    private static orNotFound(row: Agendamento | null): Agendamento {
+        if (!row) throw new NotFoundError('Agendamento não encontrado');
+        return row;
+    }
+}
