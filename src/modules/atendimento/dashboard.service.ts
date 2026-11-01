@@ -5,6 +5,8 @@ import {
 } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
+import { profiles } from '../profiles/profile.db.schema';
+import { agendamentos } from '../agenda/agenda.db.schema';
 
 export type Period = 'day' | 'week' | 'month' | 'year';
 
@@ -72,6 +74,83 @@ function resolveInterval(scope: DashboardScope) {
         };
     }
     return getInterval(scope.period);
+}
+
+// ── Consultas do desempenho da equipe (uma por indicador; teamPerformance só monta o resultado) ──
+
+/** Atendentes (perfil 'user') da empresa; se o filtro trouxe um atendente, só ele. */
+async function teamMembers(companyId: string, scope: DashboardScope) {
+    return db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .innerJoin(profiles, eq(profiles.id, users.profile_id))
+        .where(and(
+            eq(users.company_id, companyId),
+            eq(profiles.tag, 'user'),
+            scope.attendantId ? eq(users.id, scope.attendantId) : undefined,
+        ));
+}
+
+/** Quantidade de atendimentos e tempo médio (criação→fechamento, só fechados) por atendente. */
+async function ticketStatsByAttendant(companyId: string, scope: DashboardScope) {
+    const { start, end } = resolveInterval(scope);
+    const rows = await db
+        .select({
+            userId: tickets.attendant_user_id,
+            total:  sql<number>`count(*)::int`,
+            avgSeconds: sql<number>`COALESCE(AVG(EXTRACT(EPOCH FROM (${tickets.updated_at} - ${tickets.created_at}))) FILTER (WHERE ${tickets.status_id} = 3), 0)::float`,
+        })
+        .from(tickets)
+        .where(and(
+            eq(tickets.company_id, companyId),
+            isNull(tickets.deleted_at),
+            gte(tickets.updated_at, start),
+            lte(tickets.updated_at, end),
+            ...scopeConditions(scope),
+        ))
+        .groupBy(tickets.attendant_user_id);
+    return new Map(rows.map(r => [r.userId, r]));
+}
+
+/** Valor vendido por atendente — mesma regra de venda concluída usada em salesByChannel. */
+async function salesValueByAttendant(companyId: string, scope: DashboardScope) {
+    const { start, end } = resolveInterval(scope);
+    const rows = await db
+        .select({
+            userId: tickets.attendant_user_id,
+            total:  sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
+        })
+        .from(tickets)
+        .where(and(
+            eq(tickets.company_id, companyId),
+            eq(tickets.is_sale, 1),
+            eq(tickets.status_id, 3),
+            eq(tickets.service_not_made, 0),
+            isNull(tickets.deleted_at),
+            gte(tickets.updated_at, start),
+            lte(tickets.updated_at, end),
+            ...scopeConditions(scope),
+        ))
+        .groupBy(tickets.attendant_user_id);
+    return new Map(rows.map(r => [r.userId, r.total]));
+}
+
+/** Agendamentos criados no período por usuário (a agenda não tem conexão/fila, então esses filtros não se aplicam). */
+async function appointmentsByCreator(companyId: string, scope: DashboardScope) {
+    const { start, end } = resolveInterval(scope);
+    const rows = await db
+        .select({
+            userId: agendamentos.created_by,
+            total:  sql<number>`count(*)::int`,
+        })
+        .from(agendamentos)
+        .where(and(
+            eq(agendamentos.company_id, companyId),
+            gte(agendamentos.created_at, start),
+            lte(agendamentos.created_at, end),
+        ))
+        .groupBy(agendamentos.created_by);
+    return new Map(rows.map(r => [r.userId, r.total]));
 }
 
 const TICKET_STATUS: Record<number, { name: string; color: string }> = {
@@ -547,6 +626,29 @@ export const dashboardService = {
         ))
         .orderBy(desc(tickets.updated_at))
         .limit(limit);
+    },
+
+    /**
+     * Desempenho da equipe (só admin): por atendente, quantidade de atendimentos,
+     * tempo médio (criação→fechamento dos fechados), agendamentos criados e valor vendido.
+     * Atendentes sem movimento no período aparecem zerados.
+     */
+    async teamPerformance(companyId: string, scope: DashboardScope) {
+        const [team, ticketStats, salesByUser, appointmentsByUser] = await Promise.all([
+            teamMembers(companyId, scope),
+            ticketStatsByAttendant(companyId, scope),
+            salesValueByAttendant(companyId, scope),
+            appointmentsByCreator(companyId, scope),
+        ]);
+
+        return team.map(u => ({
+            id: u.id,
+            name: u.name,
+            atendimentos: ticketStats.get(u.id)?.total ?? 0,
+            tempoMedioSegundos: Math.round(ticketStats.get(u.id)?.avgSeconds ?? 0),
+            agendamentos: appointmentsByUser.get(u.id) ?? 0,
+            valorVendido: salesByUser.get(u.id) ?? 0,
+        }));
     },
 
     async getTopAttendants(companyId: string, scope: Pick<DashboardScope, 'period' | 'startDate' | 'endDate' | 'connectionId' | 'queueId'>) {

@@ -652,6 +652,18 @@ export const atendimentoController = {
         return reply.send(await dashboardService.getTopAttendants(company_id, scope));
     },
 
+    async dashTeamPerformance(req: FastifyRequest, reply: FastifyReply) {
+        const { profile_tag, company_id } = req.user;
+
+        if (profile_tag !== 'admin' || !company_id) {
+            return reply.status(403).send({ error: 'Forbidden' });
+        }
+
+        const scope = getDashboardScope(req, reply);
+        if (!scope) return;
+        return reply.send(await dashboardService.teamPerformance(company_id, scope));
+    },
+
     async dashChannels(req: FastifyRequest, reply: FastifyReply) {
         const { profile_tag, company_id } = req.user;
 
