@@ -106,20 +106,22 @@ describe('funilStageService.getConversionFunnel', () => {
         const waiting = stages.find(s => s.is_waiting_stage)!;
         const middle = stages.filter(s => !s.is_waiting_stage && !s.is_finished_stage);
 
-        // Ticket A: entrou há 2 dias (dentro da semana), avançou até middle[1]
+        // 'week' é a semana de calendário (segunda a domingo): "há N dias" cai na semana
+        // passada às segundas/terças. Por isso A e B entram "agora", sempre dentro da semana.
+        // Ticket A: entrou na semana, avançou até middle[1]
         const contactA = await newContact(companyId);
         const [ticketA] = await db.insert(tickets).values({ company_id: companyId, contact_id: contactA, status_id: 2, funil_stage_id: middle[1].id }).returning();
         await db.insert(funil_stage_history).values([
-            { company_id: companyId, ticket_id: ticketA.id, funil_stage_id: waiting.id, entered_at: new Date(Date.now() - 2 * 86400000) },
-            { company_id: companyId, ticket_id: ticketA.id, funil_stage_id: middle[0].id, entered_at: new Date(Date.now() - 2 * 86400000) },
-            { company_id: companyId, ticket_id: ticketA.id, funil_stage_id: middle[1].id, entered_at: new Date(Date.now() - 1 * 86400000) },
+            { company_id: companyId, ticket_id: ticketA.id, funil_stage_id: waiting.id, entered_at: new Date() },
+            { company_id: companyId, ticket_id: ticketA.id, funil_stage_id: middle[0].id, entered_at: new Date() },
+            { company_id: companyId, ticket_id: ticketA.id, funil_stage_id: middle[1].id, entered_at: new Date() },
         ]);
 
-        // Ticket B: entrou há 2 dias também, só ficou em Aguardando
+        // Ticket B: entrou na semana também, só ficou em Aguardando
         const contactB = await newContact(companyId);
         const [ticketB] = await db.insert(tickets).values({ company_id: companyId, contact_id: contactB, status_id: 1 }).returning();
         await db.insert(funil_stage_history).values([
-            { company_id: companyId, ticket_id: ticketB.id, funil_stage_id: waiting.id, entered_at: new Date(Date.now() - 2 * 86400000) },
+            { company_id: companyId, ticket_id: ticketB.id, funil_stage_id: waiting.id, entered_at: new Date() },
         ]);
 
         // Ticket C: entrou há 90 dias (fora do período "week") — não deve contar
