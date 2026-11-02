@@ -1,3 +1,16 @@
+# Estagio 1: compila o TypeScript a partir do src (o dist versionado no git nao e mais usado)
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
+RUN npm run build
+
+# Estagio 2: imagem final, so com dependencias de producao + o dist recem-compilado
 FROM node:22-alpine
 
 WORKDIR /app
@@ -5,7 +18,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 
-COPY dist ./dist
+COPY --from=build /app/dist ./dist
 COPY drizzle ./drizzle
 COPY drizzle.config.ts ./
 
