@@ -1,7 +1,7 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+import { Readable } from 'stream';
 import { eq } from 'drizzle-orm';
 import { getRedisClient } from '../../config/redis';
+import { mediaStorage } from '../../config/media-storage';
 import { db } from '../../database/client';
 import { emitToCompany } from '../../shared/socket';
 import {
@@ -248,7 +248,7 @@ export const whatsappOficialWebhookService = {
         }
     },
 
-    /** Baixa a mídia (2 etapas: resolve URL → download autenticado) e serve via /uploads. */
+    /** Baixa a mídia (2 etapas: resolve URL → download autenticado) e guarda no storage de mídias. */
     async downloadMedia(
         conn: Connection,
         mediaId: string,
@@ -265,12 +265,9 @@ export const whatsappOficialWebhookService = {
                 ? filename.split('.').pop()!
                 : extFromMime(info.mime_type ?? mimeType ?? contentType);
 
-            const dir = path.join(process.cwd(), 'uploads', 'wab');
-            await fs.mkdir(dir, { recursive: true });
             const safeName = `${wamid.replace(/[^\w.-]/g, '_')}.${ext}`;
-            await fs.writeFile(path.join(dir, safeName), buffer);
-
-            return `/uploads/wab/${safeName}`;
+            const stored = await mediaStorage.save('wab', safeName, info.mime_type ?? mimeType ?? contentType ?? 'application/octet-stream', Readable.from(buffer));
+            return stored.url;
         } catch (err: any) {
             console.error(`[WAB:${conn.id}] Erro ao baixar mídia ${mediaId}:`, err.message);
             return null;

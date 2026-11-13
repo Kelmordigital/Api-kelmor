@@ -2,6 +2,7 @@ import { db } from '../../database/client';
 import { env } from '../../config/env';
 import { DrizzleCompanyDirectory } from '../companies/company-directory';
 import { HttpCampaignsGateway } from './campaigns.gateway';
+import { ActiveCampaignsPauser } from './active-campaigns-pauser';
 import { DrizzleCampanhaRepository } from './campanha.repository';
 import { CampaignService, ScheduledTextService } from './campanha.service';
 import { CampanhaController } from './campanha.controller';
@@ -15,3 +16,6 @@ export const campanhaRouter = new CampanhaRouter(new CampanhaController(
     new CampaignService(gateway, new DrizzleCompanyDirectory(db), repository),
     new ScheduledTextService(repository),
 ));
+
+/** Pausa as campanhas ativas quando a empresa é desativada (usado pelo painel do superAdmin). */
+export const activeCampaignsPauser = new ActiveCampaignsPauser(gateway);

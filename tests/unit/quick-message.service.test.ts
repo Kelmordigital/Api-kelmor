@@ -53,7 +53,7 @@ class FakeStorage implements MediaStorage {
     async delete(filePath: string) { this.deleted.push(filePath); }
 }
 
-const file = (name: string): StoredFile => ({ path: `uploads/qm/${name}`, size: 3, mimeType: 'image/png', originalName: name });
+const file = (name: string): StoredFile => ({ path: `uploads/qm/${name}`, url: `/uploads/qm/${name}`, size: 3, mimeType: 'image/png', originalName: name });
 
 function make() {
     const repo = new InMemoryRepo();

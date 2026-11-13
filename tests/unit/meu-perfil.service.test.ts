@@ -23,13 +23,13 @@ function make(previousAvatar: string | null = null) {
     return { repo, storage, events, service: new MeuPerfilService(repo, storage) };
 }
 
-const file: StoredFile = { path: 'uploads/avatars/u1/novo.png', size: 10, mimeType: 'image/png', originalName: 'Eu.png' };
+const file: StoredFile = { path: 'uploads/avatars/u1/novo.png', url: '/uploads/avatars/u1/novo.png', size: 10, mimeType: 'image/png', originalName: 'Eu.png' };
 
 describe('MeuPerfilService.saveAvatar', () => {
     it('registra a nova foto antes de apagar a antiga', async () => {
         const { service, events } = make('/uploads/avatars/u1/antigo.png');
         expect(await service.saveAvatar('u1', file)).toEqual({ avatar_url: '/uploads/avatars/u1/novo.png' });
-        expect(events).toEqual(['registra /uploads/avatars/u1/novo.png', 'apaga uploads/avatars/u1/antigo.png']);
+        expect(events).toEqual(['registra /uploads/avatars/u1/novo.png', 'apaga /uploads/avatars/u1/antigo.png']);
     });
 
     it('falha ao registrar: apaga a nova e mantém a antiga', async () => {

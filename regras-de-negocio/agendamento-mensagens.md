@@ -48,6 +48,10 @@ tem relação com as campanhas (disparo em massa).
   interrompido pela queda do servidor fica como `failed` ("Envio
   interrompido") depois de 10 minutos — preferimos não reenviar a arriscar
   duplicar.
+- **RN-AGM-11 — Empresa desativada não envia.** Mensagem que vence enquanto a
+  empresa está desativada vira `failed` com o motivo `Empresa inativa`, com o
+  mesmo aviso do RN-AGM-09. Ela não sai quando a empresa é reativada — nada é
+  enviado atrasado de surpresa.
 
 ## Validações e mensagens
 
@@ -73,6 +77,9 @@ tem relação com as campanhas (disparo em massa).
 - Se a conexão estiver desconectada na hora do envio, a mensagem falha.
 
 ## Mudanças na refatoração
+
+- **Empresa desativada continuava enviando** as mensagens agendadas. Agora
+  elas viram falha com aviso (RN-AGM-11, decisão de negócio).
 
 - **Mensagens duplicadas em produção.** Cada instância da API mantinha os
   agendamentos em memória e, ao subir, reagendava **todos** os pendentes. Com

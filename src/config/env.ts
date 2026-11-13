@@ -59,6 +59,13 @@ const envSchema = z.object({
     API_URL: z.string().url().default('http://localhost:3000'),
     INTERNAL_API_SECRET: z.string().min(16, 'INTERNAL_API_SECRET deve ter ao menos 16 caracteres').default('kelmor_internal_api_secret_32chars00'),
 
+    // Cloudflare R2 (mídias enviadas). Mesmos nomes da api-baileys; sem eles, grava em disco.
+    R2_ENDPOINT:          z.string().url().optional(),
+    R2_BUCKET:            z.string().optional(),
+    R2_ACCESS_KEY_ID:     z.string().optional(),
+    R2_SECRET_ACCESS_KEY: z.string().optional(),
+    R2_PUBLIC_URL:        z.string().url().optional(),
+
     GOOGLE_CLIENT_ID:     z.string().default(''),
     GOOGLE_CLIENT_SECRET: z.string().default(''),
     GOOGLE_REDIRECT_URI:  z.string().default('http://localhost:3000/api/v1/integracoes/google/callback'),

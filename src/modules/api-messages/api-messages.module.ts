@@ -1,6 +1,7 @@
 import { db } from '../../database/client';
 import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
 import { DrizzleCompanyDirectory } from '../companies/company-directory';
+import { DrizzleCompanyStatusReader } from '../companies/company-status';
 import { DrizzleApiKeyRepository, DrizzleApiMessageLogRepository } from './api-messages.repository';
 import { ApiKeyService, ApiMessageService, type ConversationLinker, type MessageDelivery } from './api-messages.service';
 import { ApiMessagesController } from './api-messages.controller';
@@ -29,6 +30,7 @@ const atendimentoConversations: ConversationLinker = {
 export const apiKeyService = new ApiKeyService(new DrizzleApiKeyRepository(db));
 
 export const apiMessageService = new ApiMessageService(
+    new DrizzleCompanyStatusReader(db),
     companyPermissionsReader,
     new DrizzleCompanyDirectory(db),
     whatsappDelivery,

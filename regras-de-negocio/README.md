@@ -30,6 +30,14 @@ OO/SOLID. Cada regra foi lida do código e tem teste que a protege.
   endpoint não aceita são ignorados (nunca dá para alterar `id`, `company_id`,
   datas de criação etc. pelo corpo da requisição).
 
+- **RN-GERAL-05 — Mídias enviadas.** Foto de perfil, anexos de mensagens
+  rápidas, mídias e PIX dos bots e mídias recebidas pelo WhatsApp Oficial
+  ficam no Cloudflare R2 (pasta `api/` do mesmo bucket da api-baileys) e são
+  abertas pelo endereço público. Assim funcionam em qualquer instância da API
+  e não somem nos deploys. Sem as variáveis `R2_*` (desenvolvimento, testes)
+  ficam no disco local, servidas em `/uploads`. Upload de mídia de bot aceita
+  só imagem, vídeo, áudio e PDF (nada de SVG/HTML, porque o arquivo é público).
+
 ## Módulos
 
 | Módulo | Status | Documento |
@@ -50,9 +58,9 @@ OO/SOLID. Cada regra foi lida do código e tem teste que a protege.
 | api-messages | ✅ refatorado | [api-messages.md](api-messages.md) |
 | usuarios | ✅ refatorado | [usuarios.md](usuarios.md) |
 | auth | ✅ refatorado | [auth.md](auth.md) |
-| superadmin | pendente | — |
-| filas | pendente | — |
-| bots | pendente | — |
+| superadmin | ✅ refatorado | [superadmin.md](superadmin.md) |
+| filas | ✅ refatorado | [filas.md](filas.md) |
+| bots | 🟡 cadastro refatorado (motor pendente) | [bots.md](bots.md) |
 | crm | pendente | — |
 | reports | pendente | — |
 | monitoring | pendente | — |

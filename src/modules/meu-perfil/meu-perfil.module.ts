@@ -1,5 +1,5 @@
 import { db } from '../../database/client';
-import { LocalDiskMediaStorage } from '../../core/storage/media-storage';
+import { mediaStorage } from '../../config/media-storage';
 import { MultipartFormReader } from '../../core/http/multipart-form-reader';
 import { DrizzleMeuPerfilRepository } from './meu-perfil.repository';
 import { MeuPerfilService } from './meu-perfil.service';
@@ -8,7 +8,7 @@ import { MeuPerfilRouter } from './meu-perfil.routes';
 import { AVATAR_MAX_BYTES, AVATAR_MIME_TYPES } from './meu-perfil.dto';
 
 /** Composição do módulo: único lugar que escolhe as implementações concretas. */
-const storage = new LocalDiskMediaStorage();
+const storage = mediaStorage;
 
 export const meuPerfilService = new MeuPerfilService(new DrizzleMeuPerfilRepository(db), storage);
 

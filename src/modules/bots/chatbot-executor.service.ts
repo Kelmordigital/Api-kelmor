@@ -1,14 +1,14 @@
 import { and, eq, sql } from 'drizzle-orm';
-import path from 'path';
-import fs from 'fs/promises';
-import { randomUUID } from 'crypto';
+import { Readable } from 'stream';
 import QRCode from 'qrcode';
 import { db } from '../../database/client';
 import { env } from '../../config/env';
+import { mediaStorage } from '../../config/media-storage';
 import { botsRepository } from './bots.repository';
 import { bot_rotate_log } from './bots.db.schema';
 import { buildPixPayload } from './pix.util';
 import { whatsappService } from '../whatsapp/whatsapp.service';
+import { DrizzleCompanyStatusReader } from '../companies/company-status';
 import type { Bot, BotNode } from './bots.db.schema';
 
 interface NodeData {
@@ -206,16 +206,14 @@ async function runNode(node: BotNode, envr: ExecEnv, bot: Bot): Promise<string |
                     amount: data.pix_amount,
                 });
 
-                // QR gerado em disco e servido via /uploads (o bays baixa por URL)
-                const dir = path.join(process.cwd(), 'uploads', 'bots', 'pix');
-                await fs.mkdir(dir, { recursive: true });
-                const fileName = `pix-${randomUUID()}.png`;
-                await QRCode.toFile(path.join(dir, fileName), payload, { width: 512, margin: 2 });
+                // QR gravado no storage de mídias: o bays baixa pela URL
+                const png = await QRCode.toBuffer(payload, { width: 512, margin: 2 });
+                const qr = await mediaStorage.save('bots/pix', 'pix.png', 'image/png', Readable.from(png));
 
                 await whatsappService.sendMediaToPhone(envr.connectionId, envr.phone, {
-                    path: mediaUrlAbsolute(`/uploads/bots/pix/${fileName}`),
+                    path: mediaUrlAbsolute(qr.url),
                     mimetype: 'image/png',
-                    originalname: fileName,
+                    originalname: 'pix.png',
                 }, interpolate(node.message ?? '', envr.ctx) || undefined);
 
                 // Copia-e-cola em mensagem separada (facilita o cliente copiar)
@@ -455,6 +453,8 @@ async function markError(conversationId: number, err: unknown): Promise<void> {
     }).catch((e: Error) => console.error('[ChatbotExecutor] Falha ao registrar erro:', e.message));
 }
 
+const companyStatus = new DrizzleCompanyStatusReader(db);
+
 export const chatbotExecutorService = {
     async execute(
         companyId: string, connectionId: number, phone: string, userMessage: string,
@@ -463,6 +463,9 @@ export const chatbotExecutorService = {
         try {
             // Bots NUNCA respondem grupos — guarda extra além do descarte no webhook
             if (phone.includes('@g.us')) return;
+
+            // Empresa desativada não faz envios automáticos
+            if (!(await companyStatus.isActive(companyId))) return;
 
             // Reconfere o status do ticket: se um atendente assumiu entre o
             // webhook decidir chamar o bot e este ponto rodar, aborta sem

@@ -155,6 +155,19 @@ describe('ScheduledMessageDispatcher — envio das mensagens vencidas', () => {
         expect(resent).toBe(false);
         expect((await statusOf(stuck.id)).status).toBe('failed');
     });
+
+    it('empresa desativada: a mensagem vencida vira falha "Empresa inativa" e não é enviada', async () => {
+        const due = await schedule(new Date(Date.now() - 1000));
+        let sent = false;
+        await db.update(companies).set({ status: false }).where(eq(companies.id, companyId));
+        try {
+            await new ScheduledMessageDispatcher(repository, { sendText: async (_c, _t, text) => { if (text === due.message) sent = true; } }).dispatchDue();
+        } finally {
+            await db.update(companies).set({ status: true }).where(eq(companies.id, companyId));
+        }
+        expect(sent).toBe(false);
+        expect(await statusOf(due.id)).toMatchObject({ status: 'failed', last_error: 'Empresa inativa' });
+    });
 });
 
 describe('POST /tickets/:id/schedule-message — validação via HTTP', () => {
