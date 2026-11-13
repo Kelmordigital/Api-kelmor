@@ -22,9 +22,9 @@ import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
 import { agendamentoMensagensRouter } from '../modules/agendamento-mensagens/agendamento-mensagens.module';
 import { notificacaoRouter } from '../modules/notificacoes/notificacao.module';
 import { quickMessageRouter } from '../modules/quick-messages/quick-messages.module';
-import { botsRoutes } from '../modules/bots/bots.routes';
+import { botRouter } from '../modules/bots/bots.module';
 import { etiquetaRouter } from '../modules/etiquetas/etiqueta.module';
-import { filasRoutes } from '../modules/filas/fila.routes';
+import { filaRouter } from '../modules/filas/fila.module';
 import { achievementsRouter } from '../modules/achievements/achievements.module';
 import { usuarioRouter } from '../modules/usuarios/usuario.module';
 import { meuPerfilRouter } from '../modules/meu-perfil/meu-perfil.module';
@@ -41,7 +41,7 @@ import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.r
 import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
 import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
 import { crmTimelineRoutes } from '../modules/crm/crm-timeline.routes';
-import { superadminRoutes } from '../modules/superadmin/superadmin.routes';
+import { superadminRouter } from '../modules/superadmin/superadmin.module';
 import { recordHttpRequest } from '../modules/monitoring/monitoring.metrics';
 import { monitoringRoutes } from '../modules/monitoring/monitoring.routes';
 
@@ -157,13 +157,13 @@ export function buildApp() {
     app.register(notificacaoRouter.register, { prefix: '/api/v1/notifications' });
     app.register(quickMessageRouter.register, { prefix: '/api/v1/configuracao/quick-messages' });
     app.register(etiquetaRouter.register, { prefix: '/api/v1' });
-    app.register(filasRoutes, { prefix: '/api/v1/configuracao/filas' });
+    app.register(filaRouter.register, { prefix: '/api/v1/configuracao/filas' });
     app.register(achievementsRouter.register, { prefix: '/api/v1/achievements' });
     app.register(tarefasRouter.register, { prefix: '/api/v1/tarefas' });
     app.register(meuPerfilRouter.register, { prefix: '/api/v1/configuracao/meu-perfil' });
 
     // ── Restritos a admin/superAdmin ─────────────────────────────────────────
-    app.register(adminOnly(botsRoutes), { prefix: '/api/v1/bots' });
+    app.register(botRouter.register, { prefix: '/api/v1/bots' });
     app.register(usuarioRouter.register, { prefix: '/api/v1/configuracao/usuarios' });
     app.register(pesquisaRouter.register, { prefix: '/api/v1/configuracao/pesquisas' });
     app.register(campanhaRouter.register, { prefix: '/api/v1/configuracao/mensagens-agendadas' });
@@ -186,7 +186,7 @@ export function buildApp() {
     app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
     app.register(crmConfigRoutes, { prefix: '/api/v1/crm' });
     app.register(crmTimelineRoutes, { prefix: '/api/v1' });
-    app.register(superadminRoutes, { prefix: '/api/v1/superadmin' });
+    app.register(superadminRouter.register, { prefix: '/api/v1/superadmin' });
 
     // Webhook da API Oficial do WhatsApp (Cloud API) — chamado pela META.
     // GET = verificação (hub.challenge); POST = eventos (messages/statuses).

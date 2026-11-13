@@ -1,6 +1,7 @@
 import { eq, and, desc, isNull, lt, lte, inArray, asc } from 'drizzle-orm';
 import type { DB } from '../../database/client';
 import { tickets, contacts } from '../atendimento/atendimento.db.schema';
+import { companies } from '../companies/company.db.schema';
 import { scheduledMessages, ScheduledMessage } from './agendamento-mensagens.db.schema';
 
 export interface NewScheduledMessage {
@@ -24,10 +25,13 @@ export interface ScheduledMessageRepository {
      */
     updatePending(id: number, companyId: string, patch: { message?: string; send_date?: Date; status?: 'canceled' }): Promise<ScheduledMessage | null>;
     /**
-     * Reserva até `limit` mensagens vencidas, marcando-as "sending" numa única
-     * operação. Instâncias concorrentes da API nunca reservam a mesma mensagem.
+     * Reserva até `limit` mensagens vencidas de empresas ativas, marcando-as
+     * "sending" numa única operação. Instâncias concorrentes da API nunca
+     * reservam a mesma mensagem.
      */
     claimDue(now: Date, limit: number): Promise<ScheduledMessage[]>;
+    /** Marca como falha as mensagens vencidas de empresas desativadas (nunca são enviadas). */
+    failDueOfInactiveCompanies(now: Date, reason: string): Promise<ScheduledMessage[]>;
     /** Marca como falha os envios que ficaram presos em "sending" desde antes de `before`. */
     failStuck(before: Date, reason: string): Promise<ScheduledMessage[]>;
     markSent(id: number, at: Date): Promise<void>;
@@ -86,6 +90,7 @@ export class DrizzleScheduledMessageRepository implements ScheduledMessageReposi
                     eq(scheduledMessages.status, 'scheduled'),
                     isNull(scheduledMessages.deleted_at),
                     lte(scheduledMessages.send_date, now),
+                    inArray(scheduledMessages.company_id, this.companiesWithStatus(true)),
                 ))
                 .orderBy(asc(scheduledMessages.send_date))
                 .limit(limit)
@@ -97,6 +102,22 @@ export class DrizzleScheduledMessageRepository implements ScheduledMessageReposi
                 .where(inArray(scheduledMessages.id, due.map((d) => d.id)))
                 .returning();
         });
+    }
+
+    failDueOfInactiveCompanies(now: Date, reason: string): Promise<ScheduledMessage[]> {
+        return this.db.update(scheduledMessages)
+            .set({ status: 'failed', last_error: reason, updated_at: now })
+            .where(and(
+                eq(scheduledMessages.status, 'scheduled'),
+                isNull(scheduledMessages.deleted_at),
+                lte(scheduledMessages.send_date, now),
+                inArray(scheduledMessages.company_id, this.companiesWithStatus(false)),
+            ))
+            .returning();
+    }
+
+    private companiesWithStatus(active: boolean) {
+        return this.db.select({ id: companies.id }).from(companies).where(eq(companies.status, active));
     }
 
     failStuck(before: Date, reason: string): Promise<ScheduledMessage[]> {

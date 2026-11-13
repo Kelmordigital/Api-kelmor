@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AgendamentoMensagensService, DispatchLoop, TicketSemConexaoError } from '../../src/modules/agendamento-mensagens/agendamento-mensagens.service';
+import { AgendamentoMensagensService, DispatchLoop, ScheduledMessageDispatcher, TicketSemConexaoError } from '../../src/modules/agendamento-mensagens/agendamento-mensagens.service';
 import type { ScheduledMessageRepository } from '../../src/modules/agendamento-mensagens/agendamento-mensagens.repository';
 import { NotFoundError } from '../../src/core/errors/http-errors';
 
@@ -62,5 +62,28 @@ describe('DispatchLoop', () => {
         await new Promise((r) => setImmediate(r));
         expect(log).toHaveBeenCalled();
         log.mockRestore();
+    });
+});
+
+describe('ScheduledMessageDispatcher — empresa desativada', () => {
+    it('avisa quem agendou e os admins com o motivo "Empresa inativa"; nada é enviado', async () => {
+        const blocked = { id: 5, company_id: 'c1', created_by: 'u1', ticket_id: 50, contact_id: 7, message: 'Promoção' };
+        const repo = {
+            failStuck: vi.fn(async () => []),
+            failDueOfInactiveCompanies: vi.fn(async () => [blocked]),
+            claimDue: vi.fn(async () => []),
+            contactInfo: vi.fn(async () => ({ name: 'Ana', target: '5511' })),
+        } as unknown as ScheduledMessageRepository;
+        const sender = { sendText: vi.fn(async () => {}) };
+        const notifier = { notify: vi.fn(async () => {}) };
+
+        await new ScheduledMessageDispatcher(repo, sender, notifier).dispatchDue();
+
+        expect(repo.failDueOfInactiveCompanies).toHaveBeenCalledWith(expect.any(Date), 'Empresa inativa');
+        expect(sender.sendText).not.toHaveBeenCalled();
+        expect(notifier.notify).toHaveBeenCalledWith(
+            { companyId: 'c1', userIds: ['u1'], includeAdmins: true },
+            expect.objectContaining({ body: 'Ana: "Promoção" — Empresa inativa' }),
+        );
     });
 });

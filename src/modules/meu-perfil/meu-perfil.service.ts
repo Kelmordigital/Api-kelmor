@@ -60,7 +60,7 @@ export class MeuPerfilService {
      * é apagada — se algo falhar, o usuário continua com a foto anterior.
      */
     async saveAvatar(userId: string, file: StoredFile): Promise<{ avatar_url: string }> {
-        const url = `/${file.path}`;
+        const url = file.url;
         const previousUrl = await this.repository.findAvatarUrl(userId);
         try {
             await this.repository.saveAvatar(userId, {
@@ -70,7 +70,7 @@ export class MeuPerfilService {
             await this.storage.delete(file.path);
             throw err;
         }
-        if (previousUrl && previousUrl !== url) await this.storage.delete(previousUrl.replace(/^\//, ''));
+        if (previousUrl && previousUrl !== url) await this.storage.delete(previousUrl);
         return { avatar_url: url };
     }
 }

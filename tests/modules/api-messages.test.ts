@@ -99,6 +99,18 @@ describe('ApiMessageService.sendMessage — validações', () => {
             })
         ).rejects.toThrow(ConnectionNotFoundError);
     });
+
+    it('empresa desativada não envia → 403 "Empresa inativa", sem tocar no WhatsApp', async () => {
+        await db.update(companies).set({ status: false }).where(eq(companies.id, companyId));
+        try {
+            await expect(
+                apiMessageService.sendMessage(companyId, { connectionId, number: '5511999990000', message: 'oi' })
+            ).rejects.toMatchObject({ statusCode: 403, message: 'Empresa inativa' });
+            expect(global.fetch).not.toHaveBeenCalled();
+        } finally {
+            await db.update(companies).set({ status: true }).where(eq(companies.id, companyId));
+        }
+    });
 });
 
 describe('ApiMessageService.sendMessage — log sempre, ticket condicional', () => {

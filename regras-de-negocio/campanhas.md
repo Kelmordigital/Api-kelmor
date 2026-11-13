@@ -38,6 +38,9 @@ repassa. Os textos de agendamento e as opções do formulário ficam aqui.
   Aparecem na ordem de criação como botões de "Texto rápido" no modal
   "Agendar mensagem" do atendimento, e o atendente pode editar o texto antes
   de agendar. Sem textos cadastrados, o modal indica onde cadastrar.
+- **RN-CAM-09 — Empresa desativada.** Ao desativar a empresa, as campanhas
+  agendadas ou em disparo são pausadas (como no botão "pausar"). Reativar não
+  as retoma: o admin dá play quando quiser.
 
 ## Validações e mensagens
 
@@ -69,6 +72,11 @@ Erros trazem a mensagem em `message` (é o que a tela lê) e em `error`.
   a tela fica pesada.
 
 ## Mudanças na refatoração
+
+- **Empresa desativada continuava disparando campanhas.** Agora as ativas são
+  pausadas na desativação (RN-CAM-09, decisão de negócio). Se o microsserviço
+  estiver fora do ar nesse momento, a empresa fica desativada mesmo assim e a
+  falha vai para o log — as campanhas precisam ser pausadas à mão.
 
 - **Textos padrão de farmácia removidos** (decisão de negócio): a API deixou de
   criar "Recorrência", "Pós-venda/Antibiótico", "Suplementação" e
