@@ -71,6 +71,26 @@ describe('chatbotExecutorService.execute — reconfere status antes de rodar', (
     });
 });
 
+describe('chatbotExecutorService.execute — empresa desativada', () => {
+    it('não responde nem abre conversa enquanto a empresa estiver desativada', async () => {
+        const phone = `55117${SUFFIX}`;
+        const [ticket] = await db.insert(tickets)
+            .values({ company_id: companyId, contact_id: contactId, status_id: 9 })
+            .returning();
+
+        await db.update(companies).set({ status: false }).where(eq(companies.id, companyId));
+        try {
+            await chatbotExecutorService.execute(companyId, 1, phone, 'oi', ticket.id, contactId, 'Cliente');
+        } finally {
+            await db.update(companies).set({ status: true }).where(eq(companies.id, companyId));
+        }
+
+        const [conversation] = await db.select().from(bot_conversations)
+            .where(and(eq(bot_conversations.company_id, companyId), eq(bot_conversations.contact_phone, phone)));
+        expect(conversation).toBeUndefined();
+    });
+});
+
 describe('chatbotExecutorService.execute — loga as mensagens do bot em at_messages', () => {
     it('salva a mensagem do nó inicial (start) com from_me=true e user_id=null', async () => {
         // Empresa/contato/bot próprios e isolados — a empresa do describe

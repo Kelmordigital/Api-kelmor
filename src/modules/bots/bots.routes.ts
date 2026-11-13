@@ -1,19 +1,27 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { botsController } from './bots.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { BotController } from './bots.controller';
 
-export async function botsRoutes(app: FastifyInstance) {
-    const auth = { preHandler: authMiddleware };
+/** Automações (bots) — só admin. */
+export class BotRouter implements HttpRouter {
+    constructor(private readonly controller: BotController) {}
 
-    app.get('/',                     auth, botsController.list);
-    app.get('/stats',                auth, botsController.stats);
-    app.post('/',                    auth, botsController.create);
-    app.put('/:id',                  auth, botsController.update);
-    app.delete('/:id',               auth, botsController.remove);
-    app.patch('/:id/toggle-active',  auth, botsController.toggleActive);
-    app.patch('/:id/set-default',    auth, botsController.setDefault);
-    app.get('/:id/nodes',            auth, botsController.getNodes);
-    app.post('/:id/nodes/sync',      auth, botsController.syncNodes);
-    app.post('/upload',              auth, botsController.uploadMedia);
-    app.get('/:id/nodes/:nodeId/rotate-report', auth, botsController.rotateReport);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+        const c = this.controller;
+
+        app.get('/',                     c.list);
+        app.get('/stats',                c.stats);
+        app.post('/',                    c.create);
+        app.post('/upload',              c.uploadMedia);
+        app.put('/:id',                  c.update);
+        app.delete('/:id',               c.remove);
+        app.patch('/:id/toggle-active',  c.toggleActive);
+        app.patch('/:id/set-default',    c.setDefault);
+        app.get('/:id/nodes',            c.getNodes);
+        app.post('/:id/nodes/sync',      c.syncNodes);
+        app.get('/:id/nodes/:nodeId/rotate-report', c.rotateReport);
+    };
 }

@@ -47,11 +47,12 @@ describe('ApiKeyService', () => {
 describe('ApiMessageService', () => {
     const request = { connectionId: 3, number: '5511999998888', message: 'Pedido enviado' };
 
-    function make(perms: Partial<CompanyPermission>, owned: number[] = [3]) {
+    function make(perms: Partial<CompanyPermission>, owned: number[] = [3], active = true) {
         const delivery = { sendText: vi.fn(async () => {}) };
         const logs = { record: vi.fn(async () => 10), linkTicket: vi.fn(async () => {}) };
         const conversations = { attach: vi.fn(async () => 99) };
         const service = new ApiMessageService(
+            { isActive: async () => active },
             { forCompany: async () => ({ api_messages: true, create_ticket_api_msg: false, ...perms }) as CompanyPermission },
             { ownedConnectionIds: async () => owned, ownedContactIds: async () => [] },
             delivery, logs, conversations,
@@ -71,6 +72,12 @@ describe('ApiMessageService', () => {
         const { service, logs } = make({ create_ticket_api_msg: true });
         expect(await service.sendMessage('c1', request)).toEqual({ ticketId: 99 });
         expect(logs.linkTicket).toHaveBeenCalledWith(10, 99);
+    });
+
+    it('empresa desativada → 403 "Empresa inativa"; nada é enviado', async () => {
+        const inactive = make({}, [3], false);
+        await expect(inactive.service.sendMessage('c1', request)).rejects.toMatchObject({ statusCode: 403, message: 'Empresa inativa' });
+        expect(inactive.delivery.sendText).not.toHaveBeenCalled();
     });
 
     it('desligado → 403; conexão de outra empresa → 404; nada é enviado', async () => {

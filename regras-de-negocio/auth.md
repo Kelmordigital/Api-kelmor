@@ -15,8 +15,9 @@ administração), `PATCH /approve/:id` (superAdmin), `GET /totp/setup`,
   mesma resposta e levam o mesmo tempo — não dá para descobrir quem tem conta.
 - **RN-AUT-02 — Conta liberada.** Para ter sessão, nesta ordem: e-mail
   verificado, conta aprovada e — exceto o superAdmin — empresa vinculada e
-  ativa. Vale no login e em toda renovação: se a empresa for desativada, a
-  sessão de quem já estava logado acaba na próxima renovação.
+  ativa. Vale no login e em toda renovação. Quando o superAdmin revoga a
+  aprovação ou desativa a empresa, a sessão de quem já estava logado acaba na
+  hora (RN-SUP-05, RN-SUP-06).
 - **RN-AUT-03 — Sessão.** O login devolve um token de acesso (15 min) e grava
   um token de renovação num cookie protegido (7 dias). A sessão também fica
   registrada no servidor: sem esse registro, o token de acesso para de valer

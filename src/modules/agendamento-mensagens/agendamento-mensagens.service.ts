@@ -2,6 +2,7 @@ import { BadRequestError, ConflictError, NotFoundError } from '../../core/errors
 import type { ScheduledMessage } from './agendamento-mensagens.db.schema';
 import type { ScheduledMessageRepository } from './agendamento-mensagens.repository';
 import type { Notifier } from '../notificacoes/notificacao.service';
+import { COMPANY_INACTIVE_MESSAGE } from '../companies/company-status';
 
 export class TicketSemConexaoError extends BadRequestError {
     constructor() { super('Este ticket não tem uma conexão associada — não é possível agendar mensagem.'); }
@@ -93,8 +94,9 @@ export function failureNotice(message: ScheduledMessage, contactName: string | n
 /**
  * Envia as mensagens agendadas que venceram. Cada mensagem é reservada no
  * banco antes do envio, então várias instâncias da API podem rodar o
- * disparador ao mesmo tempo sem enviar nada em dobro. Toda falha avisa quem
- * agendou e os administradores da empresa.
+ * disparador ao mesmo tempo sem enviar nada em dobro. Mensagens de empresa
+ * desativada nunca saem: viram falha. Toda falha avisa quem agendou e os
+ * administradores da empresa.
  */
 export class ScheduledMessageDispatcher {
     constructor(
@@ -111,6 +113,9 @@ export class ScheduledMessageDispatcher {
         const interrupted = 'Envio interrompido (o servidor reiniciou durante o envio)';
         for (const stuck of await this.repository.failStuck(new Date(now.getTime() - STUCK_AFTER_MS), interrupted)) {
             await this.reportFailure(stuck, interrupted);
+        }
+        for (const blocked of await this.repository.failDueOfInactiveCompanies(now, COMPANY_INACTIVE_MESSAGE)) {
+            await this.reportFailure(blocked, COMPANY_INACTIVE_MESSAGE);
         }
 
         const due = await this.repository.claimDue(now, this.batchSize);

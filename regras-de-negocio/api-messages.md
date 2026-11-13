@@ -20,6 +20,8 @@ autenticados por uma chave de API.
   (`kelmor_xxxxxxx`) para identificá-la na tela.
 - **RN-API-03 — Chave liga/desliga.** Mesmo com chave válida, o envio só
   funciona se "mensagens via API" estiver ligado em Configurações gerais.
+- **RN-API-10 — Empresa desativada.** Nenhum envio pela API — mesmo com chave
+  válida e "mensagens via API" ligado.
 - **RN-API-04 — Só conexões da empresa.** A conexão informada precisa ser da
   empresa dona da chave.
 - **RN-API-05 — Número.** Aceito com ou sem formatação (`+55 (11) 98888-7777`);
@@ -47,6 +49,7 @@ autenticados por uma chave de API.
 | connection_id que não é número | 400 | `connection_id inválido` |
 | Número com menos de 10 ou mais de 15 dígitos | 400 | `number inválido` |
 | Mensagem com mais de 4096 caracteres | 400 | `A mensagem deve ter no máximo 4096 caracteres` |
+| Empresa desativada | 403 | `Empresa inativa` |
 | "Mensagens via API" desligado | 403 | `Envio de mensagens via API está desativado para esta empresa` |
 | Conexão não é da empresa | 404 | `Conexão não encontrada para esta empresa` |
 | Falha ao enviar pelo WhatsApp | 502 | `Falha ao enviar a mensagem pela conexão. Verifique se ela está conectada.` |
@@ -64,6 +67,9 @@ Gestão da chave pelo superAdmin (que não tem empresa) → `403`.
   diz só que foi entregue ao WhatsApp).
 
 ## Mudanças na refatoração
+
+- **Empresa desativada continuava enviando pela API.** Agora `403 Empresa
+  inativa` (RN-API-10, decisão de negócio).
 
 - Falha no WhatsApp respondia `500` genérico; agora `502` com orientação.
 - connection_id não numérico dava `500`; número inválido ou mensagem só com

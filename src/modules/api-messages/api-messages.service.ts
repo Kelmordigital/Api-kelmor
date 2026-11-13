@@ -2,6 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { BadGatewayError, BadRequestError, ForbiddenError, NotFoundError, UnauthorizedError } from '../../core/errors/http-errors';
 import type { CompanyPermissionsReader } from '../configuracao-geral/configuracao-geral.service';
 import type { CompanyResourceFilter } from '../companies/company-directory';
+import { CompanyInactiveError, type CompanyStatusReader } from '../companies/company-status';
 import type { ApiKeyRepository, ApiMessageLogRepository } from './api-messages.repository';
 
 export class ApiMessagesDisabledError extends ForbiddenError {
@@ -102,6 +103,7 @@ export function parseSendRequest(body: unknown): SendRequest {
  */
 export class ApiMessageService {
     constructor(
+        private readonly companies: CompanyStatusReader,
         private readonly permissions: CompanyPermissionsReader,
         private readonly resources: CompanyResourceFilter,
         private readonly delivery: MessageDelivery,
@@ -110,6 +112,7 @@ export class ApiMessageService {
     ) {}
 
     async sendMessage(companyId: string, request: SendRequest): Promise<{ ticketId: number | null }> {
+        if (!(await this.companies.isActive(companyId))) throw new CompanyInactiveError();
         const perms = await this.permissions.forCompany(companyId);
         if (!perms.api_messages) throw new ApiMessagesDisabledError();
 

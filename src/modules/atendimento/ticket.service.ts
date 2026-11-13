@@ -8,7 +8,7 @@ import { companies } from '../companies/company.db.schema';
 import { emitToCompany } from '../../shared/socket';
 import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
 import type { CompanyPermission } from '../configuracao-geral/configuracao-geral.db.schema';
-import { filaService } from '../filas/fila.service';
+import { queueRouting } from '../filas/fila.module';
 import { attendantHasCapacity, AttendantLimitReachedError } from './attendant-capacity.service';
 import { funilStageService } from './funil-stage.service';
 
@@ -263,7 +263,7 @@ export const ticketService = {
         // Sem bot ativo: se a conexão tiver exatamente 1 fila ativa vinculada,
         // o ticket já nasce roteado pra ela (mesma lógica do nó "Transferir" do bot).
         if (!activeBot && connectionId) {
-            const activeQueues = await filaService.findActiveQueuesByConnection(connectionId);
+            const activeQueues = await queueRouting.activeQueuesOfConnection(connectionId);
             if (activeQueues.length === 1) {
                 const routed = await this.routeToQueue(created.id, companyId, activeQueues[0].id);
                 if (routed) return { ticket: routed, created: true };
@@ -600,8 +600,7 @@ export const ticketService = {
         // Já atribuído a um atendente → não mexe (não rouba ticket em atendimento)
         if (current.status_id === 2 && current.attendant_user_id) return current;
 
-        const { distributeTicket } = await import('../filas/queue-distribution.service');
-        const chosen = await distributeTicket(companyId, queueId, current.connection_id);
+        const chosen = await queueRouting.distribute(companyId, queueId, current.connection_id);
 
         if (chosen) {
             await db.insert(historic_tickets).values({
@@ -769,7 +768,7 @@ export const ticketService = {
 
             if (!current) throw new Error('Ticket não encontrado');
 
-            const eligible = await filaService.eligibleUsers(companyId, queueId, current.connection_id ?? 0);
+            const eligible = await queueRouting.transferTargets(companyId, queueId, current.connection_id ?? 0);
             if (!eligible.some((u) => u.id === toUserId)) throw new AtendenteNaoElegivelError();
 
             if (!(await attendantHasCapacity(toUserId, perms))) {

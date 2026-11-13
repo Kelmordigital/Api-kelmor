@@ -204,7 +204,7 @@ describe('POST /superadmin/companies — criar empresa + admin bloqueado', () =>
     });
 
     it('empresa inexistente → 404', async () => {
-        const res = await inject('PATCH', '/companies/00000000-0000-0000-0000-000000000000', superToken, { name: 'X' });
+        const res = await inject('PATCH', '/companies/00000000-0000-0000-0000-000000000000', superToken, { name: 'Xy' });
         expect(res.statusCode).toBe(404);
     });
 });
