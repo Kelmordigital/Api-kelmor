@@ -184,12 +184,24 @@ describe('WuzapiClient', () => {
         expect((calls[0].init.headers as Record<string, string>).Token).toBe(creds.token(5));
     });
 
-    it('connect ignora "already connected" e propaga os outros erros', async () => {
-        const ok = fakeFetch([{ status: 409, body: { code: 409, error: 'already connected', success: false } }]);
-        await expect(new WuzapiClient(config, creds, ok.http).connect(5)).resolves.toBeUndefined();
-        expect(JSON.parse(String(ok.calls[0].init.body))).toEqual({ Subscribe: [...WUZAPI_SUBSCRIBED_EVENTS], Immediate: true });
+    it('connect regrava a chave HMAC (bug de cache da WuzAPI 1.1.0) antes de conectar', async () => {
+        const { http, calls } = fakeFetch([
+            { body: { Details: 'HMAC configuration saved successfully' } },
+            { body: { code: 200, data: { details: 'Connected!' }, success: true } },
+        ]);
+        await new WuzapiClient(config, creds, http).connect(5);
+        expect(calls.map((c) => c.url)).toEqual(['http://wuzapi:8080/session/hmac/config', 'http://wuzapi:8080/session/connect']);
+        expect(JSON.parse(String(calls[0].init.body))).toEqual({ hmac_key: creds.hmacKey(5) });
+        expect((calls[0].init.headers as Record<string, string>).Token).toBe(creds.token(5));
+    });
 
-        const bad = fakeFetch([{ status: 500, body: { code: 500, error: 'no session', success: false } }]);
+    it('connect ignora "already connected" e propaga os outros erros', async () => {
+        const hmacOk = { body: { Details: 'ok' } };
+        const ok = fakeFetch([hmacOk, { status: 409, body: { code: 409, error: 'already connected', success: false } }]);
+        await expect(new WuzapiClient(config, creds, ok.http).connect(5)).resolves.toBeUndefined();
+        expect(JSON.parse(String(ok.calls[1].init.body))).toEqual({ Subscribe: [...WUZAPI_SUBSCRIBED_EVENTS], Immediate: true });
+
+        const bad = fakeFetch([hmacOk, { status: 500, body: { code: 500, error: 'no session', success: false } }]);
         await expect(new WuzapiClient(config, creds, bad.http).connect(5)).rejects.toThrow(WuzapiError);
     });
 

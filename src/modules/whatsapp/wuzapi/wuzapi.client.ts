@@ -101,6 +101,13 @@ export class WuzapiClient {
     // ── Sessão ────────────────────────────────────────────────────────────
 
     async connect(connectionId: number): Promise<void> {
+        // A WuzAPI 1.1.0 só guarda a chave HMAC no cache do usuário ao iniciar (sessões já
+        // logadas) ou por este endpoint. Usuário criado com ela rodando manda webhook SEM
+        // assinatura e a API recusa (401). Regravar a chave antes de conectar evita isso.
+        await this.request('POST', '/session/hmac/config', {
+            connectionId,
+            body: { hmac_key: this.credentials.hmacKey(connectionId) },
+        });
         await this.request('POST', '/session/connect', {
             connectionId,
             body: { Subscribe: [...WUZAPI_SUBSCRIBED_EVENTS], Immediate: true },
