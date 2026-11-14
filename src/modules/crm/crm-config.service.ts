@@ -1,73 +1,58 @@
-import { eq, and } from 'drizzle-orm';
-import { db } from '../../database/client';
-import { crm_sales_reasons, crm_keywords } from '../atendimento/atendimento.db.schema';
+import { NotFoundError } from '../../core/errors/http-errors';
+import type { CrmConfigRepository, OriginKeyword } from './crm.repository';
+import type { CreateKeywordInput, CreateReasonInput, UpdateReasonInput } from './crm.dto';
 
-export const crmConfigService = {
+/** RN-CRM-03: a primeira palavra-chave contida na mensagem (sem diferenciar maiúsculas) dá a origem. */
+export function originOf(keywords: OriginKeyword[], message: string): string | null {
+    const text = message.toLowerCase();
+    return keywords.find((k) => text.includes(k.keyword.toLowerCase()))?.origin ?? null;
+}
 
-    // ── Motivos de não venda ─────────────────────────────────────────────────
+/** Motivos de não venda e palavras-chave de origem (tela de configuração do CRM). */
+export class CrmConfigService {
+    constructor(private readonly repository: CrmConfigRepository) {}
 
-    async listReasons(companyId: string) {
-        return db.select().from(crm_sales_reasons)
-            .where(eq(crm_sales_reasons.company_id, companyId))
-            .orderBy(crm_sales_reasons.id);
-    },
+    listReasons(companyId: string) {
+        return this.repository.listReasons(companyId);
+    }
 
-    async createReason(companyId: string, reason: string, color?: string) {
-        const [row] = await db.insert(crm_sales_reasons)
-            .values({ company_id: companyId, reason, color: color ?? null })
-            .returning();
+    createReason(companyId: string, input: CreateReasonInput) {
+        return this.repository.createReason(companyId, input);
+    }
+
+    async updateReason(id: number, companyId: string, input: UpdateReasonInput) {
+        const row = await this.repository.updateReason(id, companyId, input);
+        if (!row) throw new NotFoundError('Não encontrado');
         return row;
-    },
+    }
 
-    async updateReason(id: number, companyId: string, reason: string, color?: string) {
-        const [row] = await db.update(crm_sales_reasons)
-            .set({ reason, color: color ?? null })
-            .where(and(eq(crm_sales_reasons.id, id), eq(crm_sales_reasons.company_id, companyId)))
-            .returning();
-        return row ?? null;
-    },
+    deleteReason(id: number, companyId: string) {
+        return this.repository.deleteReason(id, companyId);
+    }
 
-    async deleteReason(id: number, companyId: string) {
-        await db.delete(crm_sales_reasons)
-            .where(and(eq(crm_sales_reasons.id, id), eq(crm_sales_reasons.company_id, companyId)));
-    },
+    listKeywords(companyId: string) {
+        return this.repository.listKeywords(companyId);
+    }
 
-    // ── Palavras-chave de origem ─────────────────────────────────────────────
+    createKeyword(companyId: string, input: CreateKeywordInput) {
+        return this.repository.createKeyword(companyId, input);
+    }
 
-    async listKeywords(companyId: string) {
-        return db.select().from(crm_keywords)
-            .where(eq(crm_keywords.company_id, companyId))
-            .orderBy(crm_keywords.id);
-    },
+    deleteKeyword(id: number, companyId: string) {
+        return this.repository.deleteKeyword(id, companyId);
+    }
 
-    async createKeyword(companyId: string, keyword: string, origin: string) {
-        const [row] = await db.insert(crm_keywords)
-            .values({ company_id: companyId, keyword: keyword.toLowerCase().trim(), origin: origin.trim() })
-            .returning();
-        return row;
-    },
-
-    async deleteKeyword(id: number, companyId: string) {
-        await db.delete(crm_keywords)
-            .where(and(eq(crm_keywords.id, id), eq(crm_keywords.company_id, companyId)));
-    },
-};
+    /** Origem do lead pela primeira mensagem (usado ao abrir um ticket novo). */
+    async matchOrigin(companyId: string, message: string): Promise<string | null> {
+        return originOf(await this.repository.listKeywords(companyId), message);
+    }
+}
 
 /**
- * Verifica se o texto da mensagem contém alguma palavra-chave cadastrada.
- * Retorna o nome da origem correspondente ou null se não houver match.
+ * Atalho usado pelo webhook do WhatsApp ao abrir um ticket novo. Import tardio:
+ * o módulo do CRM depende do atendimento.
  */
 export async function matchKeywordOrigin(companyId: string, messageText: string): Promise<string | null> {
-    const keywords = await db.select().from(crm_keywords)
-        .where(eq(crm_keywords.company_id, companyId));
-
-    if (!keywords.length) return null;
-
-    const lowerText = messageText.toLowerCase();
-    for (const kw of keywords) {
-        if (lowerText.includes(kw.keyword.toLowerCase())) {
-            return kw.origin;
-        }
-    }
-    return null;
+    const { crmConfigService } = await import('./crm.module');
+    return crmConfigService.matchOrigin(companyId, messageText);
 }

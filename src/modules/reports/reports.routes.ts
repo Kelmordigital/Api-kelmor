@@ -1,14 +1,27 @@
-import { FastifyInstance } from 'fastify';
-import { authMiddleware } from '../../middlewares/auth.middleware';
-import { reportsController } from './reports.controller';
+import type { FastifyInstance } from 'fastify';
+import { authMiddleware, requireAdmin } from '../../middlewares/auth.middleware';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { ReportsController } from './reports.controller';
 
-// Registrado em /api/v1/reports
-export async function reportsRoutes(app: FastifyInstance) {
-    app.get('/tickets/user',    { preHandler: authMiddleware }, reportsController.getTicketsUser);
-    app.get('/ticket/average',  { preHandler: authMiddleware }, reportsController.getAverage);
+/** Registrado em /api/v1/reports — só admin. */
+export class ReportsRouter implements HttpRouter {
+    constructor(private readonly controller: ReportsController) {}
+
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+        app.get('/tickets/user',   this.controller.ticketsByUser);
+        app.get('/ticket/average', this.controller.averageTimes);
+    };
 }
 
-// Registrado em /api/v1/reporttickets
-export async function reportTicketsRoutes(app: FastifyInstance) {
-    app.get('/tickets/clienttickets', { preHandler: authMiddleware }, reportsController.getClientTickets);
+/** Registrado em /api/v1/reporttickets — só admin. */
+export class ReportTicketsRouter implements HttpRouter {
+    constructor(private readonly controller: ReportsController) {}
+
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        app.addHook('preHandler', requireAdmin);
+        app.get('/tickets/clienttickets', this.controller.ticketsByClient);
+    };
 }

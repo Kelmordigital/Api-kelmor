@@ -35,6 +35,11 @@ prometheus.scrape "kelmor_api" {
     job         = "kelmor-api",
   }]
   metrics_path    = "/metrics"
+  // A API exige este token no /metrics (METRICS_TOKEN no .env dos dois lados).
+  authorization {
+    type        = "Bearer"
+    credentials = sys.env("METRICS_TOKEN")
+  }
   forward_to      = [prometheus.relabel.add_instance.receiver]
   scrape_interval = "60s"
 }

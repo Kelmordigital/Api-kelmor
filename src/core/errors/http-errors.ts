@@ -44,6 +44,11 @@ export class PayloadTooLargeError extends AppError {
     readonly statusCode = 413;
 }
 
+/** A entrada é válida, mas um serviço externo a recusou (ex.: a Meta recusou o template). */
+export class UnprocessableEntityError extends AppError {
+    readonly statusCode = 422;
+}
+
 /** Um serviço do qual a API depende falhou ou não respondeu. */
 export class BadGatewayError extends AppError {
     readonly statusCode = 502;

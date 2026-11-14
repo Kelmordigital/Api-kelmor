@@ -16,8 +16,8 @@ import { authRouter } from '../modules/auth/auth.module';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
-import { whatsappOficialRoutes } from '../modules/whatsapp-oficial/whatsapp-oficial.routes';
-import { whatsappOficialController } from '../modules/whatsapp-oficial/whatsapp-oficial.controller';
+import { wuzapiWebhook } from '../modules/whatsapp/wuzapi/wuzapi-webhook.controller';
+import { whatsappOficialRouter, cloudWebhookRouter } from '../modules/whatsapp-oficial/whatsapp-oficial.module';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
 import { agendamentoMensagensRouter } from '../modules/agendamento-mensagens/agendamento-mensagens.module';
 import { notificacaoRouter } from '../modules/notificacoes/notificacao.module';
@@ -37,13 +37,11 @@ import { agendaRouter } from '../modules/agenda/agenda.module';
 import { tarefasRouter } from '../modules/tarefas/tarefas.module';
 import { configuracaoGeralRouter } from '../modules/configuracao-geral/configuracao-geral.module';
 import { apiMessagesRouter } from '../modules/api-messages/api-messages.module';
-import { reportsRoutes, reportTicketsRoutes } from '../modules/reports/reports.routes';
-import { crmReportsRoutes } from '../modules/crm/crm-reports.routes';
-import { crmConfigRoutes } from '../modules/crm/crm-config.routes';
-import { crmTimelineRoutes } from '../modules/crm/crm-timeline.routes';
+import { reportsRouter, reportTicketsRouter } from '../modules/reports/reports.module';
+import { crmConfigRouter, crmReportsRouter, crmTimelineRouter } from '../modules/crm/crm.module';
 import { superadminRouter } from '../modules/superadmin/superadmin.module';
 import { recordHttpRequest } from '../modules/monitoring/monitoring.metrics';
-import { monitoringRoutes } from '../modules/monitoring/monitoring.routes';
+import { monitoringRouter } from '../modules/monitoring/monitoring.module';
 
 /**
  * Envolve um conjunto de rotas exigindo papel admin/superAdmin.
@@ -80,7 +78,9 @@ export function buildApp() {
     });
 
     // Bays envia DELETE/PUT com Content-Type: application/json mas body vazio — aceitar graciosamente
-    app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+        // Corpo cru guardado para webhooks assinados (WuzAPI confere HMAC dos bytes exatos)
+        (req as typeof req & { rawBody?: string }).rawBody = body as string;
         if (!body || (body as string).trim() === '') { done(null, null); return; }
         try { done(null, JSON.parse(body as string)); }
         catch (err: any) { err.statusCode = 400; done(err, undefined); }
@@ -146,12 +146,12 @@ export function buildApp() {
         done();
     });
 
-    app.register(monitoringRoutes);
+    app.register(monitoringRouter.register);
 
     // ── Abertos ao atendente (perfil user) ───────────────────────────────────
     app.register(authRouter.register, { prefix: '/api/v1/auth' });
     app.register(whatsappRoutes, { prefix: '/api/v1/whatsapp' });
-    app.register(whatsappOficialRoutes, { prefix: '/api/v1/whatsapp-oficial' });
+    app.register(whatsappOficialRouter.register, { prefix: '/api/v1/whatsapp-oficial' });
     app.register(atendimentoRoutes, { prefix: '/api/v1/atendimento' });
     app.register(agendamentoMensagensRouter.register, { prefix: '/api/v1/atendimento' });
     app.register(notificacaoRouter.register, { prefix: '/api/v1/notifications' });
@@ -181,18 +181,22 @@ export function buildApp() {
     // usuário autenticado (useCompanyPermissions precisa disso pro app inteiro),
     // o gating admin do PUT é feito por-rota dentro de configuracao-geral.routes.ts.
     app.register(configuracaoGeralRouter.register, { prefix: '/api/v1/configuracao/configuracoes-gerais' });
-    app.register(adminOnly(reportsRoutes),       { prefix: '/api/v1/reports' });
-    app.register(adminOnly(reportTicketsRoutes), { prefix: '/api/v1/reporttickets' });
-    app.register(adminOnly(crmReportsRoutes),    { prefix: '/api/v1/crm-reports' });
-    app.register(crmConfigRoutes, { prefix: '/api/v1/crm' });
-    app.register(crmTimelineRoutes, { prefix: '/api/v1' });
+    app.register(reportsRouter.register,       { prefix: '/api/v1/reports' });
+    app.register(reportTicketsRouter.register, { prefix: '/api/v1/reporttickets' });
+    app.register(crmReportsRouter.register, { prefix: '/api/v1/crm-reports' });
+    app.register(crmConfigRouter.register, { prefix: '/api/v1/crm' });
+    app.register(crmTimelineRouter.register, { prefix: '/api/v1' });
     app.register(superadminRouter.register, { prefix: '/api/v1/superadmin' });
 
     // Webhook da API Oficial do WhatsApp (Cloud API) — chamado pela META.
     // GET = verificação (hub.challenge); POST = eventos (messages/statuses).
-    // Público por natureza: a autenticação é o hub.verify_token no handshake.
-    app.get('/wabcloudapi/webhook', whatsappOficialController.verifyWebhook);
-    app.post('/wabcloudapi/webhook', whatsappOficialController.webhook);
+    // Sem login: o handshake confere o hub.verify_token e os eventos, a assinatura
+    // da Meta (quando WAB_APP_SECRET está configurado). Fora do rate limit.
+    app.register(cloudWebhookRouter.register);
+
+    // Webhook da WuzAPI (motor alternativo ao bays) — autenticado por HMAC da conexão.
+    // Fica fora do rate limit: mensagens de muitos contatos chegam em rajada pelo mesmo IP.
+    app.post('/wuzapi/webhook/:id', { config: { rateLimit: false } }, wuzapiWebhook);
 
     // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
     const baysAuth = { preHandler: baysWebhookMiddleware };
