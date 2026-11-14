@@ -27,7 +27,11 @@ async function runHealthCheck() {
         // Conexão WuzAPI não existe no bays: pergunta à própria WuzAPI
         if (usesWuzapi(conn.id, conn.type)) {
             try {
-                const st = await wuzapiModule.client.status(conn.id);
+                // 401 = a WuzAPI não conhece essa conexão (nunca pareada nela): não está conectada
+                const st = await wuzapiModule.client.status(conn.id).catch((err: { status?: number }) => {
+                    if (err?.status === 401) return { loggedIn: false };
+                    throw err;
+                });
                 if (!st.loggedIn) {
                     console.log(`[health:${conn.id}] "${conn.name}" sem login na WuzAPI — sincronizando DB e notificando frontend`);
                     await whatsappService.handleConnectionUpdate(conn.id, { type: 'disconnected', reason: 'health_check' }, { engine: 'wuzapi' });
