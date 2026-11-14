@@ -8,10 +8,10 @@ import { historic_tickets, tickets, type Ticket } from './atendimento.db.schema'
 /**
  * Fechamento automático de tickets (configurações "Fechar tickets abertos/pendentes após (h)").
  *
- * Regra do negócio: o ticket é finalizado sozinho quando
- *  - está aberto (Pendente 1, Em Atendimento 2 ou Bot 9) há pelo menos X horas desde a abertura
- *    (X = intervalo de pendentes para status 1, de abertos para 2 e 9), e
- *  - a ÚLTIMA mensagem do ticket é do cliente.
+ * Regra do negócio: o ticket é finalizado sozinho quando fica X horas SEM NENHUMA MENSAGEM
+ * (de ninguém: cliente, atendente ou bot), contando da última mensagem, ou da abertura se não
+ * houver mensagem. X = intervalo de "pendentes" para o status 1 (ninguém respondeu) e de
+ * "em aberto" para os status 2 e 9 (atendente/bot respondeu e o ticket continua aberto).
  * Pesquisa de satisfação (7) não entra: aguarda a resposta do cliente.
  *
  * Despedida: enviada (respeitando a configuração de despedida da empresa) só para quem
@@ -46,12 +46,11 @@ export class TicketAutoCloser {
         const hours = sql<number>`case when ${tickets.status_id} = 1
             then ${companyPermissions.close_pending_tickets_interval}
             else ${companyPermissions.close_open_tickets_interval} end`;
-        const lastFromMe = sql`(select m.from_me from at_messages m where m.ticket_id = ${tickets.id}
-            order by m.created_at desc, m.id desc limit 1)`;
-        const lastClientAt = sql`(select max(m.created_at) from at_messages m
-            where m.ticket_id = ${tickets.id} and m.from_me = false)`;
-        // Momento em que o ticket passou a cumprir a regra: prazo vencido E última msg do cliente
-        const eligibleAt = sql`greatest(${tickets.created_at} + make_interval(hours => ${hours}), ${lastClientAt})`;
+        // Última atividade: a mensagem mais recente (de qualquer lado) ou a abertura do ticket
+        const lastActivity = sql`greatest(${tickets.created_at},
+            coalesce((select max(m.created_at) from at_messages m where m.ticket_id = ${tickets.id}), ${tickets.created_at}))`;
+        // Momento em que o ticket passou a cumprir a regra: X horas depois da última atividade
+        const eligibleAt = sql`(${lastActivity} + make_interval(hours => ${hours}))`;
 
         return this.db
             .select({
@@ -80,10 +79,9 @@ export class TicketAutoCloser {
                         gte(companyPermissions.close_open_tickets_interval, 1),
                     ),
                 ),
-                sql`${tickets.created_at} <= now() - make_interval(hours => ${hours})`,
-                sql`${lastFromMe} = false`,
+                sql`${lastActivity} <= now() - make_interval(hours => ${hours})`,
             ))
-            .orderBy(asc(tickets.created_at))
+            .orderBy(asc(lastActivity))
             .limit(limit);
     }
 

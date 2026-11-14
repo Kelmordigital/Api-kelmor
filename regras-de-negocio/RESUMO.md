@@ -107,11 +107,16 @@ dentro de uma (resposta `403 Empresa não encontrada`).
   bloqueado se um bot ativo transfere para ela.
 
 ### Atendimento automático
-- **Fechamento de tickets parados:** com "Fechar tickets abertos/pendentes
-  após (h)" ligado em Configurações, o ticket pendente, em atendimento ou no
-  bot é finalizado sozinho quando foi **aberto** há pelo menos X horas e a
-  **última mensagem é do cliente**. Se o atendente respondeu por último, não
-  fecha; ticket sem mensagem ou com intervalo menor que 1 h também não.
+- **Fechamento de tickets parados:** com "Fechar tickets pendentes" e/ou
+  "Fechar tickets em aberto" ligados em Configurações, o ticket é finalizado
+  sozinho quando fica X horas **sem nenhuma mensagem**, de ninguém (cliente,
+  atendente ou bot), contando da última mensagem, ou da abertura se não houver
+  nenhuma. X é o prazo de "pendentes" para o ticket pendente (ninguém
+  respondeu) e o de "em aberto" para o ticket em atendimento ou no bot (já
+  respondido e ainda aberto). Conversa com mensagem dentro do prazo não fecha.
+  Intervalo menor que 1 h vale como desligado. (Até 14/11/2026 só fechava se a
+  última mensagem fosse do cliente, e os tickets em que o atendente respondeu
+  por último ficavam abertos para sempre.)
 - Não fecha: ticket aguardando a pesquisa de satisfação, ticket apagado ou de
   empresa desativada.
 - Ao fechar, manda a despedida (se ligada e respeitando o intervalo), exceto

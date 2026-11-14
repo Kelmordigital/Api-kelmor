@@ -34,7 +34,7 @@ async function statusOf(id: number) {
     return row.status_id;
 }
 
-describe('Fechamento automático de tickets (23h + última mensagem do cliente)', () => {
+describe('Fechamento automático de tickets (23h sem nenhuma mensagem)', () => {
     const created: number[] = [];
 
     beforeAll(async () => {
@@ -67,40 +67,44 @@ describe('Fechamento automático de tickets (23h + última mensagem do cliente)'
         await db.delete(companies).where(inArray(companies.id, [companyId, noPendingCo]));
     });
 
-    it('fecha quem tem 23h+ e cuja última mensagem é do cliente; não toca nos demais', async () => {
-        const vencidoAgora   = await makeTicket(companyId, contactId, 2, 24, [[true, 23.5], [false, 20]]);
-        const clienteRecente = await makeTicket(companyId, contactId, 2, 30, [[true, 29], [false, 0.5]]);
-        const atendenteUlt   = await makeTicket(companyId, contactId, 2, 30, [[false, 29], [true, 28]]);
-        const novo           = await makeTicket(companyId, contactId, 2, 5, [[false, 4]]);
-        const pesquisa       = await makeTicket(companyId, contactId, 7, 30, [[false, 29]]);
-        const semMensagem    = await makeTicket(companyId, contactId, 1, 30, []);
-        const botParado      = await makeTicket(companyId, contactId, 9, 25, [[true, 24.9], [false, 24]]);
-        created.push(vencidoAgora, clienteRecente, atendenteUlt, novo, pesquisa, semMensagem, botParado);
+    it('fecha quem está 23h+ sem nenhuma mensagem, não importa quem falou por último', async () => {
+        const atendenteUlt  = await makeTicket(companyId, contactId, 2, 30, [[false, 29], [true, 25]]); // cliente sumiu
+        const clienteUlt    = await makeTicket(companyId, contactId, 2, 30, [[true, 29], [false, 24]]);
+        const pendente      = await makeTicket(companyId, contactId, 1, 30, [[false, 26]]);             // ninguém respondeu
+        const semMensagem   = await makeTicket(companyId, contactId, 1, 30, []);                        // conta da abertura
+        const botParado     = await makeTicket(companyId, contactId, 9, 25, [[false, 24.5], [true, 24]]);
+        const conversaViva  = await makeTicket(companyId, contactId, 2, 30, [[false, 29], [true, 5]]);  // falaram há 5h
+        const clienteAgora  = await makeTicket(companyId, contactId, 2, 30, [[true, 29], [false, 0.5]]);
+        const novo          = await makeTicket(companyId, contactId, 2, 5, []);
+        const pesquisa      = await makeTicket(companyId, contactId, 7, 30, [[false, 29]]);
+        created.push(atendenteUlt, clienteUlt, pendente, semMensagem, botParado, conversaViva, clienteAgora, novo, pesquisa);
 
         const messenger = vi.fn(async () => {});
         await new TicketAutoCloser(messenger).run();
 
-        expect(await statusOf(vencidoAgora)).toBe(3);
-        expect(await statusOf(clienteRecente)).toBe(3);
+        expect(await statusOf(atendenteUlt)).toBe(3);
+        expect(await statusOf(clienteUlt)).toBe(3);
+        expect(await statusOf(pendente)).toBe(3);
+        expect(await statusOf(semMensagem)).toBe(3);
         expect(await statusOf(botParado)).toBe(3);
-        expect(await statusOf(atendenteUlt)).toBe(2);   // última msg do atendente → fica
-        expect(await statusOf(novo)).toBe(2);           // menos de 23h → fica
+        expect(await statusOf(conversaViva)).toBe(2);   // mensagem há 5h → fica
+        expect(await statusOf(clienteAgora)).toBe(2);   // cliente escreveu há 30 min → fica
+        expect(await statusOf(novo)).toBe(2);           // aberto há 5h → fica
         expect(await statusOf(pesquisa)).toBe(7);       // aguardando pesquisa → fica
-        expect(await statusOf(semMensagem)).toBe(1);    // sem mensagem do cliente → fica
 
-        const [hist] = await db.select().from(historic_tickets).where(eq(historic_tickets.ticket_id, vencidoAgora));
+        const [hist] = await db.select().from(historic_tickets).where(eq(historic_tickets.ticket_id, atendenteUlt));
         expect(hist).toMatchObject({ user_id: null, status_id_init: 2, status_id_end: 3 });
     });
 
     it('despedida: só para quem venceu agora; os parados há tempo fecham em silêncio', async () => {
-        const vencidoAgora = await makeTicket(companyId, contactId, 2, 24, [[false, 23]]);        // venceu há 1h
+        const vencidoAgora = await makeTicket(companyId, contactId, 2, 24, [[true, 23.5]]);           // venceu há 30 min
         const antigo       = await makeTicket(companyId, contactId, 1, 24 * 20, [[false, 24 * 20]]); // parado desde 20 dias
         const messenger = vi.fn(async () => {});
         await new TicketAutoCloser(messenger).run();
 
         const calls = new Map(messenger.mock.calls.map((c) => [(c[0] as { id: number }).id, c[2]]));
-        expect(calls.get(vencidoAgora)).toBeUndefined();  // undefined = respeita "enviar despedida" da empresa
         expect(calls.has(vencidoAgora)).toBe(true);
+        expect(calls.get(vencidoAgora)).toBeUndefined();  // undefined = respeita "enviar despedida" da empresa
         expect(calls.get(antigo)).toBe(false);            // false = sem despedida
         expect(await statusOf(antigo)).toBe(3);
     });
