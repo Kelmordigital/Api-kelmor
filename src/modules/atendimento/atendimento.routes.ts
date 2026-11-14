@@ -58,6 +58,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     app.get('/dashboard/movimentos', auth, atendimentoController.dashMovimentos);
     app.get('/dashboard/recent', auth, atendimentoController.dashRecent);
     app.get('/dashboard/top-attendants', auth, atendimentoController.dashTopAttendants);
+    app.get('/dashboard/team-performance', auth, atendimentoController.dashTeamPerformance);
     app.get('/dashboard/channels', auth, atendimentoController.dashChannels);
     app.get('/dashboard/tickets-by-connection', auth, atendimentoController.dashTicketsByConnection);
 

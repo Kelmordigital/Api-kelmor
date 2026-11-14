@@ -106,6 +106,25 @@ dentro de uma (resposta `403 Empresa não encontrada`).
 - Desativar tira a fila dos tickets pendentes. Excluir tira de todos, e é
   bloqueado se um bot ativo transfere para ela.
 
+### Atendimento automático
+- **Fechamento de tickets parados:** com "Fechar tickets abertos/pendentes
+  após (h)" ligado em Configurações, o ticket pendente, em atendimento ou no
+  bot é finalizado sozinho quando foi **aberto** há pelo menos X horas e a
+  **última mensagem é do cliente**. Se o atendente respondeu por último, não
+  fecha; ticket sem mensagem ou com intervalo menor que 1 h também não.
+- Não fecha: ticket aguardando a pesquisa de satisfação, ticket apagado ou de
+  empresa desativada.
+- Ao fechar, manda a despedida (se ligada e respeitando o intervalo), exceto
+  para quem já cumpria a regra havia mais de 2 h: esses fecham sem despedida,
+  para não disparar dezenas de mensagens de uma vez (o WhatsApp bloqueia).
+- O fechamento fica no histórico sem usuário e não dá XP. Roda a cada 5 min,
+  até 100 tickets por vez (os mais antigos primeiro), uma vez só mesmo com
+  várias réplicas.
+- **Resposta por outro número:** se a conexão do ticket estiver
+  desconectada, a resposta (do atendente ou a despedida) sai por outra conexão
+  conectada da mesma empresa, e o ticket passa para ela. Prefere WhatsApp
+  comum (bays/WuzAPI) à API Oficial. Sem nenhuma conectada, falha como antes.
+
 ### Etiquetas
 - Nome obrigatório, cor e ícone. Aplicar no contato de novo não duplica;
   excluir a etiqueta a tira de todos os contatos.
@@ -238,6 +257,8 @@ dentro de uma (resposta `403 Empresa não encontrada`).
   aviso e limites. Exemplos: fechar tickets abertos após 24 h e pendentes após
   48 h, 5 atendimentos simultâneos por atendente e 10 XP por venda.
 - Tudo ou nada: se algo for recusado, nada é gravado.
+- Os intervalos de fechamento de tickets são usados pelo atendimento
+  automático (seção 2).
 
 ### Integrações (Google Agenda)
 - Uma conta Google por empresa, só o admin conecta. O link de autorização vale
@@ -307,6 +328,9 @@ dentro de uma (resposta `403 Empresa não encontrada`).
 - Webhook assinado; as mensagens seguem o mesmo fluxo das do bays.
 - Só marca a conexão como caída quando exige ação humana (logout, banimento,
   QR vencido).
+- O status mostrado é o da WuzAPI: estados de espera ("Aguardando...") são
+  sempre confirmados com ela, então o card não fica preso se um aviso se
+  perder. Conexão que a WuzAPI não conhece conta como desconectada.
 
 ---
 
@@ -354,6 +378,11 @@ dentro de uma (resposta `403 Empresa não encontrada`).
 - Palavra-chave de etiqueta casa dentro de outras palavras ("par" pega
   "parabéns").
 - Template enviado pela API Oficial não aparece na conversa do contato.
+- Bots e mensagens agendadas não usam a "resposta por outro número": saem
+  sempre pela conexão de origem.
+- Cliente que responde num ticket aberto há mais de X horas tem o ticket
+  fechado no ciclo seguinte (com despedida), e a próxima mensagem dele abre
+  outro ticket.
 
 ### Técnico / infraestrutura
 - **Mídia, cartão de contato e enquete por conexão oficial falham**: só o
@@ -376,5 +405,8 @@ dentro de uma (resposta `403 Empresa não encontrada`).
 - A migração órfã `drizzle/0011_campanhas.sql` pode ser apagada.
 - Agendamento que falha não tem nova tentativa automática.
 - Envios que falham pela API de mensagens não ficam registrados.
+- **Quando uma conexão do bays cai por logout ou bloqueio (401/403), as
+  credenciais de todas as conexões do bays são apagadas**, não só as da que
+  caiu (código antigo; a tratar no módulo whatsapp).
 - WuzAPI: áudio fora de Opus/OGG e figurinhas fora de webp podem falhar.
   Trocar o motor de uma conexão ainda é manual.

@@ -27,14 +27,14 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Instalar doctl
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      - name: Conectar no cluster
-        run: doctl kubernetes cluster kubeconfig save kelmor
-      - name: Atualizar imagem no Deployment
+      - name: Configurar SSH (chave restrita ao script de deploy)
+        env:
+          DEPLOY_KEY: ${{ secrets.K3S_DEPLOY_KEY }}
         run: |
-          kubectl set image deployment/api-04 api-04=ghcr.io/kelmordigital/api-04:${{ github.sha }} -n prod
-          kubectl rollout status deployment/api-04 -n prod
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "2.29.128.26 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP4ARPtElRj3lyt7t3+izQFdX10SJkaweN1B/kSHJNhO" > ~/.ssh/known_hosts
+      - name: Atualizar imagem no Deployment (o script no servidor faz o rollout e volta atras se falhar)
+        run: ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes root@2.29.128.26 "api-04 prod ${{ github.sha }}"
  

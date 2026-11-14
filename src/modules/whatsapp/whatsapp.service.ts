@@ -299,7 +299,11 @@ export const whatsappService = {
         const { eq } = await import('drizzle-orm');
         try {
             const client = wuzapiModule.client;
-            const st = await client.status(id);
+            // 401 = a WuzAPI não conhece essa conexão (nunca pareada nela): socket fechado
+            const st = await client.status(id).catch((err: { status?: number }) => {
+                if (err?.status === 401) return { connected: false, loggedIn: false, jid: undefined };
+                throw err;
+            });
             if (st.loggedIn) {
                 if (redis) await redis.set(statusKey(id), 'connected', 'EX', STATUS_TTL);
                 await db.update(connections)
