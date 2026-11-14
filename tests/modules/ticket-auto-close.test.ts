@@ -96,6 +96,19 @@ describe('Fechamento automático de tickets (23h sem nenhuma mensagem)', () => {
         expect(hist).toMatchObject({ user_id: null, status_id_init: 2, status_id_end: 3 });
     });
 
+    it('fechado automaticamente vira "venda não realizada"; venda já marcada continua venda', async () => {
+        const semMarca = await makeTicket(companyId, contactId, 2, 30, [[true, 25]]);
+        const vendido  = await makeTicket(companyId, contactId, 2, 30, [[true, 25]]);
+        await db.update(tickets).set({ is_sale: 1 }).where(eq(tickets.id, vendido));
+
+        await new TicketAutoCloser(vi.fn(async () => {})).run();
+
+        const saleOf = async (id: number) =>
+            (await db.select({ is_sale: tickets.is_sale, status_id: tickets.status_id }).from(tickets).where(eq(tickets.id, id)))[0];
+        expect(await saleOf(semMarca)).toEqual({ is_sale: 0, status_id: 3 });
+        expect(await saleOf(vendido)).toEqual({ is_sale: 1, status_id: 3 });
+    });
+
     it('despedida: só para quem venceu agora; os parados há tempo fecham em silêncio', async () => {
         const vencidoAgora = await makeTicket(companyId, contactId, 2, 24, [[true, 23.5]]);           // venceu há 30 min
         const antigo       = await makeTicket(companyId, contactId, 1, 24 * 20, [[false, 24 * 20]]); // parado desde 20 dias

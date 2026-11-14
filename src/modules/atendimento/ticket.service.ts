@@ -11,6 +11,7 @@ import type { CompanyPermission } from '../configuracao-geral/configuracao-geral
 import { queueRouting } from '../filas/fila.module';
 import { attendantHasCapacity, AttendantLimitReachedError } from './attendant-capacity.service';
 import { funilStageService } from './funil-stage.service';
+import { endOfDayBR, startOfDayBR } from '../../core/dates/br-day';
 
 // XP do mini-game de Conquistas: só quando o próprio fechamento é uma venda
 // (ticket.is_sale === 1 no momento em que o fechamento se efetiva). Fechar
@@ -384,8 +385,8 @@ export const ticketService = {
             eq(tickets.attendant_user_id, filters.mineUserId),
             eq(tickets.closed_by_user_id, filters.mineUserId),
         ) as any);
-        if (filters.dateInit)           conditions.push(gte(tickets.updated_at, new Date(filters.dateInit)) as any);
-        if (filters.dateEnd)            conditions.push(lte(tickets.updated_at, new Date(filters.dateEnd)) as any);
+        if (filters.dateInit)           conditions.push(gte(tickets.updated_at, startOfDayBR(filters.dateInit)) as any);
+        if (filters.dateEnd)            conditions.push(lte(tickets.updated_at, endOfDayBR(filters.dateEnd)) as any);
 
         // Tickets fechados (status 3) sem filtro de data: mostra apenas últimos 3 dias
         const onlyClosedFilter = filters.statusIds?.length === 1 && filters.statusIds[0] === 3;

@@ -14,6 +14,8 @@ import { historic_tickets, tickets, type Ticket } from './atendimento.db.schema'
  * "em aberto" para os status 2 e 9 (atendente/bot respondeu e o ticket continua aberto).
  * Pesquisa de satisfação (7) não entra: aguarda a resposta do cliente.
  *
+ * Fechado sem venda registrada vira "venda não realizada" (is_sale = 0, sem motivo).
+ *
  * Despedida: enviada (respeitando a configuração de despedida da empresa) só para quem
  * venceu agora. Tickets que já estavam vencidos há mais de BACKLOG_GRACE_HOURS (ex.: os
  * parados quando a regra foi ligada) fecham em silêncio — dezenas de mensagens de uma vez
@@ -91,7 +93,9 @@ export class TicketAutoCloser {
      */
     async close(due: DueTicket): Promise<Ticket | null> {
         const [closed] = await this.db.update(tickets)
-            .set({ status_id: 3, closed_by_user_id: null, pinned: 0, updated_at: new Date() })
+            // Fechado sem venda registrada = venda não realizada (vai para os relatórios de não venda).
+            // Se o atendente já marcou venda antes, mantém.
+            .set({ status_id: 3, closed_by_user_id: null, pinned: 0, is_sale: sql`coalesce(${tickets.is_sale}, 0)`, updated_at: new Date() })
             .where(and(
                 eq(tickets.id, due.id),
                 inArray(tickets.status_id, AUTO_CLOSE_STATUSES),

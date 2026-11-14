@@ -7,6 +7,7 @@ import {
 import { etiquetas, contactEtiquetas } from '../etiquetas/etiqueta.db.schema';
 import { users } from '../auth/auth.schema';
 import type { CreateKeywordInput, CreateReasonInput, UpdateReasonInput } from './crm.dto';
+import { endOfDayBR, startOfDayBR } from '../../core/dates/br-day';
 
 export type SalesReason = typeof crm_sales_reasons.$inferSelect;
 export type OriginKeyword = typeof crm_keywords.$inferSelect;
@@ -222,8 +223,8 @@ export class DrizzleSalesReportRepository implements SalesReportRepository {
             outcome === 'made' ? eq(tickets.is_sale, 1) : or(eq(tickets.is_sale, 0), eq(tickets.service_not_made, 1)),
             isNull(tickets.deleted_at),
         ];
-        if (f.dateInit) conditions.push(gte(tickets.updated_at, new Date(f.dateInit)));
-        if (f.dateEnd) conditions.push(lte(tickets.updated_at, new Date(`${f.dateEnd}T23:59:59`)));
+        if (f.dateInit) conditions.push(gte(tickets.updated_at, startOfDayBR(f.dateInit)));
+        if (f.dateEnd) conditions.push(lte(tickets.updated_at, endOfDayBR(f.dateEnd)));
         if (f.userId) conditions.push(eq(tickets.attendant_user_id, f.userId));
         if (f.queueId) conditions.push(eq(tickets.queue_id, f.queueId));
         return and(...conditions);

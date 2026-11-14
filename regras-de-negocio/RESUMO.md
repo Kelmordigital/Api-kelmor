@@ -122,7 +122,9 @@ dentro de uma (resposta `403 Empresa não encontrada`).
 - Ao fechar, manda a despedida (se ligada e respeitando o intervalo), exceto
   para quem já cumpria a regra havia mais de 2 h: esses fecham sem despedida,
   para não disparar dezenas de mensagens de uma vez (o WhatsApp bloqueia).
-- O fechamento fica no histórico sem usuário e não dá XP. Roda a cada 5 min,
+- O fechamento fica no histórico sem usuário e não dá XP. O ticket conta como
+  **venda não realizada** (sem motivo) nos relatórios e no painel, a menos que
+  o atendente já tenha marcado venda antes. Roda a cada 5 min,
   até 100 tickets por vez (os mais antigos primeiro), uma vez só mesmo com
   várias réplicas.
 - **Resposta por outro número:** se a conexão do ticket estiver
