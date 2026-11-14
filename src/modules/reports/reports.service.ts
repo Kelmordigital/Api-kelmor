@@ -1,265 +1,114 @@
-import { db } from '../../database/client';
-import { users } from '../auth/auth.schema';
-import { tickets, contacts } from '../atendimento/atendimento.db.schema';
-import { count, eq, and, isNull, isNotNull, gte, lte, asc, desc, sql } from 'drizzle-orm';
-import ExcelJS from 'exceljs';
-import type { SQL } from 'drizzle-orm';
+import type { Pagination } from '../../core/http/pagination';
+import type { ExportedFile, ExportFormat, TableColumn, TableExporter, TableHeading } from '../../core/export/table-export';
+import type { AverageFilter, AverageRow, ClientTicketsRow, Period, ReportsRepository, UserTicketsRow } from './reports.repository';
 
-function retentionFloor(): Date {
-    const d = new Date();
-    d.setDate(d.getDate() - 90);
-    return d;
+/** RN-REL-01: os relatórios por usuário e de tempo médio só olham os últimos 90 dias. */
+export const REPORT_RETENTION_DAYS = 90;
+/** RN-REL-04: o gráfico de tempo médio mostra a última semana. */
+export const AVERAGE_GRAPH_DAYS = 7;
+
+export interface ClientReport {
+    items: ClientTicketsRow[];
+    count: number;
+    pages: number;
 }
 
-function todayStart(): Date {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+/** Dia AAAA-MM-DD no início (00:00:00) ou no fim (23:59:59) — no fuso do servidor. */
+function startOfDay(ymd: string): Date { return new Date(`${ymd}T00:00:00`); }
+function endOfDay(ymd: string): Date { return new Date(`${ymd}T23:59:59`); }
+const brDate = (ymd: string) => ymd.split('-').reverse().join('/');
+
+/** Subtítulo do arquivo exportado com o período pedido. */
+export function periodLabel(start: string | undefined, end: string | undefined, whenEmpty: string): string {
+    if (start && end) return `Período: ${brDate(start)} a ${brDate(end)}`;
+    if (start) return `A partir de ${brDate(start)}`;
+    if (end) return `Até ${brDate(end)}`;
+    return whenEmpty;
 }
 
-function todayEnd(): Date {
-    const d = new Date();
-    d.setHours(23, 59, 59, 999);
-    return d;
-}
+const USER_COLUMNS: TableColumn[] = [
+    { header: 'Nome do Atendente', key: 'name', width: 35 },
+    { header: 'Tickets Encerrados', key: 'total_tickets', width: 20 },
+];
+const CLIENT_COLUMNS: TableColumn[] = [
+    { header: 'Cliente', key: 'client', width: 35 },
+    { header: 'Número', key: 'number', width: 20 },
+    { header: 'Total de Atendimentos', key: 'ticket_count', width: 25 },
+];
+const AVERAGE_COLUMNS: TableColumn[] = [
+    { header: 'Dia', key: 'day', width: 18 },
+    { header: 'Tempo para Atender', key: 'label_opened', width: 22 },
+    { header: 'Tempo em Atendimento', key: 'label_closed', width: 25 },
+];
 
-async function makeExcel(
-    sheetName: string,
-    columns: { header: string; key: string; width: number }[],
-    rows: Record<string, unknown>[],
-): Promise<Buffer> {
-    const workbook = new ExcelJS.Workbook();
-    const sheet    = workbook.addWorksheet(sheetName);
-    sheet.columns  = columns;
+/** Relatórios de atendimento: por usuário, por cliente e tempo médio. */
+export class ReportsService {
+    private readonly exporters: Map<ExportFormat, TableExporter>;
 
-    sheet.getRow(1).eachCell(cell => {
-        cell.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
-
-    rows.forEach((r, i) => {
-        const row = sheet.addRow(r);
-        if (i % 2 === 1) {
-            row.eachCell(cell => {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F3FF' } };
-            });
-        }
-    });
-
-    return Buffer.from(await workbook.xlsx.writeBuffer());
-}
-
-export const reportsService = {
-    // ── Relatório Usuários ────────────────────────────────────────────────────
-
-    async getTicketsUser(companyId: string, dateStartParam?: string, dateEndParam?: string) {
-        const floor = retentionFloor();
-
-        const dateStart = dateStartParam ? new Date(`${dateStartParam}T00:00:00`) : null;
-        const dateEnd   = dateEndParam   ? new Date(`${dateEndParam}T23:59:59`)   : null;
-
-        const conditions = [
-            eq(tickets.closed_by_user_id, users.id),
-            eq(tickets.status_id, 3),
-            isNotNull(tickets.closed_by_user_id),
-            eq(tickets.company_id, companyId),
-            isNull(tickets.deleted_at),
-            gte(tickets.updated_at, floor),
-        ];
-
-        if (dateStart) conditions.push(gte(tickets.updated_at, dateStart));
-        if (dateEnd)   conditions.push(lte(tickets.updated_at, dateEnd));
-
-        return db
-            .select({
-                id:            users.id,
-                name:          users.name,
-                total_tickets: count(tickets.id),
-            })
-            .from(users)
-            .leftJoin(tickets, and(...conditions))
-            .where(eq(users.company_id, companyId))
-            .groupBy(users.id, users.name)
-            .orderBy(asc(users.name));
-    },
-
-    async exportTicketsUserExcel(companyId: string, dateStartParam?: string, dateEndParam?: string): Promise<Buffer> {
-        const rows = await reportsService.getTicketsUser(companyId, dateStartParam, dateEndParam);
-        return makeExcel(
-            'Usuários',
-            [
-                { header: 'Nome do Atendente',  key: 'name',          width: 35 },
-                { header: 'Tickets Encerrados', key: 'total_tickets',  width: 20 },
-            ],
-            rows as Record<string, unknown>[],
-        );
-    },
-
-    // ── Relatório Cliente ─────────────────────────────────────────────────────
-
-    async getClientTickets(
-        companyId: string,
-        dateStartParam?: string,
-        dateEndParam?: string,
-        page    = 1,
-        limit   = 20,
+    constructor(
+        private readonly repository: ReportsRepository,
+        exporters: TableExporter[],
+        private readonly now: () => Date = () => new Date(),
     ) {
-        const dateStart = dateStartParam ? new Date(`${dateStartParam}T00:00:00`) : todayStart();
-        const dateEnd   = dateEndParam   ? new Date(`${dateEndParam}T23:59:59`)   : todayEnd();
+        this.exporters = new Map(exporters.map((e) => [e.format, e]));
+    }
 
-        const where = and(
-            eq(tickets.company_id, companyId),
-            isNull(tickets.deleted_at),
-            gte(tickets.updated_at, dateStart),
-            lte(tickets.updated_at, dateEnd),
-        );
+    // ── Por usuário ──────────────────────────────────────────────────────────
 
-        const ticketCount = count(tickets.id);
+    /** RN-REL-02. */
+    ticketsByUser(companyId: string, dateStart?: string, dateEnd?: string): Promise<UserTicketsRow[]> {
+        const floor = new Date(this.now().getTime() - REPORT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+        const asked = dateStart ? startOfDay(dateStart) : undefined;
+        const from = asked && asked > floor ? asked : floor;
+        return this.repository.ticketsByUser(companyId, { from, to: dateEnd ? endOfDay(dateEnd) : undefined });
+    }
 
-        const [rows, countRows] = await Promise.all([
-            db
-                .select({ client: contacts.name, ticket_count: ticketCount })
-                .from(tickets)
-                .innerJoin(contacts, eq(tickets.contact_id, contacts.id))
-                .where(where)
-                .groupBy(contacts.name)
-                .orderBy(desc(ticketCount))
-                .limit(limit)
-                .offset((page - 1) * limit),
+    /** RN-REL-05. */
+    async ticketsByUserFile(companyId: string, format: ExportFormat, dateStart?: string, dateEnd?: string): Promise<ExportedFile> {
+        const heading = { title: 'Usuários', subtitle: periodLabel(dateStart, dateEnd, `Últimos ${REPORT_RETENTION_DAYS} dias`) };
+        return this.export(format, heading, USER_COLUMNS, await this.ticketsByUser(companyId, dateStart, dateEnd));
+    }
 
-            db
-                .select({ total: sql<number>`COUNT(DISTINCT ${contacts.name})` })
-                .from(tickets)
-                .innerJoin(contacts, eq(tickets.contact_id, contacts.id))
-                .where(where),
-        ]);
+    // ── Por cliente ──────────────────────────────────────────────────────────
 
-        const total = Number(countRows[0]?.total ?? 0);
+    /** RN-REL-03. */
+    async ticketsByClient(companyId: string, dateStart: string | undefined, dateEnd: string | undefined, pagination: Pagination): Promise<ClientReport> {
+        const { items, count } = await this.repository.ticketsByClient(companyId, this.clientPeriod(dateStart, dateEnd), pagination);
+        return { items, count, pages: Math.max(1, Math.ceil(count / pagination.limit)) };
+    }
 
-        return {
-            items: rows,
-            count: total,
-            pages: Math.max(1, Math.ceil(total / limit)),
-        };
-    },
+    /** RN-REL-05: todos os clientes, sem paginação. */
+    async ticketsByClientFile(companyId: string, format: ExportFormat, dateStart?: string, dateEnd?: string): Promise<ExportedFile> {
+        const { items } = await this.repository.ticketsByClient(companyId, this.clientPeriod(dateStart, dateEnd));
+        return this.export(format, { title: 'Clientes', subtitle: periodLabel(dateStart, dateEnd, 'Hoje') }, CLIENT_COLUMNS, items);
+    }
 
-    async exportClientTicketsExcel(companyId: string, dateStartParam?: string, dateEndParam?: string): Promise<Buffer> {
-        const { items } = await reportsService.getClientTickets(companyId, dateStartParam, dateEndParam, 1, 999999);
-        return makeExcel(
-            'Clientes',
-            [
-                { header: 'Cliente',               key: 'client',       width: 35 },
-                { header: 'Total de Atendimentos', key: 'ticket_count', width: 25 },
-            ],
-            items as Record<string, unknown>[],
-        );
-    },
+    // ── Tempo médio ──────────────────────────────────────────────────────────
 
-    // ── Relatório Tempo Médio ─────────────────────────────────────────────────
+    /** RN-REL-04: `graph` troca o período pela última semana e traz todos os dias. */
+    averageTimes(companyId: string, filter: AverageFilter, graph: boolean, pagination: Pagination): Promise<AverageRow[]> {
+        if (graph) return this.repository.averageTimes(companyId, { ...filter, lastDays: AVERAGE_GRAPH_DAYS }, REPORT_RETENTION_DAYS);
+        return this.repository.averageTimes(companyId, filter, REPORT_RETENTION_DAYS, pagination);
+    }
 
-    async getAverage(companyId: string, params: {
-        dateInit?: string;
-        dateEnd?: string;
-        queueId?: number;
-        userId?: string;
-        connectionId?: number;
-        page?: number;
-        limit?: number;
-        graph?: boolean;
-    }) {
-        const { dateInit, dateEnd, queueId, userId, connectionId, graph, page = 1, limit = 20 } = params;
+    /** RN-REL-05: todos os dias, sem paginação. */
+    async averageTimesFile(companyId: string, format: ExportFormat, filter: AverageFilter): Promise<ExportedFile> {
+        const rows = await this.repository.averageTimes(companyId, filter, REPORT_RETENTION_DAYS);
+        const heading = { title: 'Tempo Médio', subtitle: periodLabel(filter.dateInit, filter.dateEnd, `Últimos ${REPORT_RETENTION_DAYS} dias`) };
+        return this.export(format, heading, AVERAGE_COLUMNS, rows);
+    }
 
-        const extra: SQL[] = [];
+    private export(format: ExportFormat, heading: TableHeading, columns: TableColumn[], rows: object[]): Promise<ExportedFile> {
+        const exporter = this.exporters.get(format);
+        if (!exporter) throw new Error(`Formato de exportação não configurado: ${format}`);
+        return exporter.export(heading, columns, rows);
+    }
 
-        if (graph) {
-            extra.push(sql`AND t.created_at::date >= CURRENT_DATE - INTERVAL '6 days'`);
-        } else {
-            if (dateInit) extra.push(sql`AND t.created_at::date >= ${dateInit}::date`);
-            if (dateEnd)  extra.push(sql`AND t.created_at::date <= ${dateEnd}::date`);
-        }
-        if (queueId)      extra.push(sql`AND t.queue_id = ${queueId}`);
-        if (userId)       extra.push(sql`AND t.attendant_user_id = ${userId}`);
-        if (connectionId) extra.push(sql`AND t.connection_id = ${connectionId}`);
-
-        const extraWhere = extra.length
-            ? sql.join(extra, sql` `)
-            : sql``;
-
-        const limitOffset = graph
-            ? sql``
-            : sql`LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
-
-        const rows = await db.execute(sql`
-            SELECT
-                TO_CHAR(t.created_at::date, 'DD/MM/YYYY') AS day,
-
-                COALESCE(ROUND(AVG(
-                    CASE WHEN ht.status_id_end = 2
-                    THEN EXTRACT(EPOCH FROM (ht.created_at - t.created_at))
-                    ELSE NULL END
-                )), 0)::bigint * 1000 AS time_opened,
-
-                TO_CHAR(
-                    COALESCE(ROUND(AVG(
-                        CASE WHEN ht.status_id_end = 2
-                        THEN EXTRACT(EPOCH FROM (ht.created_at - t.created_at))
-                        ELSE NULL END
-                    )), 0)::numeric * interval '1 second',
-                    'HH24:MI:SS'
-                ) AS label_opened,
-
-                COALESCE(ROUND(AVG(
-                    CASE WHEN ht.status_id_end IN (3, 7)
-                    THEN EXTRACT(EPOCH FROM (ht.created_at - t.created_at))
-                    ELSE NULL END
-                )), 0)::bigint * 1000 AS time_closed,
-
-                TO_CHAR(
-                    COALESCE(ROUND(AVG(
-                        CASE WHEN ht.status_id_end IN (3, 7)
-                        THEN EXTRACT(EPOCH FROM (ht.created_at - t.created_at))
-                        ELSE NULL END
-                    )), 0)::numeric * interval '1 second',
-                    'HH24:MI:SS'
-                ) AS label_closed
-
-            FROM at_tickets t
-            INNER JOIN at_historic_tickets ht ON t.id = ht.ticket_id
-
-            WHERE t.company_id = ${companyId}
-              AND t.deleted_at IS NULL
-              AND ht.status_id_end IN (2, 3, 7)
-              AND t.created_at >= NOW() - INTERVAL '90 days'
-              ${extraWhere}
-
-            GROUP BY t.created_at::date
-            ORDER BY t.created_at::date ASC
-            ${limitOffset}
-        `);
-
-        return rows as unknown as Array<{
-            day: string;
-            time_opened: number;
-            label_opened: string;
-            time_closed: number;
-            label_closed: string;
-        }>;
-    },
-
-    async exportAverageExcel(companyId: string, params: {
-        dateInit?: string; dateEnd?: string;
-        queueId?: number; userId?: string; connectionId?: number;
-    }): Promise<Buffer> {
-        const rows = await reportsService.getAverage(companyId, { ...params, page: 1, limit: 99999 });
-        return makeExcel(
-            'Tempo Médio',
-            [
-                { header: 'Dia',                  key: 'day',          width: 18 },
-                { header: 'Tempo para Atender',   key: 'label_opened', width: 22 },
-                { header: 'Tempo em Atendimento', key: 'label_closed', width: 25 },
-            ],
-            rows as unknown as Record<string, unknown>[],
-        );
-    },
-};
+    /** Sem período informado, o relatório por cliente mostra o dia de hoje. */
+    private clientPeriod(dateStart?: string, dateEnd?: string): Period {
+        const today = this.now();
+        const from = dateStart ? startOfDay(dateStart) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+        const to = dateEnd ? endOfDay(dateEnd) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+        return { from, to };
+    }
+}

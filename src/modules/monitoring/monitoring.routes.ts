@@ -1,17 +1,18 @@
-import { FastifyInstance } from 'fastify';
-import { metricsRegistry } from './monitoring.metrics';
-import { monitoringController } from './monitoring.controller';
+import type { FastifyInstance } from 'fastify';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { MonitoringController } from './monitoring.controller';
 
 /**
- * Rotas de monitoramento registradas SEM prefixo /api/v1.
- * GET /metrics NÃO tem auth — é bloqueado externamente pelo Nginx e pelo
- * bind 127.0.0.1 da porta 3003; o Alloy raspa pela rede interna do Docker.
+ * Rotas de monitoramento, registradas SEM o prefixo /api/v1. Cada uma tem a
+ * própria proteção por token (não há usuário logado): /metrics (RN-MON-06) e
+ * o webhook do Grafana (RN-MON-01). O histórico do painel fica no router do
+ * superadmin.
  */
-export async function monitoringRoutes(app: FastifyInstance) {
-    app.get('/metrics', async (_req, reply) => {
-        reply.header('content-type', metricsRegistry.contentType);
-        return metricsRegistry.metrics();
-    });
+export class MonitoringRouter implements HttpRouter {
+    constructor(private readonly controller: MonitoringController) {}
 
-    app.post('/monitoring/alert', monitoringController.handleGrafanaAlert);
+    register = async (app: FastifyInstance) => {
+        app.get('/metrics',           this.controller.metrics);
+        app.post('/monitoring/alert', this.controller.grafanaAlert);
+    };
 }

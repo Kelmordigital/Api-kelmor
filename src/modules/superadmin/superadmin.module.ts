@@ -4,7 +4,7 @@ import { BcryptPasswordHasher } from '../../core/auth/password-hasher';
 import { RedisSessionRevoker } from '../../core/auth/session';
 import { accountApproval } from '../auth/auth.module';
 import { activeCampaignsPauser } from '../campanhas/campanha.module';
-import { monitoringController } from '../monitoring/monitoring.controller';
+import { metricsHistoryHandler } from '../monitoring/monitoring.module';
 import { DrizzleSuperadminRepository } from './superadmin.repository';
 import { CompanySessionsShutdown, SuperadminService } from './superadmin.service';
 import { SuperadminController } from './superadmin.controller';
@@ -19,4 +19,4 @@ const service = new SuperadminService(repository, new BcryptPasswordHasher(), se
     activeCampaignsPauser,
 ]);
 
-export const superadminRouter = new SuperadminRouter(new SuperadminController(service), monitoringController.metricsHistory);
+export const superadminRouter = new SuperadminRouter(new SuperadminController(service), metricsHistoryHandler);

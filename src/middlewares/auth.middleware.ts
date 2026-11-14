@@ -1,46 +1,31 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyAccessToken } from '../config/jwt';
 import { getRedisClient } from '../config/redis';
-import { sessionKey } from '../core/auth/session';
+import { AccessTokenVerifier, type AuthUser } from '../core/auth/access-token';
 
 declare module 'fastify' {
     interface FastifyRequest {
-        user: {
-            id: string;
-            email: string;
-            company_id: string | null;
-            profile_tag: string;
-            finance: boolean;
-        };
+        user: AuthUser;
     }
 }
 
+/** Verificação do token de acesso, compartilhada pelas rotas e pelo socket. */
+export const accessTokens = new AccessTokenVerifier(verifyAccessToken, getRedisClient);
+
+const REJECTION = {
+    missing: 'Token não fornecido',
+    invalid: 'Token inválido ou expirado',
+    session: 'Sessão expirada. Faça login novamente.',
+} as const;
+
 export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-        return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Token não fornecido' });
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    const check = await accessTokens.check(token);
+    if (!check.ok) {
+        return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: REJECTION[check.reason] });
     }
-    const payload = verifyAccessToken(authHeader.split(' ')[1]);
-    if (!payload) {
-        return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Token inválido ou expirado' });
-    }
-
-    const redis = getRedisClient();
-    if (redis) {
-        const key = sessionKey(payload.profile_tag, payload.company_id, payload.sub);
-        const session = await redis.get(key);
-        if (!session) {
-            return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Sessão expirada. Faça login novamente.' });
-        }
-    }
-
-    req.user = {
-        id: payload.sub,
-        email: payload.email,
-        company_id: payload.company_id,
-        profile_tag: payload.profile_tag,
-        finance: payload.finance,
-    };
+    req.user = check.user;
 }
 
 export async function adminMiddleware(req: FastifyRequest, reply: FastifyReply) {
