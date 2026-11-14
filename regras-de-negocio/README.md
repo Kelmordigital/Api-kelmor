@@ -68,3 +68,4 @@ OO/SOLID. Cada regra foi lida do código e tem teste que a protege.
 | whatsapp | pendente | — |
 | atendimento | pendente | — |
 | notificacoes (novo) | ✅ criado | [notificacoes.md](notificacoes.md) |
+| atendimento automático (novo) | ✅ criado | [atendimento-automatico.md](atendimento-automatico.md) |

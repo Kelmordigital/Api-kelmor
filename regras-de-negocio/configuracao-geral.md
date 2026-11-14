@@ -32,6 +32,9 @@ recebem avisos. Vários módulos consultam essas chaves.
   |---|---|---|
   | Fechar tickets abertos após (h) — `close_open_tickets_interval` | 24 | inteiro ≥ 0 |
   | Fechar tickets pendentes após (h) — `close_pending_tickets_interval` | 48 | inteiro ≥ 0 |
+
+  O fechamento automático que usa essas duas chaves está em
+  [atendimento-automatico.md](atendimento-automatico.md).
   | Intervalo entre mensagens de encerramento (h) | 6 | número ≥ 0 |
   | Intervalo entre mensagens de boas-vindas (h) | 1 | número ≥ 0 |
   | Intervalo entre pesquisas NPS (h) | 24 | número ≥ 0 |

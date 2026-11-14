@@ -1,7 +1,7 @@
 import { eq, and, ne, inArray, isNull, desc, asc, or, sql, gte, lte, ilike, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../database/client';
-import { tickets, contacts, historic_tickets, ticket_spy_log, userQueues, userConnections, queues, atendimento_messages, Ticket } from './atendimento.db.schema';
+import { tickets, contacts, historic_tickets, ticket_spy_log, userQueues, userConnections, queues, atendimento_messages, connections, Ticket } from './atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { companies } from '../companies/company.db.schema';
@@ -995,7 +995,7 @@ export const ticketService = {
      *   - false     → não envia
      *   - undefined → comportamento automático (respeita send_ticket_goodbye_msg)
      */
-    async _sendClosingMessage(ticket: Ticket, companyId: string, sendGoodbye: boolean | undefined, userId: string): Promise<void> {
+    async _sendClosingMessage(ticket: Ticket, companyId: string, sendGoodbye: boolean | undefined, userId: string | null): Promise<void> {
         if (!ticket.contact_id) return;
         if (sendGoodbye === false) return;
 
@@ -1023,6 +1023,9 @@ export const ticketService = {
             console.warn(`[_sendClosingMessage] Sem connection_id para ticket ${ticket.id} (contact: ${target}). Mensagem não será enviada.`);
             return;
         }
+        // Número do ticket caído/removido: a despedida sai por outro número conectado
+        const connectionId = await this.resolveSendConnection(ticket);
+        if (!connectionId) return;
 
         // Dedup: evita reenviar despedida pro mesmo contato em sequência rápida
         // (ex.: fecha e reabre vários tickets seguidos em pouco tempo).
@@ -1039,7 +1042,9 @@ export const ticketService = {
             .limit(1);
         if (recent) return;
 
-        const [closer] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+        const [closer] = userId
+            ? await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1)
+            : [];
         const text = fillMessageTemplate(companyRow.end_message, { atendente: closer?.name ?? 'atendente', ticketId: ticket.id });
 
         const { messageService } = await import('./message.service');
@@ -1051,10 +1056,48 @@ export const ticketService = {
             text,
             true,
             companyId,
-            { userId, mediaType: 'auto_goodbye' },
+            { userId: userId ?? undefined, mediaType: 'auto_goodbye' },
         );
 
-        await whatsappService.sendTextToPhone(ticket.connection_id, target, text);
+        await whatsappService.sendTextToPhone(connectionId, target, text);
+    },
+
+    /**
+     * Conexão por onde responder o ticket. Se a do ticket estiver desconectada ou
+     * tiver sido removida, usa outra conexão conectada da mesma empresa (prefere
+     * WhatsApp comum à API oficial, que só manda texto livre dentro de 24h) e
+     * move o ticket para ela. Sem nenhuma conectada, mantém a do ticket.
+     * Decisão do negócio: o cliente pode receber de outro número, sem aviso.
+     */
+    async resolveSendConnection(ticket: Pick<Ticket, 'id' | 'company_id' | 'connection_id'>): Promise<number | null> {
+        const { whatsappService } = await import('../whatsapp/whatsapp.service');
+        const isUp = async (id: number) =>
+            (await whatsappService.getStatus(id).catch(() => null))?.status === 'connected';
+
+        if (ticket.connection_id && await isUp(ticket.connection_id)) return ticket.connection_id;
+
+        const candidates = await db
+            .select({ id: connections.id, type: connections.type })
+            .from(connections)
+            .where(and(
+                eq(connections.company_id, ticket.company_id),
+                eq(connections.status, 'connected'),
+                ticket.connection_id ? ne(connections.id, ticket.connection_id) : undefined,
+            ))
+            .orderBy(desc(connections.id));
+        candidates.sort((a, b) => Number(a.type === 'whatsapp-oficial') - Number(b.type === 'whatsapp-oficial'));
+
+        for (const candidate of candidates) {
+            if (!(await isUp(candidate.id))) continue;
+            const [moved] = await db.update(tickets)
+                .set({ connection_id: candidate.id, updated_at: new Date() })
+                .where(eq(tickets.id, ticket.id))
+                .returning();
+            console.log(`[Ticket ${ticket.id}] conexão ${ticket.connection_id ?? '-'} indisponível — respondendo pela conexão ${candidate.id}`);
+            if (moved) emitToCompany(ticket.company_id, 'ticket:updated', { ticket: moved });
+            return candidate.id;
+        }
+        return ticket.connection_id ?? null;
     },
 
     async registerSale(

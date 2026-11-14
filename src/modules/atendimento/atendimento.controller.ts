@@ -395,7 +395,10 @@ export const atendimentoController = {
             if (ticket) {
                 const contact = await contactService.findById(ticket.contact_id);
                 const { whatsappService } = await import('../whatsapp/whatsapp.service');
-                const connId = ticket.connection_id ?? undefined;
+                // Número do ticket caído/removido → responde por outro número conectado da empresa
+                const connId = ticket.connection_id
+                    ? (await ticketService.resolveSendConnection(ticket)) ?? undefined
+                    : undefined;
                 if (contact?.number) {
                     // Com conexão no ticket, roteia por ela (bays ou API oficial);
                     // sem conexão, mantém o envio pela sessão padrão do bays.
