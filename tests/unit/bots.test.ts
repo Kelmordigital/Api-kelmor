@@ -78,14 +78,14 @@ describe('BotService', () => {
 });
 
 describe('BotStats', () => {
-    const now = new Date('2030-03-15T15:00:00');
+    const now = new Date('2030-03-15T15:00:00-03:00'); // sexta, 15:00 em Brasília
     const conv = (startedAt: string, status = 'ended', botId = 1) =>
         ({ bot_id: botId, started_at: new Date(startedAt), status, error_message: null }) as BotConversation;
 
     it('7 dias de série, contagem de hoje e de erros, execuções recentes com nome do fluxo', () => {
         const stats = BotStats.build(
             [bot({ id: 1, name: 'Recepção', active: true }), bot({ id: 2, trigger_type: 'keyword' })],
-            [conv('2030-03-15T10:00:00', 'error'), conv('2030-03-14T10:00:00'), conv('2030-03-14T11:00:00', 'active', 99)],
+            [conv('2030-03-15T10:00:00-03:00', 'error'), conv('2030-03-14T10:00:00-03:00'), conv('2030-03-14T11:00:00-03:00', 'active', 99)],
             1, now,
         );
         expect(stats).toMatchObject({ active_bots: 1, total_bots: 2, today_count: 1, error_count: 1, in_progress_count: 1, last_7_days_count: 3 });
@@ -93,5 +93,14 @@ describe('BotStats', () => {
         expect(stats.executions_by_day).toHaveLength(7);
         expect(stats.executions_by_day.reduce((n, d) => n + d.count, 0)).toBe(3);
         expect(stats.recent_executions.map((e) => e.bot_name)).toEqual(['Recepção', 'Recepção', 'Fluxo removido']);
+    });
+
+    it('dias no horário de Brasília: conversa às 22:30 conta no dia, não no seguinte', () => {
+        const noite = new Date('2030-03-16T01:30:00Z'); // sexta 15/03, 22:30 em Brasília
+        const stats = BotStats.build([bot({ id: 1 })], [conv('2030-03-16T01:00:00Z')], 0, noite); // 22:00 de sexta
+        expect(stats.today_count).toBe(1);
+        expect(stats.executions_by_day.at(-1)).toMatchObject({ date: '2030-03-15', label: 'Sex', count: 1 });
+        expect(stats.executions_by_day[0]).toMatchObject({ date: '2030-03-09', label: 'Sáb' });
+        expect(BotStats.windowStart(noite).toISOString()).toBe('2030-03-09T03:00:00.000Z');
     });
 });

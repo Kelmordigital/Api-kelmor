@@ -5,6 +5,7 @@ import { contacts, tickets, atendimento_messages, Contact } from './atendimento.
 import { researchHistorics } from '../pesquisas/pesquisa.db.schema';
 import { etiquetas, contactEtiquetas, Etiqueta } from '../etiquetas/etiqueta.db.schema';
 import { emitToCompany } from '../../shared/socket';
+import { BR_TIME_ZONE } from '../../core/dates/br-day';
 
 // Status IDs de ticket considerados "abertos" (pendente/em atendimento)
 const OPEN_STATUSES = [1, 2];
@@ -346,7 +347,7 @@ export const contactService = {
                 email:      c.email   ?? '',
                 origin:     c.origin  ?? '',
                 created_at: c.created_at
-                    ? new Date(c.created_at).toLocaleDateString('pt-BR')
+                    ? new Date(c.created_at).toLocaleDateString('pt-BR', { timeZone: BR_TIME_ZONE })
                     : '',
             });
         });

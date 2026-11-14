@@ -3,18 +3,17 @@ import { isUniqueViolation } from '../../core/database/pg-errors';
 import type { Bot, BotConversation } from './bots.db.schema';
 import type { BotRepository } from './bots.repository';
 import type { CreateBotInput, NodeInput, UpdateBotInput } from './bots.dto';
+import { brCalendar, brMidnight, todayBR } from '../../core/dates/br-day';
 
 const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const DUPLICATE_NODES = 'Há nós com o mesmo id no fluxo';
 
 /** Mini painel da tela de Automações (RN-BOT-07). */
 export class BotStats {
-    /** Primeiro dia da janela de 7 dias (hoje e os 6 anteriores), à meia-noite. */
+    /** Primeiro dia da janela de 7 dias (hoje e os 6 anteriores), à meia-noite de Brasília. */
     static windowStart(now: Date): Date {
-        const since = new Date(now);
-        since.setDate(since.getDate() - 6);
-        since.setHours(0, 0, 0, 0);
-        return since;
+        const { year, month, day } = brCalendar(now);
+        return brMidnight(year, month, day - 6);
     }
 
     static build(bots: Bot[], conversations: BotConversation[], inProgress: number, now: Date) {
@@ -23,9 +22,8 @@ export class BotStats {
 
         const since = BotStats.windowStart(now);
         const buckets = Array.from({ length: 7 }, (_, i) => {
-            const d = new Date(since);
-            d.setDate(d.getDate() + i);
-            return { date: BotStats.day(d), label: WEEKDAY_LABELS[d.getDay()], count: 0 };
+            const d = new Date(since.getTime() + i * 24 * 60 * 60 * 1000); // meia-noite de Brasília de cada dia
+            return { date: BotStats.day(d), label: WEEKDAY_LABELS[brCalendar(d).weekday], count: 0 };
         });
         const byDate = new Map(buckets.map((b) => [b.date, b]));
 
@@ -59,8 +57,9 @@ export class BotStats {
         };
     }
 
+    /** Dia (AAAA-MM-DD) do instante no calendário de Brasília. */
     private static day(d: Date): string {
-        return d.toISOString().split('T')[0];
+        return todayBR(d);
     }
 }
 
