@@ -34,6 +34,17 @@ const envSchema = z.object({
     BAYS_SECRET_KEY: z.string().default(''),
     BAYS_SESSION_ID: z.string().default('1'),
 
+    // WuzAPI (motor WhatsApp alternativo ao bays, por conexão: at_connections.type = 'wuzapi').
+    // Opcionais: sem WUZAPI_URL as conexões wuzapi não conectam, e o resto da API sobe normal.
+    WUZAPI_URL:         z.string().url().optional(),
+    WUZAPI_ADMIN_TOKEN: z.string().optional(),
+    // Segredo do qual saem o token e a chave HMAC de cada conexão (nada a guardar no banco).
+    WUZAPI_SECRET:      z.string().min(32, 'WUZAPI_SECRET deve ter ao menos 32 caracteres').optional(),
+    // Endereço da própria API visto de dentro do cluster, para onde a WuzAPI manda o webhook.
+    WUZAPI_WEBHOOK_BASE_URL: z.string().url().optional(),
+    // Ids de conexões existentes forçadas para a WuzAPI (ex.: "5"), sem alterar o banco.
+    WUZAPI_CONNECTION_IDS: z.string().optional(),
+
     // Microsserviço de campanhas (motor de disparo agendado)
     CAMPAIGNS_API_URL: z.string().url().default('http://localhost:3350'),
 

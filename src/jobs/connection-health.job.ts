@@ -4,12 +4,13 @@ import { eq } from 'drizzle-orm';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
 import { env } from '../config/env';
 import { whatsappSessionsConnected, whatsappSessionsByConnection } from '../modules/monitoring/monitoring.metrics';
+import { wuzapiModule, usesWuzapi } from '../modules/whatsapp/wuzapi/wuzapi.module';
 
 const INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 
 async function runHealthCheck() {
     const rows = await db
-        .select({ id: connections.id, name: connections.name })
+        .select({ id: connections.id, name: connections.name, type: connections.type })
         .from(connections)
         .where(eq(connections.status, 'connected'));
 
@@ -23,6 +24,20 @@ async function runHealthCheck() {
     if (rows.length === 0) return;
 
     for (const conn of rows) {
+        // Conexão WuzAPI não existe no bays: pergunta à própria WuzAPI
+        if (usesWuzapi(conn.id, conn.type)) {
+            try {
+                const st = await wuzapiModule.client.status(conn.id);
+                if (!st.loggedIn) {
+                    console.log(`[health:${conn.id}] "${conn.name}" sem login na WuzAPI — sincronizando DB e notificando frontend`);
+                    await whatsappService.handleConnectionUpdate(conn.id, { type: 'disconnected', reason: 'health_check' }, { engine: 'wuzapi' });
+                }
+            } catch (err: any) {
+                // WuzAPI inacessível — não marca como desconectado (evita false positive)
+                console.warn(`[health:${conn.id}] Erro ao verificar "${conn.name}" na WuzAPI:`, err.message);
+            }
+            continue;
+        }
         try {
             const res = await fetch(`${env.BAYS_URL}/session/status/${conn.id}`, {
                 headers: { secretkey: env.BAYS_SECRET_KEY },

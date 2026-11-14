@@ -4,8 +4,40 @@ import { getRedisClient } from '../../config/redis';
 import { emitToCompany } from '../../shared/socket';
 import { db } from '../../database/client';
 import { connection_errors_log, connection_health, type Connection } from '../atendimento/atendimento.db.schema';
+import { wuzapiModule, WUZAPI_CONNECTION_TYPE, effectiveConnectionType, usesWuzapi } from './wuzapi/wuzapi.module';
 
 const SESSION_ID = env.BAYS_SESSION_ID;
+
+// ── Motor da conexão ─────────────────────────────────────────────────────────
+// at_connections.type: 'whatsapp' (bays/Baileys, padrão) | 'whatsapp-oficial' | 'wuzapi'
+
+async function connectionType(id: number): Promise<string | null> {
+    try {
+        const { connections } = await import('../atendimento/atendimento.db.schema');
+        const { eq } = await import('drizzle-orm');
+        const [conn] = await db.select({ type: connections.type }).from(connections)
+            .where(eq(connections.id, id)).limit(1);
+        return effectiveConnectionType(id, conn?.type);
+    } catch {
+        return effectiveConnectionType(id, null); // banco indisponível → bays, salvo override por variável
+    }
+}
+
+/** Destino no formato da WuzAPI: "lid:<id>" vira JID completo "<id>@lid"; número vai só com dígitos. */
+function wuzapiTarget(target: string): string {
+    if (target.startsWith('lid:')) return `${target.slice(4).replace(/\D/g, '')}@lid`;
+    return target.replace(/\D/g, '');
+}
+
+/** Endpoint de mídia da WuzAPI a partir do mimetype (figurinha só em webp, senão vai como imagem). */
+function wuzapiMediaKind(mimetype: string, sticker?: boolean): 'image' | 'video' | 'audio' | 'document' | 'sticker' {
+    const mime = mimetype.toLowerCase();
+    if (sticker && (mime === 'image/webp' || mime === 'video/mp4')) return 'sticker';
+    if (mime.startsWith('image/')) return 'image';
+    if (mime.startsWith('video/')) return 'video';
+    if (mime.startsWith('audio/')) return 'audio';
+    return 'document';
+}
 
 const STATUS_TTL = 60 * 60 * 24; // 24 hours
 const QR_TTL     = 180;           // 3 minutes
@@ -170,6 +202,11 @@ export const whatsappService = {
                 return { status: conn.status ?? 'connected' };
             }
 
+            // WuzAPI: a verdade é a própria WuzAPI (não há bays nem credenciais no Redis)
+            if (usesWuzapi(id, conn?.type)) {
+                return this._wuzapiStatus(id, conn?.status ?? null);
+            }
+
             if (conn?.status === 'connected') {
                 // Banco diz conectado → confirma com bays (pode ter caído sem webhook)
                 try {
@@ -238,6 +275,42 @@ export const whatsappService = {
         return { status: 'disconnected' };
     },
 
+    /** Status de uma conexão WuzAPI, sincronizando Redis e banco. */
+    async _wuzapiStatus(id: number, dbStatus: string | null): Promise<{ status: string; qr?: string }> {
+        const redis = getRedisClient();
+        const { connections } = await import('../atendimento/atendimento.db.schema');
+        const { eq } = await import('drizzle-orm');
+        try {
+            const client = wuzapiModule.client;
+            const st = await client.status(id);
+            if (st.loggedIn) {
+                if (redis) await redis.set(statusKey(id), 'connected', 'EX', STATUS_TTL);
+                await db.update(connections)
+                    .set({ status: 'connected', ...(st.jid ? { serialized_id: st.jid } : {}) })
+                    .where(eq(connections.id, id)).catch(() => {});
+                return { status: 'connected' };
+            }
+            if (st.connected) {
+                const qr = await client.qr(id).catch(() => null);
+                if (qr) {
+                    if (redis) {
+                        await redis.set(qrKey(id), qr, 'EX', QR_TTL);
+                        await redis.set(statusKey(id), 'qr_ready', 'EX', STATUS_TTL);
+                    }
+                    return { status: 'qr_ready', qr };
+                }
+                return { status: 'loading_qr' };
+            }
+            if (dbStatus === 'connected') {
+                await db.update(connections).set({ status: 'disconnected' }).where(eq(connections.id, id)).catch(() => {});
+            }
+            return { status: 'disconnected' };
+        } catch {
+            // WuzAPI fora do ar → confia no banco por ora (mesma política do bays)
+            return { status: dbStatus === 'connected' ? 'connected' : 'disconnected' };
+        }
+    },
+
     // ── Importar sessão (fingerprint do navegador) ──────────────────────────
 
     async generateWebToken(connectionId: number): Promise<{ success: boolean; token: string }> {
@@ -259,7 +332,23 @@ export const whatsappService = {
             const [conn] = await db.select({ type: connections.type }).from(connections)
                 .where(eq(connections.id, id)).limit(1);
             if (conn?.type === 'whatsapp-oficial') return;
-        } catch { }
+            if (usesWuzapi(id, conn?.type)) {
+                const client = wuzapiModule.client;
+                // Conexão que estava no bays: derruba a sessão lá antes, senão os dois disputam o número
+                await baysDelete(`/session/delete/${id}`).catch(() => {});
+                await client.ensureUser(id);
+                await client.connect(id);
+                // QR chega pelo webhook (evento QR) ou no próximo getStatus
+                if (redis) await redis.set(statusKey(id), 'loading_qr', 'EX', STATUS_TTL);
+                return;
+            }
+        } catch (err: any) {
+            // Erro da WuzAPI não pode cair no fluxo do bays
+            if (err?.name === 'WuzapiError' || /WuzAPI/.test(err?.message ?? '')) {
+                console.error(`[WA:${id}] wuzapi connect error:`, err.message);
+                throw err;
+            }
+        }
 
         const payload = { groups: false, company_id: 1, connection_name: `session-${id}` };
 
@@ -296,6 +385,19 @@ export const whatsappService = {
         const id = connectionId;
         const redis = getRedisClient();
 
+        if (await connectionType(id) === WUZAPI_CONNECTION_TYPE) {
+            const client = wuzapiModule.client;
+            await baysDelete(`/session/delete/${id}`).catch(() => {});
+            await client.ensureUser(id);
+            await client.connect(id);
+            const code = await client.pairPhone(id, phoneNumber);
+            if (redis) {
+                await redis.set(pairingKey(id), code, 'EX', QR_TTL);
+                await redis.set(statusKey(id), 'pairing_ready', 'EX', STATUS_TTL);
+            }
+            return;
+        }
+
         const payload = { phoneNumber, groups: false, company_id: 1, connection_name: `session-${id}` };
 
         await baysDelete(`/session/delete/${id}`).catch(() => {});
@@ -310,6 +412,10 @@ export const whatsappService = {
             await redis.del(statusKey(id));
             await redis.del(qrKey(id));
         }
+        if (await connectionType(id) === WUZAPI_CONNECTION_TYPE) {
+            await wuzapiModule.client.logout(id).catch(() => {});
+            return;
+        }
         await baysDelete(`/session/delete/${id}`).catch(() => {});
     },
 
@@ -322,10 +428,11 @@ export const whatsappService = {
         serializedId?: string;
         code?: number;
         reason?: string;
-    }): Promise<void> {
+    }, opts: { engine?: 'bays' | 'wuzapi' } = {}): Promise<void> {
         const id = connectionId;
         const redis = getRedisClient();
         if (!redis) return;
+        const isWuzapi = opts.engine === 'wuzapi';
 
         if (data.type === 'qrcode' && data.qrCode) {
             await redis.set(qrKey(id), data.qrCode, 'EX', QR_TTL);
@@ -485,8 +592,11 @@ export const whatsappService = {
                         });
                     }
                     console.warn(`[WA:${id}] Circuit breaker: ${count} logouts em 1h — exige re-auth manual`);
-                } else {
-                    // Apaga sessão e credenciais — evita loop de reconexão com creds inválidas
+                } else if (!isWuzapi) {
+                    // Apaga sessão e credenciais — evita loop de reconexão com creds inválidas.
+                    // Só para o bays: numa conexão WuzAPI isso apagaria (pelo padrão legado
+                    // baileys:auth:*) as credenciais das conexões que ainda estão no Baileys.
+                    // A WuzAPI já descarta o pareamento sozinha no LoggedOut.
                     baysDelete(`/session/delete/${id}`).catch(() => {});
                     try {
                         const specificKeys = await redis.keys(`baileys:auth:${id}:*`);
@@ -513,6 +623,11 @@ export const whatsappService = {
             }
             console.log(`[WA:${id}] WhatsApp disconnected, code:`, data.code, 'reason:', data.reason);
         }
+    },
+
+    /** A conexão é atendida pela WuzAPI (type no banco ou override por variável)? */
+    async isWuzapiConnection(connectionId: number): Promise<boolean> {
+        return (await connectionType(connectionId)) === WUZAPI_CONNECTION_TYPE;
     },
 
     async handleConnectionError(connectionId: number, payload: unknown): Promise<void> {
@@ -626,8 +741,9 @@ export const whatsappService = {
 
         if (!contact.profile_pic_url && phone) {
             try {
-                const picData = await baysPost(`/contact/imgurl/${connectionId}`, { contact: phone });
-                const fetchedUrl = picData?.imgUrl;
+                const fetchedUrl = usesWuzapi(connectionId, conn.type)
+                    ? await wuzapiModule.client.avatarUrl(connectionId, phone)
+                    : (await baysPost(`/contact/imgurl/${connectionId}`, { contact: phone }))?.imgUrl;
                 if (fetchedUrl && typeof fetchedUrl === 'string' && fetchedUrl.startsWith('http')) {
                     const { contacts: contactsTable } = await import('../atendimento/atendimento.db.schema');
                     const { db: _db } = await import('../../database/client');
@@ -789,6 +905,9 @@ export const whatsappService = {
     async sendMessageViaLid(lid: string, text: string, connectionId?: number): Promise<any> {
         const id = Number(connectionId ?? SESSION_ID);
         const lidNum = lid.replace(/\D/g, '');
+        if (await connectionType(id) === WUZAPI_CONNECTION_TYPE) {
+            return wuzapiModule.client.sendText(id, `${lidNum}@lid`, text);
+        }
         return baysPost(`/message/send/${id}`, {
             type: 'text',
             lid: lidNum,
@@ -823,6 +942,10 @@ export const whatsappService = {
                 const wamid = await whatsappOficialService.sendText(conn, target, text);
                 return { wabMessageId: wamid };
             }
+            if (usesWuzapi(connectionId, conn?.type)) {
+                await wuzapiModule.client.sendText(connectionId, wuzapiTarget(target), text);
+                return;
+            }
         }
 
         if (target.startsWith('lid:')) {
@@ -855,6 +978,16 @@ export const whatsappService = {
         media: { path: string; mimetype: string; originalname: string; sticker?: boolean },
         caption?: string,
     ): Promise<void> {
+        if (await connectionType(connectionId) === WUZAPI_CONNECTION_TYPE) {
+            await wuzapiModule.client.sendMedia(
+                connectionId,
+                wuzapiTarget(target),
+                wuzapiMediaKind(media.mimetype, media.sticker),
+                media.path,
+                { caption, fileName: media.originalname, mimeType: media.mimetype },
+            );
+            return;
+        }
         await baysPost(`/message/send/${connectionId}`, {
             type: 'media',
             ...this._sendTargetFields(target),
@@ -879,6 +1012,11 @@ export const whatsappService = {
             'END:VCARD',
         ].join('\n');
 
+        if (await connectionType(connectionId) === WUZAPI_CONNECTION_TYPE) {
+            await wuzapiModule.client.sendContact(connectionId, wuzapiTarget(target), name, vcard);
+            return;
+        }
+
         await baysPost(`/message/send/${connectionId}`, {
             type: 'contact',
             ...this._sendTargetFields(target),
@@ -893,6 +1031,12 @@ export const whatsappService = {
         question: string,
         options: string[],
     ): Promise<void> {
+        if (await connectionType(connectionId) === WUZAPI_CONNECTION_TYPE) {
+            // JID completo: o endpoint de enquete da WuzAPI não resolve número puro
+            const to = wuzapiTarget(target);
+            await wuzapiModule.client.sendPoll(connectionId, to.includes('@') ? to : `${to}@s.whatsapp.net`, question, options);
+            return;
+        }
         await baysPost(`/message/send/${connectionId}`, {
             type: 'poll',
             ...this._sendTargetFields(target),

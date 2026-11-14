@@ -4,6 +4,7 @@ import { db } from '../../database/client';
 import { connections, connection_errors_log, connectionQueues, queues } from '../atendimento/atendimento.db.schema';
 import { getRedisClient } from '../../config/redis';
 import { whatsappService } from './whatsapp.service';
+import { wuzapiModule, WUZAPI_CONNECTION_TYPE, usesWuzapi } from './wuzapi/wuzapi.module';
 import { env } from '../../config/env';
 
 // Busca a conexão por id SÓ se pertencer à empresa do usuário autenticado.
@@ -146,12 +147,26 @@ export const whatsappController = {
         const companyId = req.user.company_id;
         if (!companyId) return reply.status(400).send({ error: 'company_id ausente no token' });
 
-        const { name } = req.body as { name?: string };
+        const { name, engine } = req.body as { name?: string; engine?: string };
         if (!name?.trim()) return reply.status(400).send({ error: 'name é obrigatório' });
+
+        // Motor da conexão: bays (padrão, type 'whatsapp') ou WuzAPI
+        if (engine !== undefined && engine !== 'bays' && engine !== WUZAPI_CONNECTION_TYPE) {
+            return reply.status(400).send({ error: 'engine inválido (use "bays" ou "wuzapi")' });
+        }
+        const useWuzapi = engine === WUZAPI_CONNECTION_TYPE;
+        if (useWuzapi && !wuzapiModule.isConfigured) {
+            return reply.status(400).send({ error: 'WuzAPI não está disponível neste ambiente' });
+        }
 
         const [conn] = await db
             .insert(connections)
-            .values({ company_id: companyId, name: name.trim(), status: 'disconnected' })
+            .values({
+                company_id: companyId,
+                name: name.trim(),
+                status: 'disconnected',
+                ...(useWuzapi ? { type: WUZAPI_CONNECTION_TYPE } : {}),
+            })
             .returning();
 
         // Inicia conexão no bays imediatamente
@@ -305,14 +320,19 @@ export const whatsappController = {
             }]);
         }
 
+        // Conexões da WuzAPI não são do bays: se ele as abrisse, as duas disputariam o número
         return reply.send(
-            rows.map((c) => ({ id: c.id, name: c.name, company_id: 1, groups: false }))
+            rows
+                .filter((c) => !usesWuzapi(c.id, c.type))
+                .map((c) => ({ id: c.id, name: c.name, company_id: 1, groups: false }))
         );
     },
 
     async connectionUpdate(req: FastifyRequest, reply: FastifyReply) {
         const { id } = req.params as { id: string };
         const body = req.body as { type: string; qrCode?: string; pairingCode?: string; serializedId?: string; code?: number; reason?: string };
+        // Conexão migrada para a WuzAPI: aviso atrasado do bays não pode mexer no status dela
+        if (await whatsappService.isWuzapiConnection(Number(id))) return reply.send({ ok: true, ignored: 'wuzapi' });
         await whatsappService.handleConnectionUpdate(Number(id), body);
         return reply.send({ ok: true });
     },
@@ -320,6 +340,7 @@ export const whatsappController = {
     async messagesWebhook(req: FastifyRequest, reply: FastifyReply) {
         const { id } = (req.params as { id?: string });
         const connectionId = id ? Number(id) : 1;
+        if (await whatsappService.isWuzapiConnection(connectionId)) return reply.send({ ok: true, ignored: 'wuzapi' });
         await whatsappService.handleMessagesWebhook(connectionId, req.body);
         return reply.send({ ok: true });
     },

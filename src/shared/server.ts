@@ -16,6 +16,7 @@ import { authRouter } from '../modules/auth/auth.module';
 import { whatsappRoutes } from '../modules/whatsapp/whatsapp.routes';
 import { whatsappController } from '../modules/whatsapp/whatsapp.controller';
 import { whatsappService } from '../modules/whatsapp/whatsapp.service';
+import { wuzapiWebhook } from '../modules/whatsapp/wuzapi/wuzapi-webhook.controller';
 import { whatsappOficialRoutes } from '../modules/whatsapp-oficial/whatsapp-oficial.routes';
 import { whatsappOficialController } from '../modules/whatsapp-oficial/whatsapp-oficial.controller';
 import { atendimentoRoutes } from '../modules/atendimento/atendimento.routes';
@@ -80,7 +81,9 @@ export function buildApp() {
     });
 
     // Bays envia DELETE/PUT com Content-Type: application/json mas body vazio — aceitar graciosamente
-    app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+        // Corpo cru guardado para webhooks assinados (WuzAPI confere HMAC dos bytes exatos)
+        (req as typeof req & { rawBody?: string }).rawBody = body as string;
         if (!body || (body as string).trim() === '') { done(null, null); return; }
         try { done(null, JSON.parse(body as string)); }
         catch (err: any) { err.statusCode = 400; done(err, undefined); }
@@ -193,6 +196,10 @@ export function buildApp() {
     // Público por natureza: a autenticação é o hub.verify_token no handshake.
     app.get('/wabcloudapi/webhook', whatsappOficialController.verifyWebhook);
     app.post('/wabcloudapi/webhook', whatsappOficialController.webhook);
+
+    // Webhook da WuzAPI (motor alternativo ao bays) — autenticado por HMAC da conexão.
+    // Fica fora do rate limit: mensagens de muitos contatos chegam em rajada pelo mesmo IP.
+    app.post('/wuzapi/webhook/:id', { config: { rateLimit: false } }, wuzapiWebhook);
 
     // Endpoints chamados pelo serviço bays — autenticados por secretkey (BAYS_SECRET_KEY)
     const baysAuth = { preHandler: baysWebhookMiddleware };
