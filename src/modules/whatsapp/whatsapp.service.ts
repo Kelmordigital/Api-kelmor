@@ -42,6 +42,11 @@ function wuzapiMediaKind(mimetype: string, sticker?: boolean): 'image' | 'video'
 const STATUS_TTL = 60 * 60 * 24; // 24 hours
 const QR_TTL     = 180;           // 3 minutes
 
+/** Estados de espera que, numa conexão WuzAPI, são confirmados na própria WuzAPI. */
+const WUZAPI_LIVE_STATES = new Set(['loading_qr', 'qr_ready', 'loading_pairing', 'reconnecting', 'needs_reauth']);
+/** Logo após pedir conexão, o socket da WuzAPI leva alguns segundos para abrir. */
+const WUZAPI_CONNECT_GRACE_S = 20;
+
 // ── Redis keys por sessão ────────────────────────────────────────────────────
 
 function statusKey(id: number | string)  { return `wa:status:${id}`; }
@@ -168,6 +173,15 @@ export const whatsappService = {
             if (redis) await redis.expire(statusKey(id), STATUS_TTL);
             return { status: 'connected' };
         }
+
+        // WuzAPI: estados de espera no cache só mudam por webhook. Se um webhook se
+        // perde, o card ficaria "Aguardando..." por 24h — então pergunta à própria
+        // WuzAPI (QR atual, logada ou caída). 'pairing_ready' segue pelo cache porque
+        // o código de pareamento só existe aqui.
+        if (cached && WUZAPI_LIVE_STATES.has(cached) && (await connectionType(id)) === WUZAPI_CONNECTION_TYPE) {
+            return this._wuzapiStatus(id, null, cached);
+        }
+
         if (cached === 'qr_ready') {
             let qr = await redis?.get(qrKey(id)) ?? null;
             // Migração chave legada do QR
@@ -275,8 +289,11 @@ export const whatsappService = {
         return { status: 'disconnected' };
     },
 
-    /** Status de uma conexão WuzAPI, sincronizando Redis e banco. */
-    async _wuzapiStatus(id: number, dbStatus: string | null): Promise<{ status: string; qr?: string }> {
+    /**
+     * Status de uma conexão WuzAPI, sincronizando Redis e banco.
+     * `cachedState`: estado de espera que estava no Redis (quando veio da camada 1).
+     */
+    async _wuzapiStatus(id: number, dbStatus: string | null, cachedState?: string): Promise<{ status: string; qr?: string }> {
         const redis = getRedisClient();
         const { connections } = await import('../atendimento/atendimento.db.schema');
         const { eq } = await import('drizzle-orm');
@@ -301,12 +318,24 @@ export const whatsappService = {
                 }
                 return { status: 'loading_qr' };
             }
+            // Socket fechado. Logo depois de "Conectar" ele ainda está abrindo: mantém
+            // "Aguardando" nos primeiros segundos em vez de piscar "Desconectado".
+            if (cachedState === 'loading_qr' && redis) {
+                const ttl = await redis.ttl(statusKey(id));
+                if (ttl > STATUS_TTL - WUZAPI_CONNECT_GRACE_S) return { status: 'loading_qr' };
+            }
+            // QR expirou, sessão caiu ou nunca conectou: libera o botão "Conectar"
+            if (redis) {
+                await redis.set(statusKey(id), 'disconnected', 'EX', STATUS_TTL);
+                await redis.del(qrKey(id));
+            }
             if (dbStatus === 'connected') {
                 await db.update(connections).set({ status: 'disconnected' }).where(eq(connections.id, id)).catch(() => {});
             }
             return { status: 'disconnected' };
         } catch {
-            // WuzAPI fora do ar → confia no banco por ora (mesma política do bays)
+            // WuzAPI fora do ar → mantém o que se sabia (cache de espera ou banco)
+            if (cachedState) return { status: cachedState };
             return { status: dbStatus === 'connected' ? 'connected' : 'disconnected' };
         }
     },

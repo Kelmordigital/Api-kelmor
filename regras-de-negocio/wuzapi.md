@@ -42,7 +42,12 @@ Infra: `Infra/k8s/dev/wuzapi-*.yaml` e `wuzapi-setup.sh`.
   enviada vai por URL pública (a WuzAPI baixa).
 - **RN-WUZ-08 — Status da conexão.** Logado na WuzAPI = `connected`; socket
   aberto sem login = QR (`qr_ready`, imagem PNG em data URL) ou `loading_qr`;
-  WuzAPI fora do ar = confia no banco (mesma política do bays).
+  WuzAPI fora do ar = confia no banco (mesma política do bays). Estados de
+  espera no cache (`loading_qr`, `qr_ready`…) são sempre confirmados na
+  WuzAPI, porque só mudariam por webhook: se um webhook se perde, o card não
+  fica "Aguardando..." preso. QR expirado/socket fechado volta para
+  `disconnected` (botão Conectar liberado), com 20 s de tolerância logo após
+  pedir a conexão; WuzAPI fora do ar mantém o estado de espera.
 - **RN-WUZ-09 — Só derruba o que exige ação humana.** `LoggedOut` (401),
   `TemporaryBan` (403), `ConnectFailure` e QR expirado marcam `disconnected`
   (com e-mail de queda, Socket.IO e tabela de saúde, como no bays).
