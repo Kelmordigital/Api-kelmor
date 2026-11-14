@@ -49,7 +49,7 @@ describe('AutomaticTagger', () => {
 });
 
 describe('EtiquetaService.getStats', () => {
-    it('série dos últimos 7 dias em UTC, com zero nos dias sem aplicação', async () => {
+    it('série dos últimos 7 dias em Brasília, com zero nos dias sem aplicação', async () => {
         const repo = {
             listByCompany: async () => [{ id: 't1', name: 'VIP', color: '#000' }],
             usage: vi.fn(async () => ({
@@ -63,7 +63,19 @@ describe('EtiquetaService.getStats', () => {
         expect(stat.total_leads).toBe(5);
         expect(stat.series.map((s) => s.date)).toEqual(['2030-01-04', '2030-01-05', '2030-01-06', '2030-01-07', '2030-01-08', '2030-01-09', '2030-01-10']);
         expect(stat.series.map((s) => s.count)).toEqual([1, 0, 0, 0, 0, 0, 2]);
-        expect(repo.usage).toHaveBeenCalledWith(['t1'], new Date('2030-01-04T00:00:00.000Z'));
+        expect(repo.usage).toHaveBeenCalledWith(['t1'], new Date('2030-01-04T00:00:00.000-03:00'));
+    });
+
+    it('às 22:30 de Brasília (01:30 UTC do dia seguinte) a série ainda termina hoje', async () => {
+        const repo = {
+            listByCompany: async () => [{ id: 't1', name: 'VIP', color: '#000' }],
+            usage: vi.fn(async () => ({ totals: new Map(), daily: new Map() })),
+        } as unknown as EtiquetaRepository;
+        const service = new EtiquetaService(repo, { hasUser: async () => true, hasContact: async () => true }, () => new Date('2030-01-11T01:30:00Z'));
+
+        const [stat] = await service.getStats('c1');
+        expect(stat.series.at(-1)?.date).toBe('2030-01-10');
+        expect(stat.series[0].date).toBe('2030-01-04');
     });
 
     it('aplicar exige etiqueta e contato da empresa', async () => {

@@ -3,6 +3,12 @@ import type { DB } from '../../database/client';
 import type { Pagination } from '../../core/http/pagination';
 import { users } from '../auth/auth.schema';
 import { contacts, tickets } from '../atendimento/atendimento.db.schema';
+import { BR_TIME_ZONE } from '../../core/dates/br-day';
+
+/** Dia (no calendário de Brasília) da criação do ticket — `t.created_at` e `created_at` da CTE. */
+const BR_DAY_T = sql.raw(`(t.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${BR_TIME_ZONE}')::date`);
+const BR_DAY = sql.raw(`(created_at AT TIME ZONE 'UTC' AT TIME ZONE '${BR_TIME_ZONE}')::date`);
+const BR_TODAY = sql.raw(`(now() AT TIME ZONE '${BR_TIME_ZONE}')::date`);
 
 /** Intervalo de datas já resolvido; `from`/`to` ausentes = sem limite daquele lado. */
 export interface Period {
@@ -90,10 +96,10 @@ export class DrizzleReportsRepository implements ReportsRepository {
     async averageTimes(companyId: string, f: AverageFilter, retentionDays: number, pagination?: Pagination): Promise<AverageRow[]> {
         const filters: SQL[] = [];
         if (f.lastDays) {
-            filters.push(sql`AND t.created_at::date >= CURRENT_DATE - ${f.lastDays - 1}::int`);
+            filters.push(sql`AND ${BR_DAY_T} >= ${BR_TODAY} - ${f.lastDays - 1}::int`);
         } else {
-            if (f.dateInit) filters.push(sql`AND t.created_at::date >= ${f.dateInit}::date`);
-            if (f.dateEnd)  filters.push(sql`AND t.created_at::date <= ${f.dateEnd}::date`);
+            if (f.dateInit) filters.push(sql`AND ${BR_DAY_T} >= ${f.dateInit}::date`);
+            if (f.dateEnd)  filters.push(sql`AND ${BR_DAY_T} <= ${f.dateEnd}::date`);
         }
         if (f.queueId)      filters.push(sql`AND t.queue_id = ${f.queueId}`);
         if (f.userId)       filters.push(sql`AND t.attendant_user_id = ${f.userId}`);
@@ -117,12 +123,12 @@ export class DrizzleReportsRepository implements ReportsRepository {
                 GROUP BY t.id, t.created_at
             )
             SELECT
-                TO_CHAR(created_at::date, 'DD/MM/YYYY') AS day,
+                TO_CHAR(${BR_DAY}, 'DD/MM/YYYY') AS day,
                 COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (accepted_at - created_at)))), 0) AS opened,
                 COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - created_at)))), 0) AS closed
             FROM per_ticket
-            GROUP BY created_at::date
-            ORDER BY created_at::date ASC
+            GROUP BY ${BR_DAY}
+            ORDER BY ${BR_DAY} ASC
             ${page}
         `);
 

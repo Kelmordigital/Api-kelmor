@@ -1335,8 +1335,8 @@ export const ticketService = {
             eq(tickets.company_id, companyId),
             isNull(tickets.deleted_at),
         ];
-        if (dateInit) conditions.push(gte(tickets.created_at, new Date(dateInit)));
-        if (dateEnd)  conditions.push(lte(tickets.created_at, new Date(dateEnd + 'T23:59:59')));
+        if (dateInit) conditions.push(gte(tickets.created_at, startOfDayBR(dateInit)));
+        if (dateEnd)  conditions.push(lte(tickets.created_at, endOfDayBR(dateEnd)));
 
         const where = and(...conditions);
 

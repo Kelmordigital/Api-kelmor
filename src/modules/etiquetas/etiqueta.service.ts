@@ -3,6 +3,7 @@ import type { CompanyDirectory } from '../companies/company-directory';
 import type { Etiqueta } from './etiqueta.db.schema';
 import type { EtiquetaPatch, EtiquetaRepository } from './etiqueta.repository';
 import type { CreateEtiquetaInput, UpdateEtiquetaInput } from './etiqueta.dto';
+import { startOfDayBR, todayBR } from '../../core/dates/br-day';
 
 const DEFAULT_COLOR = '#6366f1';
 const DEFAULT_ICON = 'tag';
@@ -76,11 +77,11 @@ export class EtiquetaService implements ContactTagger {
         return this.repository.listForContact(contactId, companyId);
     }
 
-    /** Total de contatos por etiqueta e aplicações por dia nos últimos 7 dias (hoje incluso, UTC). */
+    /** Total de contatos por etiqueta e aplicações por dia nos últimos 7 dias (hoje incluso, horário de Brasília). */
     async getStats(companyId: string): Promise<EtiquetaStats[]> {
         const tags = await this.repository.listByCompany(companyId);
         const days = this.lastDays();
-        const usage = await this.repository.usage(tags.map((t) => t.id), new Date(`${days[0]}T00:00:00.000Z`));
+        const usage = await this.repository.usage(tags.map((t) => t.id), startOfDayBR(days[0]));
 
         return tags.map((tag) => ({
             etiqueta_id: tag.id,
@@ -92,7 +93,7 @@ export class EtiquetaService implements ContactTagger {
     }
 
     private lastDays(): string[] {
-        const today = this.now();
+        const today = new Date(`${todayBR(this.now())}T00:00:00.000Z`); // só a data de hoje em Brasília
         return Array.from({ length: STATS_DAYS }, (_, i) => {
             const d = new Date(today);
             d.setUTCDate(d.getUTCDate() - (STATS_DAYS - 1 - i));

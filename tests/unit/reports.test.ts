@@ -6,7 +6,7 @@ import { PdfTableWriter } from '../../src/core/export/pdf-table';
 import { Pagination } from '../../src/core/http/pagination';
 import { AVERAGE_REPORT_PAGINATION, CLIENT_REPORT_PAGINATION } from '../../src/modules/reports/reports.dto';
 
-const NOW = new Date(2026, 10, 14, 15, 30); // 14/11/2026 15:30 (fuso local)
+const NOW = new Date('2026-11-14T15:30:00-03:00'); // 14/11/2026 15:30 em Brasília
 
 function make() {
     const repo = {
@@ -32,10 +32,10 @@ describe('Relatório por usuário', () => {
         expect(repo.ticketsByUser).toHaveBeenLastCalledWith('c', { from: floor, to: undefined });
 
         await service.ticketsByUser('c', '2020-01-01', '2026-11-10');
-        expect(repo.ticketsByUser).toHaveBeenLastCalledWith('c', { from: floor, to: new Date('2026-11-10T23:59:59') });
+        expect(repo.ticketsByUser).toHaveBeenLastCalledWith('c', { from: floor, to: new Date('2026-11-10T23:59:59.999-03:00') }); // fim do dia em Brasília
 
         await service.ticketsByUser('c', '2026-11-01');
-        expect(repo.ticketsByUser).toHaveBeenLastCalledWith('c', { from: new Date('2026-11-01T00:00:00'), to: undefined });
+        expect(repo.ticketsByUser).toHaveBeenLastCalledWith('c', { from: new Date('2026-11-01T00:00:00-03:00'), to: undefined });
     });
 });
 
@@ -46,7 +46,7 @@ describe('Relatório por cliente', () => {
         const { service, repo } = make();
         const res = await service.ticketsByClient('c', undefined, undefined, pagination);
         expect(repo.ticketsByClient).toHaveBeenCalledWith('c', {
-            from: new Date(2026, 10, 14, 0, 0, 0, 0), to: new Date(2026, 10, 14, 23, 59, 59, 999),
+            from: new Date('2026-11-14T00:00:00.000-03:00'), to: new Date('2026-11-14T23:59:59.999-03:00'),
         }, pagination);
         expect(res).toMatchObject({ count: 41, pages: 3 });
     });

@@ -1,6 +1,7 @@
 import { eq, and, desc, gte, inArray, sql } from 'drizzle-orm';
 import type { DB } from '../../database/client';
 import { etiquetas, contactEtiquetas, Etiqueta, NewEtiqueta } from './etiqueta.db.schema';
+import { brLocal } from '../../core/dates/br-day';
 
 export type EtiquetaData  = Omit<NewEtiqueta, 'id' | 'company_id' | 'created_at' | 'updated_at'>;
 export type EtiquetaPatch = Partial<Pick<Etiqueta, 'name' | 'color' | 'icon'>>;
@@ -81,7 +82,7 @@ export class DrizzleEtiquetaRepository implements EtiquetaRepository {
         const usage: TagUsage = { totals: new Map(), daily: new Map() };
         if (etiquetaIds.length === 0) return usage;
 
-        const day = sql<string>`to_char(${contactEtiquetas.created_at}, 'YYYY-MM-DD')`;
+        const day = sql<string>`to_char(${brLocal(contactEtiquetas.created_at)}, 'YYYY-MM-DD')`;
         const [totals, daily] = await Promise.all([
             this.db.select({ id: contactEtiquetas.etiqueta_id, total: sql<number>`count(*)::int` })
                 .from(contactEtiquetas)

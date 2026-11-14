@@ -29,6 +29,12 @@ Atualizado em 14/11/2026. Ainda fora do resumo: **whatsapp** e
   endereço público; não somem nos deploys. Sem R2 configurado (testes),
   ficam no disco.
 - **Edição parcial é o padrão:** na edição, só os campos enviados mudam.
+- **Datas e horários no horário de Brasília.** O servidor e o banco trabalham em
+  UTC; filtros por data (o dia vai de 00:00 a 23:59:59 de Brasília), períodos
+  do painel (hoje, semana de segunda a domingo, mês, ano) e gráficos por hora
+  ou dia são calculados no horário de Brasília (`src/core/dates/br-day.ts`).
+  Até 14/11/2026 o que acontecia das 21:00 às 23:59 caía no dia seguinte, e os
+  gráficos por hora ficavam 3 horas adiantados.
 
 ## Quem pode o quê
 

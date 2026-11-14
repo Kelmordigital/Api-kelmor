@@ -4,6 +4,7 @@ import { researchs, researchAnswers, queueResearchs, researchHistorics, Research
 import { queues, tickets, contacts } from '../atendimento/atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { answerChanges } from './survey-question';
+import { endOfDayBR, startOfDayBR } from '../../core/dates/br-day';
 
 export interface ResearchWithDetails extends Research {
     answers: ResearchAnswer[];
@@ -232,8 +233,8 @@ export class DrizzleResearchRepository implements ResearchRepository {
     /** Respostas da empresa dentro do período (fim do dia inclusivo). */
     private answeredIn(companyId: string, { dateInit, dateEnd }: ReportPeriod): SQL[] {
         const conditions: SQL[] = [eq(researchHistorics.company_id, companyId), eq(researchHistorics.status, 'answered')];
-        if (dateInit) conditions.push(gte(researchHistorics.updated_at, new Date(dateInit)));
-        if (dateEnd) conditions.push(lte(researchHistorics.updated_at, new Date(`${dateEnd}T23:59:59`)));
+        if (dateInit) conditions.push(gte(researchHistorics.updated_at, startOfDayBR(dateInit)));
+        if (dateEnd) conditions.push(lte(researchHistorics.updated_at, endOfDayBR(dateEnd)));
         return conditions;
     }
 

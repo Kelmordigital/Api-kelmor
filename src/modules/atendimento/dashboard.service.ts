@@ -7,6 +7,7 @@ import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { agendamentos } from '../agenda/agenda.db.schema';
+import { brCalendar, brLocal, brMidnight, endOfDayBR, startOfDayBR } from '../../core/dates/br-day';
 
 export type Period = 'day' | 'week' | 'month' | 'year';
 
@@ -69,8 +70,8 @@ function scopeConditions(scope: DashboardScope) {
 function resolveInterval(scope: DashboardScope) {
     if (scope.startDate && scope.endDate) {
         return {
-            start: new Date(`${scope.startDate}T00:00:00`),
-            end:   new Date(`${scope.endDate}T23:59:59.999`),
+            start: startOfDayBR(scope.startDate),
+            end:   endOfDayBR(scope.endDate),
         };
     }
     return getInterval(scope.period);
@@ -159,29 +160,30 @@ const TICKET_STATUS: Record<number, { name: string; color: string }> = {
     3: { name: 'Resolvido',      color: '#22c55e' },
 };
 
-export function getInterval(period: Period) {
-    const now = new Date();
+/** Período (hoje / esta semana / este mês / este ano) no calendário de Brasília. */
+export function getInterval(period: Period, now: Date = new Date()) {
+    const { year, month, day, weekday } = brCalendar(now);
+    const lastMsBefore = (d: Date) => new Date(d.getTime() - 1);
     let start: Date;
     let end: Date;
     switch (period) {
         case 'day':
-            start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            start = brMidnight(year, month, day);
+            end   = lastMsBefore(brMidnight(year, month, day + 1));
             break;
         case 'week': {
-            const dow = now.getDay();
-            const diff = dow === 0 ? -6 : 1 - dow;
-            start = new Date(now); start.setDate(now.getDate() + diff); start.setHours(0, 0, 0, 0);
-            end   = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+            const diff = weekday === 0 ? -6 : 1 - weekday; // semana de segunda a domingo
+            start = brMidnight(year, month, day + diff);
+            end   = lastMsBefore(brMidnight(year, month, day + diff + 7));
             break;
         }
         case 'month':
-            start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-            end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            start = brMidnight(year, month, 1);
+            end   = lastMsBefore(brMidnight(year, month + 1, 1));
             break;
         case 'year':
-            start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-            end   = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+            start = brMidnight(year, 0, 1);
+            end   = lastMsBefore(brMidnight(year + 1, 0, 1));
             break;
     }
     return { start, end };
@@ -294,11 +296,11 @@ export const dashboardService = {
         const exact = Boolean(scope.startDate && scope.endDate);
 
         const slotCol = exact
-            ? sql<string>`DATE(${tickets.updated_at})::text`
-            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${tickets.updated_at})::int`
-            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${tickets.updated_at})::int`
-            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.updated_at})::int`
-                                 : sql<number>`EXTRACT(MONTH FROM ${tickets.updated_at})::int`;
+            ? sql<string>`DATE(${brLocal(tickets.updated_at)})::text`
+            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${brLocal(tickets.updated_at)})::int`
+            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${brLocal(tickets.updated_at)})::int`
+            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${brLocal(tickets.updated_at)})::int`
+                                 : sql<number>`EXTRACT(MONTH FROM ${brLocal(tickets.updated_at)})::int`;
 
         const rows = await db
             .select({
@@ -338,8 +340,8 @@ export const dashboardService = {
             const WEEK_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
             slots = WEEK_LABELS.map((label, i) => ({ slot: i + 1, label })); // ISODOW: 1=Seg..7=Dom
         } else if (period === 'month') {
-            const now = new Date();
-            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const { year, month } = brCalendar();
+            const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
             slots = Array.from({ length: daysInMonth }, (_, i) => ({ slot: i + 1, label: String(i + 1).padStart(2, '0') }));
         } else {
             const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -513,11 +515,11 @@ export const dashboardService = {
         const exact = Boolean(scope.startDate && scope.endDate);
 
         const slotCol = exact
-            ? sql<string>`DATE(${tickets.created_at})::text`
-            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${tickets.created_at})::int`
-            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${tickets.created_at})::int`
-            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.created_at})::int`
-                                 : sql<number>`EXTRACT(MONTH FROM ${tickets.created_at})::int`;
+            ? sql<string>`DATE(${brLocal(tickets.created_at)})::text`
+            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${brLocal(tickets.created_at)})::int`
+            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${brLocal(tickets.created_at)})::int`
+            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${brLocal(tickets.created_at)})::int`
+                                 : sql<number>`EXTRACT(MONTH FROM ${brLocal(tickets.created_at)})::int`;
 
         const data = await db.select({ slot: slotCol, total: sql<number>`count(*)::int` })
             .from(tickets)
@@ -541,11 +543,11 @@ export const dashboardService = {
         const exact = Boolean(scope.startDate && scope.endDate);
 
         const slotCol = exact
-            ? sql<string>`DATE(${tickets.created_at})::text`
-            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${tickets.created_at})::int`
-            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${tickets.created_at})::int`
-            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.created_at})::int`
-                                 : sql<number>`EXTRACT(MONTH FROM ${tickets.created_at})::int`;
+            ? sql<string>`DATE(${brLocal(tickets.created_at)})::text`
+            : period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${brLocal(tickets.created_at)})::int`
+            : period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${brLocal(tickets.created_at)})::int`
+            : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${brLocal(tickets.created_at)})::int`
+                                 : sql<number>`EXTRACT(MONTH FROM ${brLocal(tickets.created_at)})::int`;
 
         const data = await db.select({
             slot:      slotCol,
@@ -741,10 +743,10 @@ export const dashboardService = {
         const { start, end } = getInterval(period);
 
         const slotCol =
-            period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${companies.created_at})::int`   :
-            period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${companies.created_at})::int` :
-            period === 'month' ? sql<number>`EXTRACT(DAY FROM ${companies.created_at})::int`    :
-                                 sql<number>`EXTRACT(MONTH FROM ${companies.created_at})::int`;
+            period === 'day'   ? sql<number>`EXTRACT(HOUR FROM ${brLocal(companies.created_at)})::int`   :
+            period === 'week'  ? sql<number>`EXTRACT(ISODOW FROM ${brLocal(companies.created_at)})::int` :
+            period === 'month' ? sql<number>`EXTRACT(DAY FROM ${brLocal(companies.created_at)})::int`    :
+                                 sql<number>`EXTRACT(MONTH FROM ${brLocal(companies.created_at)})::int`;
 
         const data = await db.select({ slot: slotCol, total: sql<number>`count(*)::int` })
             .from(companies)
@@ -834,7 +836,7 @@ export const dashboardService = {
         const { start, end } = resolveInterval(scope);
         return db
             .select({
-                dia:    sql<string>`DATE(${tickets.updated_at})::text`,
+                dia:    sql<string>`DATE(${brLocal(tickets.updated_at)})::text`,
                 receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
                 vendas: sql<number>`count(*)::int`,
             })
@@ -849,8 +851,8 @@ export const dashboardService = {
                 lte(tickets.updated_at, end),
                 ...scopeConditions(scope),
             ))
-            .groupBy(sql`DATE(${tickets.updated_at})`)
-            .orderBy(sql`DATE(${tickets.updated_at})`);
+            .groupBy(sql`DATE(${brLocal(tickets.updated_at)})`)
+            .orderBy(sql`DATE(${brLocal(tickets.updated_at)})`);
     },
 
     async getFinanceiroOrigens(companyId: string, scope: DashboardScope) {

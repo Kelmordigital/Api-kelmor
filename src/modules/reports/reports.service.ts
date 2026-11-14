@@ -1,6 +1,7 @@
 import type { Pagination } from '../../core/http/pagination';
 import type { ExportedFile, ExportFormat, TableColumn, TableExporter, TableHeading } from '../../core/export/table-export';
 import type { AverageFilter, AverageRow, ClientTicketsRow, Period, ReportsRepository, UserTicketsRow } from './reports.repository';
+import { endOfDayBR, startOfDayBR, todayBR } from '../../core/dates/br-day';
 
 /** RN-REL-01: os relatórios por usuário e de tempo médio só olham os últimos 90 dias. */
 export const REPORT_RETENTION_DAYS = 90;
@@ -13,9 +14,9 @@ export interface ClientReport {
     pages: number;
 }
 
-/** Dia AAAA-MM-DD no início (00:00:00) ou no fim (23:59:59) — no fuso do servidor. */
-function startOfDay(ymd: string): Date { return new Date(`${ymd}T00:00:00`); }
-function endOfDay(ymd: string): Date { return new Date(`${ymd}T23:59:59`); }
+/** Dia AAAA-MM-DD no início (00:00) ou no fim (23:59:59.999) — no horário de Brasília. */
+const startOfDay = startOfDayBR;
+const endOfDay = endOfDayBR;
 const brDate = (ymd: string) => ymd.split('-').reverse().join('/');
 
 /** Subtítulo do arquivo exportado com o período pedido. */
@@ -106,9 +107,9 @@ export class ReportsService {
 
     /** Sem período informado, o relatório por cliente mostra o dia de hoje. */
     private clientPeriod(dateStart?: string, dateEnd?: string): Period {
-        const today = this.now();
-        const from = dateStart ? startOfDay(dateStart) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-        const to = dateEnd ? endOfDay(dateEnd) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+        const today = todayBR(this.now());
+        const from = startOfDay(dateStart || today);
+        const to = endOfDay(dateEnd || today);
         return { from, to };
     }
 }
