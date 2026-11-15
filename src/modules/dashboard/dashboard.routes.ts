@@ -35,5 +35,7 @@ export class DashboardRouter implements HttpRouter {
         app.get('/financeiro/origens',   c.financeiroOrigens);
         app.get('/financeiro/historico', c.financeiroHistorico);
         app.get('/financeiro/perdas',    c.financeiroPerdas);
+        app.get('/financeiro/clientes',        c.customers);
+        app.get('/financeiro/clientes/resumo', c.customersSummary);
     };
 }
