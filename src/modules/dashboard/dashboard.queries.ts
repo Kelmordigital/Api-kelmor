@@ -790,8 +790,6 @@ export class DashboardQueries {
             ticketMedio:       totalVendas > 0 ? receitaTotal / totalVendas : 0,
             conversao:         totalFechados > 0 ? totalVendas / totalFechados : 0,
             perdas,
-            mrrProjetado:      0,
-            arrProjetado:      0,
             receitaUnica:      receitaTotal,
             totalAtendimentos: totalFechados,
         };
