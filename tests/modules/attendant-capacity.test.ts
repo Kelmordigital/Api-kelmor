@@ -9,9 +9,9 @@ import {
     contacts, connections, queues, tickets, userQueues, userConnections,
 } from '../../src/modules/atendimento/atendimento.db.schema';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
-import { getActiveTicketCounts, filterByCapacity, AttendantLimitReachedError } from '../../src/modules/atendimento/attendant-capacity.service';
 import { runSeed } from '../../src/database/seed';
+import { ticketAssignment, attendantCapacity } from '../../src/modules/atendimento/atendimento.module';
+import { AttendantLimitReachedError } from '../../src/modules/atendimento/atendimento.errors';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -93,27 +93,27 @@ async function openTicketFor(userId: string, connId: number | null, statusId = 2
 describe('getActiveTicketCounts — exclui tickets presos em conexão desconectada', () => {
     it('conta um ticket "Em Atendimento" numa conexão ativa', async () => {
         await openTicketFor(attendantId, connectedConnId);
-        const counts = await getActiveTicketCounts([attendantId]);
+        const counts = await attendantCapacity.countActive([attendantId]);
         expect(counts.get(attendantId)).toBeGreaterThanOrEqual(1);
     });
 
     it('não conta um ticket "Em Atendimento" preso numa conexão desconectada', async () => {
-        const before = (await getActiveTicketCounts([attendantId])).get(attendantId) ?? 0;
+        const before = (await attendantCapacity.countActive([attendantId])).get(attendantId) ?? 0;
         await openTicketFor(attendantId, disconnectedConnId);
-        const after = (await getActiveTicketCounts([attendantId])).get(attendantId) ?? 0;
+        const after = (await attendantCapacity.countActive([attendantId])).get(attendantId) ?? 0;
         expect(after).toBe(before);
     });
 });
 
 describe('filterByCapacity — filtra fora quem já bateu o teto', () => {
     it('mantém todo mundo quando o limite está desligado', async () => {
-        const result = await filterByCapacity([attendantId], { limit_services_users: false, number_limit_services_users: 1 });
+        const result = await attendantCapacity.filterByCapacity([attendantId], { limit_services_users: false, number_limit_services_users: 1 });
         expect(result).toEqual([attendantId]);
     });
 
     it('remove quem já atingiu o número configurado', async () => {
         // attendantId já está em 1/1 desde o describe anterior.
-        const result = await filterByCapacity([attendantId], { limit_services_users: true, number_limit_services_users: 1 });
+        const result = await attendantCapacity.filterByCapacity([attendantId], { limit_services_users: true, number_limit_services_users: 1 });
         expect(result).not.toContain(attendantId);
     });
 });
@@ -128,7 +128,7 @@ describe('reopen — respeita o limite de atendimentos simultâneos', () => {
         }).returning();
 
         await expect(
-            ticketService.reopen(closedTicket.id, attendantId, companyId, 'admin')
+            ticketAssignment.reopen(closedTicket.id, attendantId, companyId, 'admin')
         ).rejects.toThrow(AttendantLimitReachedError);
     });
 });
@@ -139,7 +139,7 @@ describe('transfer — respeita o limite do atendente de destino', () => {
         const fromTicket = await openTicketFor(otherAttendantId, connectedConnId);
 
         await expect(
-            ticketService.transfer(fromTicket.id, otherAttendantId, attendantId, companyId, queueId)
+            ticketAssignment.transfer(fromTicket.id, otherAttendantId, attendantId, companyId, queueId)
         ).rejects.toThrow(AttendantLimitReachedError);
     });
 
@@ -147,7 +147,7 @@ describe('transfer — respeita o limite do atendente de destino', () => {
         // freeAttendantId nunca recebeu ticket algum até aqui — 0/1, tem vaga.
         const fromTicket = await openTicketFor(attendantId, connectedConnId);
 
-        const updated = await ticketService.transfer(fromTicket.id, attendantId, freeAttendantId, companyId, queueId);
+        const updated = await ticketAssignment.transfer(fromTicket.id, attendantId, freeAttendantId, companyId, queueId);
         expect(updated.attendant_user_id).toBe(freeAttendantId);
     });
 });

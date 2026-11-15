@@ -6,12 +6,12 @@ import { companies } from '../../src/modules/companies/company.db.schema';
 import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { runSeed } from '../../src/database/seed';
 import { buildApp } from '../../src/shared/server';
+import { ticketInbox } from '../../src/modules/atendimento/atendimento.module';
 
 /**
- * Testa os filtros novos do ticketService.list (queueId, mineUserId, orderBy)
+ * Testa os filtros novos do ticketInbox.list (queueId, mineUserId, orderBy)
  * contra o banco de teste. Sem viewer → sem restrição de visibilidade por fila.
  */
 
@@ -72,22 +72,22 @@ beforeAll(async () => {
     ]);
 });
 
-describe('ticketService.list — filtros novos', () => {
+describe('ticketInbox.list — filtros novos', () => {
     it('queueId filtra pela fila', async () => {
-        const list = await ticketService.list(companyId, { queueId: 10 });
+        const list = await ticketInbox.list(companyId, { queueId: 10 });
         expect(list).toHaveLength(2);
         expect(list.every(t => t.queue_id === 10)).toBe(true);
     });
 
     it('mineUserId retorna tickets onde sou atendente OU quem fechou', async () => {
-        const list = await ticketService.list(companyId, { mineUserId: userA });
+        const list = await ticketInbox.list(companyId, { mineUserId: userA });
         expect(list).toHaveLength(2); // t1 (atendente) + t3 (closed_by)
         const ids = list.map(t => t.attendant_user_id ?? t.closed_by_user_id);
         expect(ids.every(id => id === userA)).toBe(true);
     });
 
     it('orderBy ASC: mais antigos primeiro, pinado sempre no topo', async () => {
-        const list = await ticketService.list(companyId, { orderBy: 'ASC' });
+        const list = await ticketInbox.list(companyId, { orderBy: 'ASC' });
         expect(list).toHaveLength(4);
         expect(list[0].pinned).toBe(1); // t4 pinado vem primeiro mesmo sendo o mais antigo
         const rest = list.slice(1).map(t => new Date(t.updated_at as unknown as string).getTime());
@@ -95,7 +95,7 @@ describe('ticketService.list — filtros novos', () => {
     });
 
     it('sem orderBy (default DESC): mais recentes primeiro após pinados', async () => {
-        const list = await ticketService.list(companyId, {});
+        const list = await ticketInbox.list(companyId, {});
         expect(list).toHaveLength(4);
         expect(list[0].pinned).toBe(1);
         const rest = list.slice(1).map(t => new Date(t.updated_at as unknown as string).getTime());

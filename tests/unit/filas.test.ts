@@ -69,7 +69,7 @@ describe('QueueEligibility (RN-FIL-06)', () => {
         membersOf: vi.fn(async () => ['ana', 'bia']),
         usersByIds: vi.fn(async (_c: string, ids: string[]) => ids.map((id) => ({ id, name: id, nickname: null, email: `${id}@x.com` }))),
     };
-    const presence = { isOnline: (id: string) => id === 'ana' };
+    const presence = { onlineAmong: async (ids: string[]) => new Set(ids.filter((id) => id === 'ana')) };
 
     it('transferência: todos da fila + conexão; com "só online" ligado, só quem está online; conexão 0 = só a fila', async () => {
         const all = new QueueEligibility(repo, perms(), presence, async (ids) => ids);

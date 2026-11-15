@@ -7,9 +7,9 @@ import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { runSeed } from '../../src/database/seed';
 import { buildApp } from '../../src/shared/server';
+import { ticketAssignment } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -77,19 +77,19 @@ beforeAll(async () => {
     adminUserId = await makeUser('admin', adminProfile.id);
 });
 
-describe('ticketService.returnToQueue — permissão return_ticket', () => {
+describe('ticketAssignment.returnToQueue — permissão return_ticket', () => {
     it('rejeita atendente comum quando o toggle está desligado', async () => {
         await setReturnTicket(false);
         const ticket = await openTicket(attendantUserId);
         await expect(
-            ticketService.returnToQueue(ticket.id, attendantUserId, companyId, 'user')
+            ticketAssignment.returnToQueue(ticket.id, attendantUserId, companyId, 'user')
         ).rejects.toThrow('administrador');
     });
 
     it('permite atendente comum quando o toggle está ligado', async () => {
         await setReturnTicket(true);
         const ticket = await openTicket(attendantUserId);
-        const updated = await ticketService.returnToQueue(ticket.id, attendantUserId, companyId, 'user');
+        const updated = await ticketAssignment.returnToQueue(ticket.id, attendantUserId, companyId, 'user');
         expect(updated.status_id).toBe(1);
         expect(updated.attendant_user_id).toBeNull();
     });
@@ -97,24 +97,24 @@ describe('ticketService.returnToQueue — permissão return_ticket', () => {
     it('admin sempre pode devolver, mesmo com o toggle desligado', async () => {
         await setReturnTicket(false);
         const ticket = await openTicket(attendantUserId);
-        const updated = await ticketService.returnToQueue(ticket.id, adminUserId, companyId, 'admin');
+        const updated = await ticketAssignment.returnToQueue(ticket.id, adminUserId, companyId, 'admin');
         expect(updated.status_id).toBe(1);
     });
 });
 
-describe('ticketService.reopen — permissão return_ticket', () => {
+describe('ticketAssignment.reopen — permissão return_ticket', () => {
     it('rejeita atendente comum quando o toggle está desligado', async () => {
         await setReturnTicket(false);
         const ticket = await closedTicket(attendantUserId);
         await expect(
-            ticketService.reopen(ticket.id, attendantUserId, companyId, 'user')
+            ticketAssignment.reopen(ticket.id, attendantUserId, companyId, 'user')
         ).rejects.toThrow('administrador');
     });
 
     it('permite atendente comum quando o toggle está ligado', async () => {
         await setReturnTicket(true);
         const ticket = await closedTicket(attendantUserId);
-        const updated = await ticketService.reopen(ticket.id, attendantUserId, companyId, 'user');
+        const updated = await ticketAssignment.reopen(ticket.id, attendantUserId, companyId, 'user');
         expect(updated.status_id).toBe(2);
         expect(updated.attendant_user_id).toBe(attendantUserId);
     });
@@ -122,7 +122,7 @@ describe('ticketService.reopen — permissão return_ticket', () => {
     it('admin sempre pode reabrir, mesmo com o toggle desligado', async () => {
         await setReturnTicket(false);
         const ticket = await closedTicket(attendantUserId);
-        const updated = await ticketService.reopen(ticket.id, adminUserId, companyId, 'admin');
+        const updated = await ticketAssignment.reopen(ticket.id, adminUserId, companyId, 'admin');
         expect(updated.status_id).toBe(2);
     });
 });

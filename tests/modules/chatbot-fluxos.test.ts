@@ -4,9 +4,11 @@ import { db } from '../../src/database/client';
 import { companies } from '../../src/modules/companies/company.db.schema';
 import { atendimento_messages, contacts, queues, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
 import { bots, bot_nodes, bot_conversations, bot_rotate_log, type NewBot } from '../../src/modules/bots/bots.db.schema';
+import { ticketAssignment } from '../../src/modules/atendimento/atendimento.module';
 import { whatsappService } from '../../src/modules/whatsapp/whatsapp.service';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { chatbotExecutorService } from '../../src/modules/bots/chatbot-executor.service';
+import { mediaStorage } from '../../src/config/media-storage';
+
 
 /**
  * Motor dos fluxos (chatbot-executor): o que o contato recebe em cada tipo de
@@ -201,7 +203,7 @@ describe('Fim, expiração e horário', () => {
 
 describe('Ações', () => {
     it('transferir: envia a mensagem e manda o ticket para a fila', async () => {
-        const route = vi.spyOn(ticketService, 'routeToQueue').mockResolvedValue(null);
+        const route = vi.spyOn(ticketAssignment, 'routeToQueue').mockResolvedValue(null);
         const f0 = await flow([]);
         const [q] = await db.insert(queues).values({ company_id: f0.companyId, name: 'Fila' }).returning({ id: queues.id });
         await db.delete(bots).where(eq(bots.company_id, f0.companyId));
@@ -243,6 +245,8 @@ describe('Ações', () => {
         expect(media).toMatchObject({ mimetype: 'image/png', caption: 'Pague aqui' });
         expect(media.path).toContain('bots/pix/');
         expect(String(texts().at(-1))).toMatch(/^000201/);
+        // em teste o storage é o disco: apaga o QR gravado para não deixar arquivo para trás
+        await mediaStorage.delete(new URL(media.path, 'http://local').pathname);
     });
 
     it('cartão de contato: envia o texto e o contato', async () => {

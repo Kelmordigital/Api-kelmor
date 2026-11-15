@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { db } from '../../src/database/client';
 import { companies } from '../../src/modules/companies/company.db.schema';
 import { tickets, contacts, crm_sales_reasons } from '../../src/modules/atendimento/atendimento.db.schema';
-import { dashboardService } from '../../src/modules/atendimento/dashboard.service';
+import { salesAnalytics } from '../../src/modules/dashboard/dashboard.module';
 
 const SUFFIX = Date.now();
 
@@ -38,7 +38,7 @@ describe('dashboardService — não vendas por motivo (gráficos "Gargalos da op
         await ticket(companyId, contactId, { reasons_id: reasonB });
         await ticket(companyId, contactId, { reasons_id: null });
 
-        const rows = await dashboardService.notSalesByReason(companyId, { period: 'year' });
+        const rows = await salesAnalytics.notSalesByReason(companyId, { period: 'year' });
         const byLabel = new Map(rows.map(r => [r.label, Number(r.total)]));
 
         expect(byLabel.get('Dúvidas e Instruções')).toBe(2);
@@ -56,7 +56,7 @@ describe('dashboardService — não vendas por motivo (gráficos "Gargalos da op
         await ticket(companyId, contactId, { reasons_id: reasonA });
         await ticket(companyId, contactId, { reasons_id: reasonB });
 
-        const result = await dashboardService.notSalesByReasonOverTime(companyId, { period: 'day' });
+        const result = await salesAnalytics.notSalesByReasonOverTime(companyId, { period: 'day' });
 
         expect(result.buckets).toHaveLength(24);
         expect(result.reasons).toContain('Dúvidas e Instruções');
@@ -75,7 +75,7 @@ describe('dashboardService — não vendas por motivo (gráficos "Gargalos da op
         const { companyId, contactId, reasonA } = await makeCompanyWithReasons();
         await ticket(companyId, contactId, { reasons_id: reasonA });
 
-        const result = await dashboardService.notSalesByReasonOverTime(companyId, { period: 'week' });
+        const result = await salesAnalytics.notSalesByReasonOverTime(companyId, { period: 'week' });
 
         expect(result.buckets).toHaveLength(7);
         expect(result.buckets.reduce((s, b) => s + b.total, 0)).toBe(1);
@@ -85,7 +85,7 @@ describe('dashboardService — não vendas por motivo (gráficos "Gargalos da op
         const { companyId, contactId, reasonA } = await makeCompanyWithReasons();
         await ticket(companyId, contactId, { reasons_id: reasonA });
 
-        const result = await dashboardService.notSalesByReasonOverTime(companyId, { period: 'month' });
+        const result = await salesAnalytics.notSalesByReasonOverTime(companyId, { period: 'month' });
 
         const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
         expect(result.buckets).toHaveLength(daysInMonth);
@@ -96,7 +96,7 @@ describe('dashboardService — não vendas por motivo (gráficos "Gargalos da op
         const { companyId, contactId, reasonA } = await makeCompanyWithReasons();
         await ticket(companyId, contactId, { reasons_id: reasonA });
 
-        const result = await dashboardService.notSalesByReasonOverTime(companyId, { period: 'year' });
+        const result = await salesAnalytics.notSalesByReasonOverTime(companyId, { period: 'year' });
 
         expect(result.buckets).toHaveLength(12);
         expect(result.buckets.reduce((s, b) => s + b.total, 0)).toBe(1);

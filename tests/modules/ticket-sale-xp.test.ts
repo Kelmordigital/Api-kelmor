@@ -6,9 +6,9 @@ import { companies } from '../../src/modules/companies/company.db.schema';
 import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
 import { runSeed } from '../../src/database/seed';
+import { ticketClosing } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -55,7 +55,7 @@ describe('XP real ao fechar atendimento como venda (users.xp)', () => {
         const userId = await makeUser('sem-classificacao');
         const ticketId = await makeOpenTicket();
 
-        await ticketService.closeTicket(ticketId, userId, companyId, {});
+        await ticketClosing.closeTicket(ticketId, userId, companyId, {});
 
         expect(await xpOf(userId)).toBe(0);
     });
@@ -64,8 +64,8 @@ describe('XP real ao fechar atendimento como venda (users.xp)', () => {
         const userId = await makeUser('nao-venda');
         const ticketId = await makeOpenTicket();
 
-        await ticketService.registerSale(ticketId, companyId, { isSale: false });
-        await ticketService.closeTicket(ticketId, userId, companyId, {});
+        await ticketClosing.registerSale(ticketId, companyId, { isSale: false });
+        await ticketClosing.closeTicket(ticketId, userId, companyId, {});
 
         expect(await xpOf(userId)).toBe(0);
     });
@@ -74,8 +74,8 @@ describe('XP real ao fechar atendimento como venda (users.xp)', () => {
         const userId = await makeUser('uma-venda');
         const ticketId = await makeOpenTicket();
 
-        await ticketService.registerSale(ticketId, companyId, { isSale: true, saleAmount: '149,90' });
-        await ticketService.closeTicket(ticketId, userId, companyId, {});
+        await ticketClosing.registerSale(ticketId, companyId, { isSale: true, saleAmount: '149,90' });
+        await ticketClosing.closeTicket(ticketId, userId, companyId, {});
 
         expect(await xpOf(userId)).toBe(10);
     });
@@ -84,12 +84,12 @@ describe('XP real ao fechar atendimento como venda (users.xp)', () => {
         const userId = await makeUser('duas-vendas');
 
         const ticket1 = await makeOpenTicket();
-        await ticketService.registerSale(ticket1, companyId, { isSale: true, saleAmount: '100,00' });
-        await ticketService.closeTicket(ticket1, userId, companyId, {});
+        await ticketClosing.registerSale(ticket1, companyId, { isSale: true, saleAmount: '100,00' });
+        await ticketClosing.closeTicket(ticket1, userId, companyId, {});
 
         const ticket2 = await makeOpenTicket();
-        await ticketService.registerSale(ticket2, companyId, { isSale: true, saleAmount: '200,00' });
-        await ticketService.closeTicket(ticket2, userId, companyId, {});
+        await ticketClosing.registerSale(ticket2, companyId, { isSale: true, saleAmount: '200,00' });
+        await ticketClosing.closeTicket(ticket2, userId, companyId, {});
 
         expect(await xpOf(userId)).toBe(20);
     });
@@ -100,8 +100,8 @@ describe('XP real ao fechar atendimento como venda (users.xp)', () => {
         const ticketId = await makeOpenTicket();
 
         // registerSale não recebe userId (é só classificação do ticket) — quem fecha é que ganha o XP.
-        await ticketService.registerSale(ticketId, companyId, { isSale: true, saleAmount: '50,00' });
-        await ticketService.closeTicket(ticketId, fechador, companyId, {});
+        await ticketClosing.registerSale(ticketId, companyId, { isSale: true, saleAmount: '50,00' });
+        await ticketClosing.closeTicket(ticketId, fechador, companyId, {});
 
         expect(await xpOf(fechador)).toBe(10);
         expect(await xpOf(registrante)).toBe(0);
@@ -141,8 +141,8 @@ describe('XP para de contar quando gamification_enabled está desligado', () => 
             company_id: gateCompanyId, contact_id: gateContactId, status_id: 2,
         }).returning();
 
-        await ticketService.registerSale(ticket.id, gateCompanyId, { isSale: true, saleAmount: '500,00' });
-        await ticketService.closeTicket(ticket.id, u.id, gateCompanyId, {});
+        await ticketClosing.registerSale(ticket.id, gateCompanyId, { isSale: true, saleAmount: '500,00' });
+        await ticketClosing.closeTicket(ticket.id, u.id, gateCompanyId, {});
 
         expect(await xpOf(u.id)).toBe(0);
     });
@@ -182,8 +182,8 @@ describe('sale_xp_amount configurável (o dono decide quanto XP por venda fechad
             company_id: customCompanyId, contact_id: customContactId, status_id: 2,
         }).returning();
 
-        await ticketService.registerSale(ticket.id, customCompanyId, { isSale: true, saleAmount: '300,00' });
-        await ticketService.closeTicket(ticket.id, u.id, customCompanyId, {});
+        await ticketClosing.registerSale(ticket.id, customCompanyId, { isSale: true, saleAmount: '300,00' });
+        await ticketClosing.closeTicket(ticket.id, u.id, customCompanyId, {});
 
         expect(await xpOf(u.id)).toBe(25);
     });

@@ -8,9 +8,9 @@ import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import {
     contacts, connections, queues, tickets, userQueues, userConnections,
 } from '../../src/modules/atendimento/atendimento.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { runSeed } from '../../src/database/seed';
 import { buildApp } from '../../src/shared/server';
+import { ticketAssignment } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -85,10 +85,10 @@ async function openTicket(connId: number | null) {
     return ticket;
 }
 
-describe('ticketService.transfer — validação de fila', () => {
+describe('ticketAssignment.transfer — validação de fila', () => {
     it('transfere com sucesso para um atendente elegível na fila destino', async () => {
         const ticket = await openTicket(connectionId);
-        const updated = await ticketService.transfer(ticket.id, fromUserId, eligibleUserId, companyId, queueAId);
+        const updated = await ticketAssignment.transfer(ticket.id, fromUserId, eligibleUserId, companyId, queueAId);
         expect(updated.attendant_user_id).toBe(eligibleUserId);
         expect(updated.queue_id).toBe(queueAId);
     });
@@ -96,20 +96,20 @@ describe('ticketService.transfer — validação de fila', () => {
     it('rejeita transferir para um atendente que não pertence à fila destino', async () => {
         const ticket = await openTicket(connectionId);
         await expect(
-            ticketService.transfer(ticket.id, fromUserId, outsiderUserId, companyId, queueAId)
+            ticketAssignment.transfer(ticket.id, fromUserId, outsiderUserId, companyId, queueAId)
         ).rejects.toThrow('não pertence à fila de destino');
     });
 
     it('rejeita transferir o ticket para o próprio atendente atual', async () => {
         const ticket = await openTicket(connectionId);
         await expect(
-            ticketService.transfer(ticket.id, fromUserId, fromUserId, companyId, queueAId)
+            ticketAssignment.transfer(ticket.id, fromUserId, fromUserId, companyId, queueAId)
         ).rejects.toThrow('mesmo atendente');
     });
 
     it('sem connection_id no ticket, cai para elegibilidade só por fila', async () => {
         const ticket = await openTicket(null);
-        const updated = await ticketService.transfer(ticket.id, fromUserId, fallbackUserId, companyId, queueAId);
+        const updated = await ticketAssignment.transfer(ticket.id, fromUserId, fallbackUserId, companyId, queueAId);
         expect(updated.attendant_user_id).toBe(fallbackUserId);
     });
 });

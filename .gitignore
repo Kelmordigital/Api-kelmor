@@ -13,3 +13,7 @@ docs
 .superpowers/
 
 USUARIOS_TESTE.md 
+# Arquivos gravados em disco no desenvolvimento e nos testes (em produção as
+# mídias vão para o Cloudflare R2). Só a pasta fica no git.
+uploads/*
+!uploads/.gitkeep

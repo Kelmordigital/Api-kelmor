@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { brCalendar, endOfDayBR, startOfDayBR, todayBR } from '../../src/core/dates/br-day';
-import { getInterval } from '../../src/modules/atendimento/dashboard.service';
+import { getInterval } from '../../src/core/time/period';
 
 // 14/11/2026 é sábado. 22:30 em Brasília = 01:30 UTC do dia 15 (onde o fuso UTC errava o dia).
 const NOITE_SABADO = new Date('2026-11-15T01:30:00Z');

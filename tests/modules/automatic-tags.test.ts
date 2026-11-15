@@ -10,9 +10,9 @@ import {
     atendimento_messages,
 } from '../../src/modules/atendimento/atendimento.db.schema';
 import { etiquetas, contactEtiquetas, automaticTagRules, automaticTagRuleTags } from '../../src/modules/etiquetas/etiqueta.db.schema';
-import { messageService } from '../../src/modules/atendimento/message.service';
 import { MAX_AUTOMATIC_TAG_RULES } from '../../src/modules/etiquetas/automatic-tag-rule.service';
 import { automaticTagRuleService } from '../../src/modules/etiquetas/etiqueta.module';
+import { messageService } from '../../src/modules/atendimento/atendimento.module';
 
 /**
  * Etiquetamento automático: uma regra tem uma lista de variações de

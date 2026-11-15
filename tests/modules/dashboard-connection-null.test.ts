@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../src/database/client';
 import { companies } from '../../src/modules/companies/company.db.schema';
 import { connections, tickets, contacts } from '../../src/modules/atendimento/atendimento.db.schema';
-import { dashboardService } from '../../src/modules/atendimento/dashboard.service';
+import { activityAnalytics, salesAnalytics } from '../../src/modules/dashboard/dashboard.module';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -44,7 +44,7 @@ describe('dashboardService — tickets sem connection_id não podem sumir dos re
         await ticket({ connection_id: null, status_id: 1 });
         await ticket({ connection_id: null, status_id: 2 });
 
-        const rows = await dashboardService.getTicketsByConnection(companyId, { period: 'year' });
+        const rows = await activityAnalytics.getTicketsByConnection(companyId, { period: 'year' });
         const total = rows.reduce((sum, r) => sum + Number(r.total), 0);
 
         expect(total).toBeGreaterThanOrEqual(3);
@@ -56,7 +56,7 @@ describe('dashboardService — tickets sem connection_id não podem sumir dos re
     it('salesByConnection: venda fechada sem conexão entra no total, não desaparece', async () => {
         await ticket({ connection_id: null, status_id: 3, is_sale: 1, service_not_made: 0, sale_price: '100,00' });
 
-        const rows = await dashboardService.salesByConnection(companyId, { period: 'year' });
+        const rows = await salesAnalytics.salesByConnection(companyId, { period: 'year' });
         const semConexao = rows.find(r => r.label === 'Sem conexão');
         expect(semConexao).toBeTruthy();
         expect(Number(semConexao!.total)).toBeGreaterThanOrEqual(1);
@@ -65,7 +65,7 @@ describe('dashboardService — tickets sem connection_id não podem sumir dos re
     it('notSalesByConnection: não-venda fechada sem conexão entra no total, não desaparece', async () => {
         await ticket({ connection_id: null, status_id: 3, is_sale: 0, service_not_made: 0 });
 
-        const rows = await dashboardService.notSalesByConnection(companyId, { period: 'year' });
+        const rows = await salesAnalytics.notSalesByConnection(companyId, { period: 'year' });
         const semConexao = rows.find(r => r.label === 'Sem conexão');
         expect(semConexao).toBeTruthy();
         expect(Number(semConexao!.total)).toBeGreaterThanOrEqual(1);

@@ -9,9 +9,9 @@ import {
     contacts, connections, tickets, atendimento_messages,
 } from '../../src/modules/atendimento/atendimento.db.schema';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
-import { withAttendantNamePrefix } from '../../src/modules/atendimento/message.service';
 import { meuPerfilService } from '../../src/modules/meu-perfil/meu-perfil.module';
 import { buildApp } from '../../src/shared/server';
+import { withAttendantNamePrefix } from '../../src/modules/atendimento/mensagens/attendant-name-prefix';
 
 describe('withAttendantNamePrefix — função pura', () => {
     it('prefixa a mensagem com o nome do atendente', () => {

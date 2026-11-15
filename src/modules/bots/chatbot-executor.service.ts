@@ -21,8 +21,8 @@ import {
 const messenger = new WhatsAppBotMessenger(
     async () => (await import('../whatsapp/whatsapp.service')).whatsappService,
     async (ticketId, contactId, body, companyId) => {
-        const { messageService } = await import('../atendimento/message.service');
-        await messageService.save(ticketId, contactId, body, true, companyId, {});
+        const { messageRecorder } = await import('../atendimento/atendimento.module');
+        await messageRecorder.save(ticketId, contactId, body, true, companyId, {});
     },
 );
 
@@ -80,8 +80,8 @@ const handlers = new Map<string, NodeHandler>([
     ['question', question],
     ['capture', new CaptureNode(messenger, realPause)],
     ['transfer', new TransferNode(messenger, async (ticketId, companyId, queueId) => {
-        const { ticketService } = await import('../atendimento/ticket.service');
-        return ticketService.routeToQueue(ticketId, companyId, queueId);
+        const { botTicketGateway } = await import('../atendimento/atendimento.module');
+        return botTicketGateway.routeToQueue(ticketId, companyId, queueId);
     })],
     ['end', new EndNode(messenger, realPause)],
 ]);
@@ -91,9 +91,8 @@ const engine = new FlowEngine(
     botsRepository,
     new DrizzleCompanyStatusReader(db),
     async (ticketId, companyId) => {
-        const { ticketService, shouldRunBot } = await import('../atendimento/ticket.service');
-        const ticket = await ticketService.get(ticketId, companyId);
-        return Boolean(ticket && shouldRunBot(ticket));
+        const { botTicketGateway } = await import('../atendimento/atendimento.module');
+        return botTicketGateway.isInBotFlow(ticketId, companyId);
     },
     messenger,
     handlers,

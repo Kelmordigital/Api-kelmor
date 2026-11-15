@@ -69,19 +69,18 @@ export class AtendimentoInbox implements ConversationInbox {
     ) {}
 
     async receive(m: InboundMessage): Promise<{ messageId: number } | null> {
-        const { contactService } = await import('../atendimento/contact.service');
-        const { ticketService, shouldRunBot } = await import('../atendimento/ticket.service');
-        const { messageService } = await import('../atendimento/message.service');
+        const { contactResolver, conversationTickets, messageRecorder } = await import('../atendimento/atendimento.module');
+        const { shouldRunBot } = await import('../atendimento/ticket-status');
         const { researchSurvey } = await import('../pesquisas/pesquisa.module');
 
-        const contact = await contactService.findOrCreate(m.companyId, m.number, m.name);
-        const { ticket } = await ticketService.findOrCreateOpen(m.companyId, contact.id, m.connectionId, undefined, m.origin);
+        const contact = await contactResolver.findOrCreate(m.companyId, m.number, m.name);
+        const { ticket } = await conversationTickets.findOrCreateOpen(m.companyId, contact.id, m.connectionId, undefined, m.origin);
         this.emit(m.companyId, 'contact:upserted', { contact });
 
         // Pesquisa pendente captura a resposta antes de virar mensagem comum.
         if (await researchSurvey.tryRecordAnswer(m.companyId, contact.id, m.body).catch(() => false)) return null;
 
-        const saved = await messageService.save(ticket.id, contact.id, m.body, false, m.companyId, { mediaType: m.mediaType, mediaUrl: m.mediaUrl });
+        const saved = await messageRecorder.save(ticket.id, contact.id, m.body, false, m.companyId, { mediaType: m.mediaType, mediaUrl: m.mediaUrl });
 
         // Bot: só com o ticket em status Bot (9); envia pela própria conexão.
         if (m.body && shouldRunBot(ticket)) {
