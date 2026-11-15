@@ -3,7 +3,7 @@ import { db } from '../../src/database/client';
 import { companies } from '../../src/modules/companies/company.db.schema';
 import { contacts, connections, queues, connectionQueues } from '../../src/modules/atendimento/atendimento.db.schema';
 import { bots } from '../../src/modules/bots/bots.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
+import { conversations } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -73,34 +73,34 @@ beforeAll(async () => {
 describe('findOrCreateOpen — roteamento automático por fila da conexão', () => {
     it('conexão sem fila vinculada: ticket nasce Pendente sem fila', async () => {
         const contactId = await makeContact(companyId, 'Contato Sem Fila');
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contactId, connNoQueue);
+        const { ticket } = await conversations.findOrCreateOpen(companyId, contactId, connNoQueue);
         expect(ticket.status_id).toBe(1);
         expect(ticket.queue_id).toBeNull();
     });
 
     it('conexão com exatamente 1 fila ativa: ticket nasce roteado pra essa fila', async () => {
         const contactId = await makeContact(companyId, 'Contato Uma Fila');
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contactId, connOneQueue);
+        const { ticket } = await conversations.findOrCreateOpen(companyId, contactId, connOneQueue);
         expect(ticket.queue_id).toBe(activeQueueId);
         expect(ticket.status_id).toBe(1); // distribution 'none' por padrão: fica pendente NA fila
     });
 
     it('conexão com 2 filas ativas: sem roteamento automático (fica pendente sem fila)', async () => {
         const contactId = await makeContact(companyId, 'Contato Duas Filas');
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contactId, connTwoQueues);
+        const { ticket } = await conversations.findOrCreateOpen(companyId, contactId, connTwoQueues);
         expect(ticket.status_id).toBe(1);
         expect(ticket.queue_id).toBeNull();
     });
 
     it('fila desabilitada não conta: só a ativa é considerada, rotea normalmente', async () => {
         const contactId = await makeContact(companyId, 'Contato Uma Ativa Uma Desabilitada');
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contactId, connOneActiveOneDisabled);
+        const { ticket } = await conversations.findOrCreateOpen(companyId, contactId, connOneActiveOneDisabled);
         expect(ticket.queue_id).toBe(activeQueueId);
     });
 
     it('empresa com bot ativo: ignora o vínculo da conexão, ticket nasce em Bot sem fila', async () => {
         const contactId = await makeContact(companyWithBotId, 'Contato Empresa Bot');
-        const { ticket } = await ticketService.findOrCreateOpen(companyWithBotId, contactId, connWithBotCompany);
+        const { ticket } = await conversations.findOrCreateOpen(companyWithBotId, contactId, connWithBotCompany);
         expect(ticket.status_id).toBe(9);
         expect(ticket.queue_id).toBeNull();
     });

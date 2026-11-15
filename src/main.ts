@@ -7,8 +7,7 @@ import { initSocket } from './shared/socket';
 import { startConnectionHealthJob, initSessionsGauge } from './jobs/connection-health.job';
 import { startReconnectionWorker } from './jobs/reconnection.queue';
 import { scheduledMessageLoop } from './modules/agendamento-mensagens/agendamento-mensagens.module';
-import { AutoCloseLoop, TicketAutoCloser } from './modules/atendimento/ticket-auto-close';
-import { ticketService } from './modules/atendimento/ticket.service';
+import { autoCloseLoop } from './modules/atendimento/atendimento.module';
 import { startRabbitConsumer, stopRabbitConsumer } from './shared/rabbitmq';
 import type { Worker } from 'bullmq';
 
@@ -27,10 +26,6 @@ async function main() {
 
     let healthInterval: NodeJS.Timeout | null = null;
     let reconnectWorker: Worker | null = null;
-    // Fecha tickets parados conforme "Fechar tickets abertos/pendentes após (h)" (seguro com várias réplicas)
-    const autoCloseLoop = new AutoCloseLoop(new TicketAutoCloser(
-        (ticket, companyId, sendGoodbye, userId) => ticketService._sendClosingMessage(ticket, companyId, sendGoodbye, userId),
-    ));
 
     // Graceful shutdown: fecha conexões limpamente para evitar 401s pós-deploy
     async function shutdown(signal: string) {

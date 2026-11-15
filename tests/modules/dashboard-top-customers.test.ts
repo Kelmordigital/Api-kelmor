@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { db } from '../../src/database/client';
 import { companies } from '../../src/modules/companies/company.db.schema';
 import { tickets, contacts } from '../../src/modules/atendimento/atendimento.db.schema';
-import { dashboardService } from '../../src/modules/atendimento/dashboard.service';
+import { salesAnalytics } from '../../src/modules/dashboard/dashboard.module';
 
 const SUFFIX = Date.now();
 
@@ -27,7 +27,7 @@ async function sale(companyId: string, contactId: number, salePrice: string) {
     });
 }
 
-describe('dashboardService.topCustomers — quem mais gastou no período', () => {
+describe('salesAnalytics.topCustomers — quem mais gastou no período', () => {
     it('agrupa por contato, soma o valor gasto e conta pedidos, ordenado por valor desc', async () => {
         const companyId = await makeCompany();
         const alice = await makeContact(companyId, 'Alice');
@@ -37,7 +37,7 @@ describe('dashboardService.topCustomers — quem mais gastou no período', () =>
         await sale(companyId, alice, '30,00');
         await sale(companyId, bob, '10,00');
 
-        const rows = await dashboardService.topCustomers(companyId, { period: 'year' });
+        const rows = await salesAnalytics.topCustomers(companyId, { period: 'year' });
 
         expect(rows[0].name).toBe('Alice');
         expect(rows[0].pedidos).toBe(2);
@@ -57,7 +57,7 @@ describe('dashboardService.topCustomers — quem mais gastou no período', () =>
         await db.insert(tickets).values({ company_id: companyId, contact_id: carlos, status_id: 2, is_sale: 1, service_not_made: 0, sale_price: '999,00' });
         await db.insert(tickets).values({ company_id: companyId, contact_id: carlos, status_id: 3, is_sale: 1, service_not_made: 1, sale_price: '999,00' });
 
-        const rows = await dashboardService.topCustomers(companyId, { period: 'year' });
+        const rows = await salesAnalytics.topCustomers(companyId, { period: 'year' });
 
         expect(rows).toHaveLength(1);
         expect(rows[0].total).toBeCloseTo(100, 2);
@@ -70,7 +70,7 @@ describe('dashboardService.topCustomers — quem mais gastou no período', () =>
             await sale(companyId, ct, `${10 + i},00`);
         }
 
-        const rows = await dashboardService.topCustomers(companyId, { period: 'year' });
+        const rows = await salesAnalytics.topCustomers(companyId, { period: 'year' });
         expect(rows).toHaveLength(5);
         expect(rows[0].total).toBeCloseTo(16, 2); // o maior (10+6)
     });

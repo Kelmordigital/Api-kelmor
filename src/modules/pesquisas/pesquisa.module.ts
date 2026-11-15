@@ -20,8 +20,8 @@ const whatsappSurveyChannel: SurveyChannel = {
         return contact?.number || (contact?.lid ? `lid:${contact.lid}` : null);
     },
     async send(ticket, target, text) {
-        const { messageService } = await import('../atendimento/message.service');
-        await messageService.save(ticket.id, ticket.contact_id, text, true, ticket.company_id, { mediaType: 'auto_survey' });
+        const { messageRecorder } = await import('../atendimento/atendimento.module');
+        await messageRecorder.save(ticket.id, ticket.contact_id, text, true, ticket.company_id, { mediaType: 'auto_survey' });
 
         const { whatsappService } = await import('../whatsapp/whatsapp.service');
         if (ticket.connection_id) await whatsappService.sendTextToPhone(ticket.connection_id, target, text);
@@ -31,8 +31,8 @@ const whatsappSurveyChannel: SurveyChannel = {
 
 const ticketCloser: ResearchTicketCloser = {
     async finalizeAfterResearch(ticketId, companyId) {
-        const { ticketService } = await import('../atendimento/ticket.service');
-        await ticketService.finalizeAfterResearch(ticketId, companyId);
+        const { researchTicketCloser } = await import('../atendimento/atendimento.module');
+        await researchTicketCloser.finalizeAfterResearch(ticketId, companyId);
     },
 };
 

@@ -5,8 +5,8 @@ import { companies } from '../../src/modules/companies/company.db.schema';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
 import { atendimento_messages, connections, contacts, historic_tickets, tickets } from '../../src/modules/atendimento/atendimento.db.schema';
 import { TicketAutoCloser } from '../../src/modules/atendimento/ticket-auto-close';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { whatsappService } from '../../src/modules/whatsapp/whatsapp.service';
+import { automaticMessages } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 const ago = (hours: number) => sql`now() - make_interval(mins => ${Math.round(hours * 60)})`;
@@ -161,12 +161,12 @@ describe('Resposta por outro número quando o do ticket caiu (resolveSendConnect
 
     it('número do ticket no ar → usa ele, sem mexer no ticket', async () => {
         mockStatus([down, up]);
-        expect(await ticketService.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(down);
+        expect(await automaticMessages.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(down);
     });
 
     it('número do ticket caiu → responde pelo outro conectado (WhatsApp comum antes da oficial) e move o ticket', async () => {
         mockStatus([up, oficial]);
-        expect(await ticketService.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(up);
+        expect(await automaticMessages.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(up);
         const [row] = await db.select({ connection_id: tickets.connection_id }).from(tickets).where(eq(tickets.id, ticketId));
         expect(row.connection_id).toBe(up);
         await db.update(tickets).set({ connection_id: down }).where(eq(tickets.id, ticketId));
@@ -174,18 +174,18 @@ describe('Resposta por outro número quando o do ticket caiu (resolveSendConnect
 
     it('só a oficial no ar → usa a oficial', async () => {
         mockStatus([oficial]);
-        expect(await ticketService.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(oficial);
+        expect(await automaticMessages.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(oficial);
         await db.update(tickets).set({ connection_id: down }).where(eq(tickets.id, ticketId));
     });
 
     it('nenhum número no ar → mantém o do ticket (falha como antes)', async () => {
         mockStatus([]);
-        expect(await ticketService.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(down);
+        expect(await automaticMessages.resolveSendConnection({ id: ticketId, company_id: co, connection_id: down })).toBe(down);
     });
 
     it('conexão do ticket removida (id que não existe mais) → usa outra conectada', async () => {
         mockStatus([up]);
-        expect(await ticketService.resolveSendConnection({ id: ticketId, company_id: co, connection_id: 987654321 })).toBe(up);
+        expect(await automaticMessages.resolveSendConnection({ id: ticketId, company_id: co, connection_id: 987654321 })).toBe(up);
         await db.update(tickets).set({ connection_id: down }).where(eq(tickets.id, ticketId));
     });
 });

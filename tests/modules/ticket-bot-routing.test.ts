@@ -7,8 +7,9 @@ import { contacts } from '../../src/modules/atendimento/atendimento.db.schema';
 import { bots } from '../../src/modules/bots/bots.db.schema';
 import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { runSeed } from '../../src/database/seed';
+import { conversations, ticketAssignment } from '../../src/modules/atendimento/atendimento.module';
+import { shouldRunBot } from '../../src/modules/atendimento/ticket-status';
 
 const SUFFIX = Date.now();
 let companyWithBotId: string;
@@ -47,20 +48,20 @@ beforeAll(async () => {
 
 describe('findOrCreateOpen — status inicial conforme bot ativo', () => {
     it('cria ticket em status_id=9 (Bot) quando a empresa tem bot ativo/padrão', async () => {
-        const { ticket, created } = await ticketService.findOrCreateOpen(companyWithBotId, contactWithBotId);
+        const { ticket, created } = await conversations.findOrCreateOpen(companyWithBotId, contactWithBotId);
         expect(created).toBe(true);
         expect(ticket.status_id).toBe(9);
     });
 
     it('cria ticket em status_id=1 (Pendente) quando a empresa não tem bot ativo', async () => {
-        const { ticket, created } = await ticketService.findOrCreateOpen(companyWithoutBotId, contactWithoutBotId);
+        const { ticket, created } = await conversations.findOrCreateOpen(companyWithoutBotId, contactWithoutBotId);
         expect(created).toBe(true);
         expect(ticket.status_id).toBe(1);
     });
 
     it('reaproveita o ticket em Bot já existente em vez de criar outro', async () => {
-        const first = await ticketService.findOrCreateOpen(companyWithBotId, contactWithBotId);
-        const second = await ticketService.findOrCreateOpen(companyWithBotId, contactWithBotId);
+        const first = await conversations.findOrCreateOpen(companyWithBotId, contactWithBotId);
+        const second = await conversations.findOrCreateOpen(companyWithBotId, contactWithBotId);
         expect(second.created).toBe(false);
         expect(second.ticket.id).toBe(first.ticket.id);
     });
@@ -83,25 +84,24 @@ describe('assignAttendant — aceita ticket em Bot e é atômico', () => {
     });
 
     it('aceita um ticket em status_id=9 (Bot), virando status_id=2', async () => {
-        const { ticket } = await ticketService.findOrCreateOpen(companyWithBotId, contactWithBotId);
+        const { ticket } = await conversations.findOrCreateOpen(companyWithBotId, contactWithBotId);
         expect(ticket.status_id).toBe(9);
 
-        const updated = await ticketService.assignAttendant(ticket.id, attendantId, companyWithBotId);
+        const updated = await ticketAssignment.assignAttendant(ticket.id, attendantId, companyWithBotId);
         expect(updated.status_id).toBe(2);
         expect(updated.attendant_user_id).toBe(attendantId);
     });
 
     it('rejeita aceitar um ticket que já tem atendente (corrida bot-vs-atendente / atendente-vs-atendente)', async () => {
-        const { ticket } = await ticketService.findOrCreateOpen(companyWithoutBotId, contactWithoutBotId);
-        await ticketService.assignAttendant(ticket.id, attendantId, companyWithoutBotId);
+        const { ticket } = await conversations.findOrCreateOpen(companyWithoutBotId, contactWithoutBotId);
+        await ticketAssignment.assignAttendant(ticket.id, attendantId, companyWithoutBotId);
 
         await expect(
-            ticketService.assignAttendant(ticket.id, attendantId, companyWithoutBotId)
+            ticketAssignment.assignAttendant(ticket.id, attendantId, companyWithoutBotId)
         ).rejects.toThrow();
     });
 });
 
-import { shouldRunBot } from '../../src/modules/atendimento/ticket.service';
 
 describe('shouldRunBot — decide se o executor do bot deve rodar', () => {
     it('true quando o ticket está em status_id=9 (Bot)', () => {

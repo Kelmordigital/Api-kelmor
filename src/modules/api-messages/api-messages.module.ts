@@ -18,10 +18,9 @@ const whatsappDelivery: MessageDelivery = {
 /** Histórico de conversa: contato + ticket do atendimento (ticket aberto ou um novo já fechado). */
 const atendimentoConversations: ConversationLinker = {
     async attach(companyId, number, connectionId, message) {
-        const { contactService } = await import('../atendimento/contact.service');
-        const { ticketService } = await import('../atendimento/ticket.service');
-        const contact = await contactService.findOrCreate(companyId, number);
-        const ticket = await ticketService.attachExternalMessage(companyId, contact.id, connectionId, message);
+        const { contactResolver, conversationTickets } = await import('../atendimento/atendimento.module');
+        const contact = await contactResolver.findOrCreate(companyId, number);
+        const ticket = await conversationTickets.attachExternalMessage(companyId, contact.id, connectionId, message);
         return ticket.id;
     },
 };

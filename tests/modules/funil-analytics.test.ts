@@ -7,8 +7,7 @@ import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets, funil_stage_history } from '../../src/modules/atendimento/atendimento.db.schema';
 import { companyPermissions } from '../../src/modules/configuracao-geral/configuracao-geral.db.schema';
-import { funilStageService } from '../../src/modules/atendimento/funil-stage.service';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
+import { conversations, funilBoard, funilStageService } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 
@@ -43,7 +42,7 @@ describe('registro de histórico de etapas (funil_stage_history)', () => {
         const companyId = await makeCompany(true);
         const contactId = await newContact(companyId);
 
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contactId);
+        const { ticket } = await conversations.findOrCreateOpen(companyId, contactId);
 
         const stages = await funilStageService.listStages(companyId);
         const waitingId = stages.find(s => s.is_waiting_stage)!.id;
@@ -56,7 +55,7 @@ describe('registro de histórico de etapas (funil_stage_history)', () => {
         const companyId = await makeCompany(false);
         const contactId = await newContact(companyId);
 
-        const { ticket } = await ticketService.findOrCreateOpen(companyId, contactId);
+        const { ticket } = await conversations.findOrCreateOpen(companyId, contactId);
 
         const rows = await db.select().from(funil_stage_history).where(eq(funil_stage_history.ticket_id, ticket.id));
         expect(rows).toHaveLength(0);
@@ -64,7 +63,7 @@ describe('registro de histórico de etapas (funil_stage_history)', () => {
 
     it('createFunilLead grava entrada em Aguardando', async () => {
         const companyId = await makeCompany(true);
-        const card = await ticketService.createFunilLead(companyId, { name: 'Lead Teste' });
+        const card = await funilBoard.createFunilLead(companyId, { name: 'Lead Teste' });
 
         const stages = await funilStageService.listStages(companyId);
         const waitingId = stages.find(s => s.is_waiting_stage)!.id;
@@ -82,17 +81,17 @@ describe('registro de histórico de etapas (funil_stage_history)', () => {
         const [ticket] = await db.insert(tickets).values({ company_id: companyId, contact_id: contactId, status_id: 1 }).returning();
         const userId = await newUser(companyId);
 
-        await ticketService.moveTicketFunilStage(ticket.id, middle[0].id, userId, companyId, 'admin');
+        await funilBoard.moveTicketFunilStage(ticket.id, middle[0].id, userId, companyId, 'admin');
         let rows = await db.select().from(funil_stage_history).where(eq(funil_stage_history.ticket_id, ticket.id));
         expect(rows.filter(r => r.funil_stage_id === middle[0].id)).toHaveLength(1);
 
         // no-op (mesma origem/destino) não grava linha nova
-        await ticketService.moveTicketFunilStage(ticket.id, middle[0].id, userId, companyId, 'admin');
+        await funilBoard.moveTicketFunilStage(ticket.id, middle[0].id, userId, companyId, 'admin');
         rows = await db.select().from(funil_stage_history).where(eq(funil_stage_history.ticket_id, ticket.id));
         expect(rows).toHaveLength(1);
 
         // troca de verdade grava outra linha
-        await ticketService.moveTicketFunilStage(ticket.id, middle[1].id, userId, companyId, 'admin');
+        await funilBoard.moveTicketFunilStage(ticket.id, middle[1].id, userId, companyId, 'admin');
         rows = await db.select().from(funil_stage_history).where(eq(funil_stage_history.ticket_id, ticket.id));
         expect(rows).toHaveLength(2);
         expect(rows.some(r => r.funil_stage_id === middle[1].id)).toBe(true);

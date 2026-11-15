@@ -1,6 +1,7 @@
 import { NotFoundError } from '../../core/errors/http-errors';
 import type { CrmConfigRepository, OriginKeyword } from './crm.repository';
 import type { CreateKeywordInput, CreateReasonInput, UpdateReasonInput } from './crm.dto';
+import type { CrmSalesReason } from '../atendimento/atendimento.db.schema';
 
 /** RN-CRM-03: a primeira palavra-chave contida na mensagem (sem diferenciar maiúsculas) dá a origem. */
 export function originOf(keywords: OriginKeyword[], message: string): string | null {
@@ -8,11 +9,16 @@ export function originOf(keywords: OriginKeyword[], message: string): string | n
     return keywords.find((k) => text.includes(k.keyword.toLowerCase()))?.origin ?? null;
 }
 
+/** Leitura dos motivos de não venda — o que o atendimento usa no modal de fechamento (ISP). */
+export interface SalesReasonsReader {
+    listReasons(companyId: string): Promise<CrmSalesReason[]>;
+}
+
 /** Motivos de não venda e palavras-chave de origem (tela de configuração do CRM). */
-export class CrmConfigService {
+export class CrmConfigService implements SalesReasonsReader {
     constructor(private readonly repository: CrmConfigRepository) {}
 
-    listReasons(companyId: string) {
+    listReasons(companyId: string): Promise<CrmSalesReason[]> {
         return this.repository.listReasons(companyId);
     }
 

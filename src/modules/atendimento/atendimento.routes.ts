@@ -1,87 +1,62 @@
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../../middlewares/auth.middleware';
-import { atendimentoController } from './atendimento.controller';
+import type { HttpRouter } from '../../core/http/http-router';
+import type { ContactsController, FunilController, MessagesController, TicketsController } from './atendimento.controller';
 
-export async function atendimentoRoutes(app: FastifyInstance) {
-    const auth = { preHandler: authMiddleware };
+/** Rotas do atendimento (prefixo /api/v1/atendimento). Painel e financeiro ficam no módulo dashboard. */
+export class AtendimentoRouter implements HttpRouter {
+    constructor(
+        private readonly tickets: TicketsController,
+        private readonly messages: MessagesController,
+        private readonly contacts: ContactsController,
+        private readonly funil: FunilController,
+    ) {}
 
-    // Tickets — listagem e contagem
-    app.get('/tickets',                   auth, atendimentoController.listTickets);
-    app.get('/tickets/count',             auth, atendimentoController.countTickets);
-    app.get('/tickets/status-by-contact', auth, atendimentoController.ticketStatusByContact);
+    register = async (app: FastifyInstance) => {
+        app.addHook('preHandler', authMiddleware);
+        const { tickets: t, messages: m, contacts: c, funil: f } = this;
 
-    // Tickets — transições de status
-    app.patch('/tickets/:id/assign',  auth, atendimentoController.assignAttendant);
-    app.put('/tickets/:id/return',    auth, atendimentoController.returnToQueue);
-    app.put('/tickets/:id/reopen',    auth, atendimentoController.reopen);
-    app.put('/tickets/:id/transfer',  auth, atendimentoController.transfer);
-    app.put('/tickets/:id/pin',       auth, atendimentoController.togglePin);
-    app.post('/tickets/:id/close',    auth, atendimentoController.closeTicket);
-    app.post('/tickets/:id/research', auth, atendimentoController.closeTicketWithResearch);
-    app.get('/tickets/:id/research-available', auth, atendimentoController.researchAvailable);
-    app.get('/close-config', auth, atendimentoController.closeConfig);
-    app.patch('/tickets/:id/status',  auth, atendimentoController.updateStatus);
+        // Tickets — listagem e contagem
+        app.get('/tickets',                   t.list);
+        app.get('/tickets/count',             t.count);
+        app.get('/tickets/status-by-contact', t.statusByContact);
 
-    // Tickets — venda
-    app.put('/tickets/:id/sale', auth, atendimentoController.registerSale);
+        // Tickets — transições de status, fechamento e venda
+        app.patch('/tickets/:id/assign',           t.assign);
+        app.put('/tickets/:id/return',             t.returnToQueue);
+        app.put('/tickets/:id/reopen',             t.reopen);
+        app.put('/tickets/:id/transfer',           t.transfer);
+        app.put('/tickets/:id/pin',                t.togglePin);
+        app.post('/tickets/:id/close',             t.close);
+        app.post('/tickets/:id/research',          t.closeWithResearch);
+        app.get('/tickets/:id/research-available', t.researchAvailable);
+        app.get('/close-config',                   t.closeConfig);
+        app.put('/tickets/:id/sale',               t.registerSale);
 
-    // Messages
-    app.get('/tickets/:id/messages',  auth, atendimentoController.listMessages);
-    app.post('/tickets/:id/messages', auth, atendimentoController.sendMessage);
+        // Mensagens
+        app.get('/tickets/:id/messages',  m.list);
+        app.post('/tickets/:id/messages', m.send);
 
-    // Contacts
-    app.get('/contacts/report', auth, atendimentoController.listContactsReport);
-    app.get('/contacts/export', auth, atendimentoController.exportContactsExcel);
-    app.get('/contacts',        auth, atendimentoController.listContacts);
-    app.get('/contacts/:contactId/tickets', auth, atendimentoController.listContactTickets);
+        // Contatos
+        app.get('/contacts/report',             c.report);
+        app.get('/contacts/export',             c.exportExcel);
+        app.get('/contacts',                    c.list);
+        app.get('/contacts/:contactId/tickets', t.listByContact);
 
-    // Catálogo de produtos (consulta durante o atendimento — carrinho no chat)
-    app.get('/produtos', auth, atendimentoController.listProdutos);
+        // Apoio ao chat: catálogo, atendentes (transferência), motivos de perda
+        app.get('/produtos',   t.listProdutos);
+        app.get('/attendants', t.listAttendants);
+        app.get('/reasons',    t.listReasons);
 
-    // Atendentes da empresa (para transferência)
-    app.get('/attendants', auth, atendimentoController.listAttendants);
-
-    // Analytics de vendas (AdminDashboard)
-    app.get('/dashboard/sales-by-connection',     auth, atendimentoController.dashboardSalesByConnection);
-    app.get('/dashboard/sales-by-channel',        auth, atendimentoController.dashboardSalesByChannel);
-    app.get('/dashboard/top-customers',           auth, atendimentoController.dashboardTopCustomers);
-    app.get('/dashboard/not-sales-by-connection', auth, atendimentoController.dashboardNotSalesByConnection);
-    app.get('/dashboard/not-sales-by-channel',    auth, atendimentoController.dashboardNotSalesByChannel);
-    app.get('/dashboard/not-sales-by-reason',     auth, atendimentoController.dashboardNotSalesByReason);
-    app.get('/dashboard/not-sales-by-reason-over-time', auth, atendimentoController.dashboardNotSalesByReasonOverTime);
-
-    // Dashboard por período (novos)
-    app.get('/dashboard/kpis', auth, atendimentoController.dashKpis);
-    app.get('/dashboard/graph', auth, atendimentoController.dashGraph);
-    app.get('/dashboard/graph-by-status', auth, atendimentoController.dashGraphByStatus);
-    app.get('/dashboard/funnel', auth, atendimentoController.dashFunnel);
-    app.get('/dashboard/movimentos', auth, atendimentoController.dashMovimentos);
-    app.get('/dashboard/recent', auth, atendimentoController.dashRecent);
-    app.get('/dashboard/top-attendants', auth, atendimentoController.dashTopAttendants);
-    app.get('/dashboard/team-performance', auth, atendimentoController.dashTeamPerformance);
-    app.get('/dashboard/channels', auth, atendimentoController.dashChannels);
-    app.get('/dashboard/tickets-by-connection', auth, atendimentoController.dashTicketsByConnection);
-
-    // CRM reasons CRUD
-    app.get('/reasons', auth, atendimentoController.listReasons);
-    app.post('/reasons', auth, atendimentoController.createReason);
-
-    // Funil Kanban de atendimento
-    app.get('/funil/cards',               auth, atendimentoController.getFunilCards);
-    app.post('/funil/leads',              auth, atendimentoController.createFunilLead);
-    app.patch('/tickets/:id/funil-stage', auth, atendimentoController.moveTicketFunilStage);
-
-    app.get('/funil/stages',           auth, atendimentoController.listFunilStages);
-    app.post('/funil/stages',          auth, atendimentoController.createFunilStage);
-    app.put('/funil/stages/reorder',   auth, atendimentoController.reorderFunilStages);
-    app.put('/funil/stages/:id',       auth, atendimentoController.updateFunilStage);
-    app.delete('/funil/stages/:id',    auth, atendimentoController.deleteFunilStage);
-    app.get('/funil/analytics',        auth, atendimentoController.getFunilAnalytics);
-
-    // Financeiro
-    app.get('/financeiro/kpis',      auth, atendimentoController.financeiroKpis);
-    app.get('/financeiro/evolucao',  auth, atendimentoController.financeiroEvolucao);
-    app.get('/financeiro/origens',   auth, atendimentoController.financeiroOrigens);
-    app.get('/financeiro/historico', auth, atendimentoController.financeiroHistorico);
-    app.get('/financeiro/perdas',    auth, atendimentoController.financeiroPerdas);
+        // Funil Kanban
+        app.get('/funil/cards',               f.cards);
+        app.post('/funil/leads',              f.createLead);
+        app.patch('/tickets/:id/funil-stage', f.moveCard);
+        app.get('/funil/stages',              f.listStages);
+        app.post('/funil/stages',             f.createStage);
+        app.put('/funil/stages/reorder',      f.reorderStages);
+        app.put('/funil/stages/:id',          f.updateStage);
+        app.delete('/funil/stages/:id',       f.deleteStage);
+        app.get('/funil/analytics',           f.analytics);
+    };
 }

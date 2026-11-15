@@ -1,7 +1,7 @@
 import { db } from '../../database/client';
-import { isUserOnline } from '../../shared/socket';
+import { onlineUsers } from '../../shared/socket';
 import { companyPermissionsReader } from '../configuracao-geral/configuracao-geral.module';
-import { filterByCapacity } from '../atendimento/attendant-capacity.service';
+import { AttendantCapacity } from '../atendimento/tickets/attendant-capacity';
 import type { Queue } from '../atendimento/atendimento.db.schema';
 import { DrizzleDistributionStats, DrizzleQueueRepository, type EligibleUser } from './fila.repository';
 import { FilaService, QueueEligibility } from './fila.service';
@@ -11,8 +11,9 @@ import { FilaRouter } from './fila.routes';
 
 /** Composição do módulo: único lugar que escolhe as implementações concretas. */
 const repository = new DrizzleQueueRepository(db);
+const capacity = new AttendantCapacity(db);
 const service = new FilaService(repository);
-const eligibility = new QueueEligibility(repository, companyPermissionsReader, { isOnline: isUserOnline }, filterByCapacity);
+const eligibility = new QueueEligibility(repository, companyPermissionsReader, { onlineAmong: onlineUsers }, (ids, perms) => capacity.filterByCapacity(ids, perms));
 const distributor = new QueueDistributor(
     (queueId, companyId) => repository.findById(queueId, companyId),
     eligibility,

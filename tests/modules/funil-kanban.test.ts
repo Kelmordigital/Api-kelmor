@@ -6,9 +6,8 @@ import { companies } from '../../src/modules/companies/company.db.schema';
 import { users } from '../../src/modules/auth/auth.schema';
 import { profiles } from '../../src/modules/profiles/profile.db.schema';
 import { contacts, tickets, funil_stages } from '../../src/modules/atendimento/atendimento.db.schema';
-import { funilStageService } from '../../src/modules/atendimento/funil-stage.service';
-import { ticketService } from '../../src/modules/atendimento/ticket.service';
 import { buildApp } from '../../src/shared/server';
+import { funilBoard, funilStageService } from '../../src/modules/atendimento/atendimento.module';
 
 const SUFFIX = Date.now();
 let companyId: string;
@@ -109,7 +108,7 @@ describe('funilStageService — provisionamento e CRUD de etapas', () => {
     });
 });
 
-describe('ticketService.moveTicketFunilStage — árvore de decisão do drag-and-drop', () => {
+describe('funilBoard.moveTicketFunilStage — árvore de decisão do drag-and-drop', () => {
     let waitingStageId: number;
     let finishedStageId: number;
     let middleAId: number;
@@ -172,7 +171,7 @@ describe('ticketService.moveTicketFunilStage — árvore de decisão do drag-and
 
     it('mesma origem e destino: no-op', async () => {
         const ticket = await openTicket(ownerUserId, middleAId);
-        const result = await ticketService.moveTicketFunilStage(ticket.id, middleAId, ownerUserId, companyId, 'user');
+        const result = await funilBoard.moveTicketFunilStage(ticket.id, middleAId, ownerUserId, companyId, 'user');
         expect(result.status_id).toBe(2);
         expect(result.funil_stage_id).toBe(middleAId);
     });
@@ -180,20 +179,20 @@ describe('ticketService.moveTicketFunilStage — árvore de decisão do drag-and
     it('fechado direto pra Aguardando: bloqueado', async () => {
         const ticket = await closedTicket(ownerUserId);
         await expect(
-            ticketService.moveTicketFunilStage(ticket.id, waitingStageId, ownerUserId, companyId, 'user')
+            funilBoard.moveTicketFunilStage(ticket.id, waitingStageId, ownerUserId, companyId, 'user')
         ).rejects.toThrow();
     });
 
     it('destino Finalizado é sempre rejeitado (fechar exige o fluxo de venda)', async () => {
         const ticket = await openTicket(ownerUserId, middleAId);
         await expect(
-            ticketService.moveTicketFunilStage(ticket.id, finishedStageId, ownerUserId, companyId, 'user')
+            funilBoard.moveTicketFunilStage(ticket.id, finishedStageId, ownerUserId, companyId, 'user')
         ).rejects.toThrow();
     });
 
     it('Aguardando → coluna do meio: aceita o ticket', async () => {
         const ticket = await pendingTicket();
-        const result = await ticketService.moveTicketFunilStage(ticket.id, middleAId, otherUserId, companyId, 'user');
+        const result = await funilBoard.moveTicketFunilStage(ticket.id, middleAId, otherUserId, companyId, 'user');
         expect(result.status_id).toBe(2);
         expect(result.attendant_user_id).toBe(otherUserId);
         expect(result.funil_stage_id).toBe(middleAId);
@@ -201,7 +200,7 @@ describe('ticketService.moveTicketFunilStage — árvore de decisão do drag-and
 
     it('Finalizado → coluna do meio: reabre o ticket', async () => {
         const ticket = await closedTicket(ownerUserId);
-        const result = await ticketService.moveTicketFunilStage(ticket.id, middleBId, otherUserId, companyId, 'user');
+        const result = await funilBoard.moveTicketFunilStage(ticket.id, middleBId, otherUserId, companyId, 'user');
         expect(result.status_id).toBe(2);
         expect(result.attendant_user_id).toBe(otherUserId);
         expect(result.funil_stage_id).toBe(middleBId);
@@ -214,11 +213,11 @@ describe('ticketService.moveTicketFunilStage — árvore de decisão do drag-and
 
         const ticket = await openTicket(ownerUserId, middleAId);
         await expect(
-            ticketService.moveTicketFunilStage(ticket.id, waitingStageId, ownerUserId, companyId, 'user')
+            funilBoard.moveTicketFunilStage(ticket.id, waitingStageId, ownerUserId, companyId, 'user')
         ).rejects.toThrow();
 
         await db.update(companyPermissions).set({ return_ticket: true }).where(eq(companyPermissions.company_id, companyId));
-        const result = await ticketService.moveTicketFunilStage(ticket.id, waitingStageId, ownerUserId, companyId, 'user');
+        const result = await funilBoard.moveTicketFunilStage(ticket.id, waitingStageId, ownerUserId, companyId, 'user');
         expect(result.status_id).toBe(1);
         expect(result.attendant_user_id).toBeNull();
     });
@@ -227,10 +226,10 @@ describe('ticketService.moveTicketFunilStage — árvore de decisão do drag-and
         const ticket = await openTicket(ownerUserId, middleAId);
 
         await expect(
-            ticketService.moveTicketFunilStage(ticket.id, middleBId, otherUserId, companyId, 'user')
+            funilBoard.moveTicketFunilStage(ticket.id, middleBId, otherUserId, companyId, 'user')
         ).rejects.toThrow();
 
-        const asAdmin = await ticketService.moveTicketFunilStage(ticket.id, middleBId, adminUserId, companyId, 'admin');
+        const asAdmin = await funilBoard.moveTicketFunilStage(ticket.id, middleBId, adminUserId, companyId, 'admin');
         expect(asAdmin.funil_stage_id).toBe(middleBId);
         expect(asAdmin.status_id).toBe(2);
         expect(asAdmin.attendant_user_id).toBe(ownerUserId); // continua do mesmo dono, só mudou a coluna
@@ -283,7 +282,7 @@ describe('GET /atendimento/funil/cards — status derivado, não o valor gravado
             company_id: companyId, contact_id: recentContactId, status_id: 3,
         }).returning();
 
-        const cards = await ticketService.getFunilCards(companyId);
+        const cards = await funilBoard.getFunilCards(companyId);
         expect(cards.find(c => c.id === oldTicket.id)).toBeUndefined();
         expect(cards.find(c => c.id === recentTicket.id)).toBeDefined();
     });

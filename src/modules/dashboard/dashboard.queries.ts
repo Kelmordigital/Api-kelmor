@@ -1,21 +1,17 @@
 import { sql, and, or, eq, isNull, gte, lte, desc, inArray } from 'drizzle-orm';
-import { db } from '../../database/client';
+import type { DB } from '../../database/client';
+import { BadRequestError } from '../../core/errors/http-errors';
+import { getInterval, parsePeriod, type Period } from '../../core/time/period';
 import {
     tickets, connections, crm_sales_reasons, contacts, atendimento_messages,
-} from './atendimento.db.schema';
+} from '../atendimento/atendimento.db.schema';
 import { users } from '../auth/auth.schema';
 import { companies } from '../companies/company.db.schema';
 import { profiles } from '../profiles/profile.db.schema';
 import { agendamentos } from '../agenda/agenda.db.schema';
 
-export type Period = 'day' | 'week' | 'month' | 'year';
 
-const VALID_PERIODS: Period[] = ['day', 'week', 'month', 'year'];
-export function parsePeriod(raw: unknown): Period {
-    return VALID_PERIODS.includes(raw as Period) ? (raw as Period) : 'week';
-}
-
-export class DateRangeTooLargeError extends Error {
+export class DateRangeTooLargeError extends BadRequestError {
     constructor() { super('O intervalo de datas selecionado é maior que 45 dias.'); }
 }
 
@@ -79,7 +75,7 @@ function resolveInterval(scope: DashboardScope) {
 // ── Consultas do desempenho da equipe (uma por indicador; teamPerformance só monta o resultado) ──
 
 /** Atendentes (perfil 'user') da empresa; se o filtro trouxe um atendente, só ele. */
-async function teamMembers(companyId: string, scope: DashboardScope) {
+async function teamMembers(db: DB, companyId: string, scope: DashboardScope) {
     return db
         .select({ id: users.id, name: users.name })
         .from(users)
@@ -92,7 +88,7 @@ async function teamMembers(companyId: string, scope: DashboardScope) {
 }
 
 /** Quantidade de atendimentos e tempo médio (criação→fechamento, só fechados) por atendente. */
-async function ticketStatsByAttendant(companyId: string, scope: DashboardScope) {
+async function ticketStatsByAttendant(db: DB, companyId: string, scope: DashboardScope) {
     const { start, end } = resolveInterval(scope);
     const rows = await db
         .select({
@@ -113,7 +109,7 @@ async function ticketStatsByAttendant(companyId: string, scope: DashboardScope) 
 }
 
 /** Valor vendido por atendente — mesma regra de venda concluída usada em salesByChannel. */
-async function salesValueByAttendant(companyId: string, scope: DashboardScope) {
+async function salesValueByAttendant(db: DB, companyId: string, scope: DashboardScope) {
     const { start, end } = resolveInterval(scope);
     const rows = await db
         .select({
@@ -136,7 +132,7 @@ async function salesValueByAttendant(companyId: string, scope: DashboardScope) {
 }
 
 /** Agendamentos criados no período por usuário (a agenda não tem conexão/fila, então esses filtros não se aplicam). */
-async function appointmentsByCreator(companyId: string, scope: DashboardScope) {
+async function appointmentsByCreator(db: DB, companyId: string, scope: DashboardScope) {
     const { start, end } = resolveInterval(scope);
     const rows = await db
         .select({
@@ -159,39 +155,18 @@ const TICKET_STATUS: Record<number, { name: string; color: string }> = {
     3: { name: 'Resolvido',      color: '#22c55e' },
 };
 
-export function getInterval(period: Period) {
-    const now = new Date();
-    let start: Date;
-    let end: Date;
-    switch (period) {
-        case 'day':
-            start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-            break;
-        case 'week': {
-            const dow = now.getDay();
-            const diff = dow === 0 ? -6 : 1 - dow;
-            start = new Date(now); start.setDate(now.getDate() + diff); start.setHours(0, 0, 0, 0);
-            end   = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
-            break;
-        }
-        case 'month':
-            start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-            end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-            break;
-        case 'year':
-            start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-            end   = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-            break;
-    }
-    return { start, end };
-}
 
-export const dashboardService = {
+/**
+ * Consultas do painel e do financeiro (só leitura). Os controllers dependem das fatias
+ * SalesAnalytics/ActivityAnalytics/FinanceAnalytics/PlatformStats (ISP), não da classe.
+ */
+export class DashboardQueries {
+    constructor(private readonly db: DB) {}
+
 
     async salesByConnection(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 label: sql<string>`coalesce(${connections.name}, 'Sem conexão')`,
                 total: sql<number>`count(*)::int`,
@@ -211,11 +186,11 @@ export const dashboardService = {
             ))
             .groupBy(connections.id, connections.name)
             .orderBy(sql`count(*) desc`);
-    },
+    }
 
     async notSalesByConnection(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 label: sql<string>`coalesce(${connections.name}, 'Sem conexão')`,
                 total: sql<number>`count(*)::int`,
@@ -234,11 +209,11 @@ export const dashboardService = {
             ))
             .groupBy(connections.id, connections.name)
             .orderBy(sql`count(*) desc`);
-    },
+    }
 
     async notSalesByChannel(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 label: sql<string>`COALESCE(${tickets.origin}, 'Base de contatos')`,
                 total: sql<number>`count(*)::int`,
@@ -256,11 +231,11 @@ export const dashboardService = {
             ))
             .groupBy(tickets.origin)
             .orderBy(sql`count(*) desc`);
-    },
+    }
 
     async notSalesByReason(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 label: sql<string>`coalesce(${crm_sales_reasons.reason}, 'Sem motivo')`,
                 total: sql<number>`count(*)::int`,
@@ -279,7 +254,7 @@ export const dashboardService = {
             ))
             .groupBy(crm_sales_reasons.id, crm_sales_reasons.reason)
             .orderBy(sql`count(*) desc`);
-    },
+    }
 
     /**
      * Pivotado ao longo do tempo (mesma granularidade do gráfico "Novos
@@ -300,7 +275,7 @@ export const dashboardService = {
             : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.updated_at})::int`
                                  : sql<number>`EXTRACT(MONTH FROM ${tickets.updated_at})::int`;
 
-        const rows = await db
+        const rows = await this.db
             .select({
                 slot:   slotCol,
                 reason: sql<string>`coalesce(${crm_sales_reasons.reason}, 'Sem motivo')`,
@@ -357,11 +332,11 @@ export const dashboardService = {
         });
 
         return { reasons, buckets };
-    },
+    }
 
     async salesByChannel(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 label: sql<string>`COALESCE(${tickets.origin}, 'Base de contatos')`,
                 total: sql<number>`count(*)::int`,
@@ -380,12 +355,12 @@ export const dashboardService = {
             ))
             .groupBy(tickets.origin)
             .orderBy(sql`count(*) desc`);
-    },
+    }
 
     /** Top clientes por valor gasto no período — card "Maiores clientes" do AdminDashboard. */
     async topCustomers(companyId: string, scope: DashboardScope, limit = 5) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 contactId: tickets.contact_id,
                 name: contacts.name,
@@ -407,16 +382,7 @@ export const dashboardService = {
             .groupBy(tickets.contact_id, contacts.name)
             .orderBy(sql`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0) desc`)
             .limit(limit);
-    },
-
-    async listReasons(companyId: string) {
-        return db.select().from(crm_sales_reasons).where(eq(crm_sales_reasons.company_id, companyId));
-    },
-
-    async createReason(companyId: string, reason: string, color?: string) {
-        const [r] = await db.insert(crm_sales_reasons).values({ company_id: companyId, reason, color }).returning();
-        return r;
-    },
+    }
 
     // ────── Novos métodos de dashboard ──────
 
@@ -424,7 +390,7 @@ export const dashboardService = {
         const { start, end } = resolveInterval(scope);
         const extra = scopeConditions(scope);
 
-        const [newTickets] = await db.select({ total: sql<number>`count(*)::int` })
+        const [newTickets] = await this.db.select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
@@ -434,7 +400,7 @@ export const dashboardService = {
                 ...extra,
             ));
 
-        const [totalAll] = await db.select({ total: sql<number>`count(*)::int` })
+        const [totalAll] = await this.db.select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
@@ -442,7 +408,7 @@ export const dashboardService = {
                 ...extra,
             ));
 
-        const [activeNow] = await db.select({ total: sql<number>`count(*)::int` })
+        const [activeNow] = await this.db.select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
@@ -451,7 +417,7 @@ export const dashboardService = {
                 ...extra,
             ));
 
-        const [naFila] = await db.select({ total: sql<number>`count(*)::int` })
+        const [naFila] = await this.db.select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
@@ -461,7 +427,7 @@ export const dashboardService = {
                 scope.queueId      ? eq(tickets.queue_id, scope.queueId)          : undefined,
             ));
 
-        const [resolved] = await db.select({ total: sql<number>`count(*)::int` })
+        const [resolved] = await this.db.select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
@@ -472,7 +438,7 @@ export const dashboardService = {
                 ...extra,
             ));
 
-        const msgs = await db.select({
+        const msgs = await this.db.select({
             from_me: atendimento_messages.from_me,
             total: sql<number>`count(*)::int`,
         })
@@ -503,7 +469,7 @@ export const dashboardService = {
             resolvidos,
             naFila:               naFila?.total ?? 0,
         };
-    },
+    }
 
     async getGraph(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
@@ -519,7 +485,7 @@ export const dashboardService = {
             : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.created_at})::int`
                                  : sql<number>`EXTRACT(MONTH FROM ${tickets.created_at})::int`;
 
-        const data = await db.select({ slot: slotCol, total: sql<number>`count(*)::int` })
+        const data = await this.db.select({ slot: slotCol, total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(
                 eq(tickets.company_id, companyId),
@@ -532,7 +498,7 @@ export const dashboardService = {
             .orderBy(slotCol);
 
         return { period, data };
-    },
+    }
 
     /** Igual a getGraph, mas quebrado por status_id — alimenta o gráfico empilhado "Atendimentos por período". */
     async getGraphByStatus(companyId: string, scope: DashboardScope) {
@@ -547,7 +513,7 @@ export const dashboardService = {
             : period === 'month' ? sql<number>`EXTRACT(DAY FROM ${tickets.created_at})::int`
                                  : sql<number>`EXTRACT(MONTH FROM ${tickets.created_at})::int`;
 
-        const data = await db.select({
+        const data = await this.db.select({
             slot:      slotCol,
             status_id: tickets.status_id,
             total:     sql<number>`count(*)::int`,
@@ -564,12 +530,12 @@ export const dashboardService = {
             .orderBy(slotCol);
 
         return { period, data };
-    },
+    }
 
     async getMovimentos(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
 
-        const rows = await db.select({
+        const rows = await this.db.select({
             status_id: tickets.status_id,
             total:     sql<number>`count(*)::int`,
         })
@@ -588,10 +554,10 @@ export const dashboardService = {
             value: r.total,
             color: TICKET_STATUS[r.status_id]?.color ?? '#94a3b8',
         }));
-    },
+    }
 
     async getFunnel(companyId: string, scope: Pick<DashboardScope, 'attendantId' | 'connectionId' | 'queueId'>) {
-        const rows = await db.select({
+        const rows = await this.db.select({
             status_id: tickets.status_id,
             total:     sql<number>`count(*)::int`,
         })
@@ -608,10 +574,10 @@ export const dashboardService = {
             value: r.total,
             color: TICKET_STATUS[r.status_id]?.color ?? '#94a3b8',
         }));
-    },
+    }
 
     async getRecent(companyId: string, limit: number, scope: Pick<DashboardScope, 'attendantId' | 'connectionId' | 'queueId'>) {
-        return db.select({
+        return this.db.select({
             id:       tickets.id,
             nome:     contacts.name,
             telefone: contacts.number,
@@ -626,7 +592,7 @@ export const dashboardService = {
         ))
         .orderBy(desc(tickets.updated_at))
         .limit(limit);
-    },
+    }
 
     /**
      * Desempenho da equipe (só admin): por atendente, quantidade de atendimentos,
@@ -635,10 +601,10 @@ export const dashboardService = {
      */
     async teamPerformance(companyId: string, scope: DashboardScope) {
         const [team, ticketStats, salesByUser, appointmentsByUser] = await Promise.all([
-            teamMembers(companyId, scope),
-            ticketStatsByAttendant(companyId, scope),
-            salesValueByAttendant(companyId, scope),
-            appointmentsByCreator(companyId, scope),
+            teamMembers(this.db, companyId, scope),
+            ticketStatsByAttendant(this.db, companyId, scope),
+            salesValueByAttendant(this.db, companyId, scope),
+            appointmentsByCreator(this.db, companyId, scope),
         ]);
 
         return team.map(u => ({
@@ -649,12 +615,12 @@ export const dashboardService = {
             agendamentos: appointmentsByUser.get(u.id) ?? 0,
             valorVendido: salesByUser.get(u.id) ?? 0,
         }));
-    },
+    }
 
     async getTopAttendants(companyId: string, scope: Pick<DashboardScope, 'period' | 'startDate' | 'endDate' | 'connectionId' | 'queueId'>) {
         const { start, end } = resolveInterval(scope as DashboardScope);
 
-        return db.select({
+        return this.db.select({
             id:    users.id,
             name:  users.name,
             total: sql<number>`count(${tickets.id})::int`,
@@ -672,12 +638,12 @@ export const dashboardService = {
         .groupBy(users.id, users.name)
         .orderBy(sql`count(${tickets.id}) desc`)
         .limit(5);
-    },
+    }
 
     async getChannelsByPeriod(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
 
-        return db.select({
+        return this.db.select({
             label: sql<string>`COALESCE(${tickets.origin}, 'Base de contatos')`,
             total: sql<number>`count(*)::int`,
         })
@@ -691,13 +657,13 @@ export const dashboardService = {
         ))
         .groupBy(tickets.origin)
         .orderBy(sql`count(*) desc`);
-    },
+    }
 
     /** Quantidade de atendimentos (qualquer status, venda ou não) agrupados por conexão. */
     async getTicketsByConnection(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
 
-        return db.select({
+        return this.db.select({
             label: sql<string>`coalesce(${connections.name}, 'Sem conexão')`,
             total: sql<number>`count(*)::int`,
         })
@@ -712,19 +678,19 @@ export const dashboardService = {
         ))
         .groupBy(connections.id, connections.name)
         .orderBy(sql`count(*) desc`);
-    },
+    }
 
     // ────── Métodos SuperAdmin ──────
 
     async getSuperAdminStats(period: Period) {
         const { start, end } = getInterval(period);
 
-        const [totalComp]  = await db.select({ total: sql<number>`count(*)::int` }).from(companies);
-        const [activeComp] = await db.select({ total: sql<number>`count(*)::int` }).from(companies).where(eq(companies.status, true));
-        const [totalUsers] = await db.select({ total: sql<number>`count(*)::int` }).from(users);
-        const [newUsers]   = await db.select({ total: sql<number>`count(*)::int` }).from(users)
+        const [totalComp]  = await this.db.select({ total: sql<number>`count(*)::int` }).from(companies);
+        const [activeComp] = await this.db.select({ total: sql<number>`count(*)::int` }).from(companies).where(eq(companies.status, true));
+        const [totalUsers] = await this.db.select({ total: sql<number>`count(*)::int` }).from(users);
+        const [newUsers]   = await this.db.select({ total: sql<number>`count(*)::int` }).from(users)
             .where(and(gte(users.created_at, start), lte(users.created_at, end)));
-        const [pending]    = await db.select({ total: sql<number>`count(*)::int` }).from(users)
+        const [pending]    = await this.db.select({ total: sql<number>`count(*)::int` }).from(users)
             .where(eq(users.is_approved, false));
 
         return {
@@ -735,7 +701,7 @@ export const dashboardService = {
             novosCadastros:       newUsers?.total    ?? 0,
             aguardandoAprovacao:  pending?.total     ?? 0,
         };
-    },
+    }
 
     async getSuperAdminGraph(period: Period) {
         const { start, end } = getInterval(period);
@@ -746,27 +712,27 @@ export const dashboardService = {
             period === 'month' ? sql<number>`EXTRACT(DAY FROM ${companies.created_at})::int`    :
                                  sql<number>`EXTRACT(MONTH FROM ${companies.created_at})::int`;
 
-        const data = await db.select({ slot: slotCol, total: sql<number>`count(*)::int` })
+        const data = await this.db.select({ slot: slotCol, total: sql<number>`count(*)::int` })
             .from(companies)
             .where(and(gte(companies.created_at, start), lte(companies.created_at, end)))
             .groupBy(slotCol)
             .orderBy(slotCol);
 
         return { period, data };
-    },
+    }
 
     async getSuperAdminFunnel() {
-        const [active]   = await db.select({ total: sql<number>`count(*)::int` }).from(companies).where(eq(companies.status, true));
-        const [inactive] = await db.select({ total: sql<number>`count(*)::int` }).from(companies).where(eq(companies.status, false));
+        const [active]   = await this.db.select({ total: sql<number>`count(*)::int` }).from(companies).where(eq(companies.status, true));
+        const [inactive] = await this.db.select({ total: sql<number>`count(*)::int` }).from(companies).where(eq(companies.status, false));
 
         return [
             { name: 'Ativas',   value: active?.total   ?? 0, color: '#22c55e' },
             { name: 'Inativas', value: inactive?.total ?? 0, color: '#94a3b8' },
         ];
-    },
+    }
 
     async getSuperAdminRecent() {
-        return db.select({
+        return this.db.select({
             id:   companies.id,
             nome: companies.name,
             data: companies.created_at,
@@ -774,13 +740,13 @@ export const dashboardService = {
         .from(companies)
         .orderBy(desc(companies.created_at))
         .limit(5);
-    },
+    }
 
     // ────── Financeiro ──────
 
     _salePriceCast() {
         return sql<number>`CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))`;
-    },
+    }
 
     async getFinanceiroKpis(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
@@ -794,12 +760,12 @@ export const dashboardService = {
             ...scopeConditions(scope),
         );
 
-        const [totalAtend] = await db
+        const [totalAtend] = await this.db
             .select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(base);
 
-        const [salesData] = await db
+        const [salesData] = await this.db
             .select({
                 total:   sql<number>`count(*)::int`,
                 receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
@@ -807,7 +773,7 @@ export const dashboardService = {
             .from(tickets)
             .where(and(base, eq(tickets.is_sale, 1)));
 
-        const [perdasData] = await db
+        const [perdasData] = await this.db
             .select({ total: sql<number>`count(*)::int` })
             .from(tickets)
             .where(and(base, eq(tickets.is_sale, 0)));
@@ -828,11 +794,11 @@ export const dashboardService = {
             receitaUnica:      receitaTotal,
             totalAtendimentos: totalFechados,
         };
-    },
+    }
 
     async getFinanceiroEvolucao(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 dia:    sql<string>`DATE(${tickets.updated_at})::text`,
                 receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
@@ -851,11 +817,11 @@ export const dashboardService = {
             ))
             .groupBy(sql`DATE(${tickets.updated_at})`)
             .orderBy(sql`DATE(${tickets.updated_at})`);
-    },
+    }
 
     async getFinanceiroOrigens(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 origem:  sql<string>`COALESCE(${tickets.origin}, 'Base de contatos')`,
                 receita: sql<number>`COALESCE(SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))), 0)::float`,
@@ -875,11 +841,11 @@ export const dashboardService = {
             .groupBy(tickets.origin)
             .orderBy(sql`SUM(CAST(REPLACE(REPLACE(${tickets.sale_price}, '.', ''), ',', '.') AS DECIMAL(10,2))) desc`)
             .limit(10);
-    },
+    }
 
     async getFinanceiroHistorico(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 id:            tickets.id,
                 contactName:   contacts.name,
@@ -902,11 +868,11 @@ export const dashboardService = {
             ))
             .orderBy(desc(tickets.updated_at))
             .limit(200);
-    },
+    }
 
     async getFinanceiroPerdas(companyId: string, scope: DashboardScope) {
         const { start, end } = resolveInterval(scope);
-        return db
+        return this.db
             .select({
                 id:              tickets.id,
                 contactName:     contacts.name,
@@ -930,5 +896,9 @@ export const dashboardService = {
             ))
             .orderBy(desc(tickets.updated_at))
             .limit(200);
-    },
-};
+    }
+}
+export type SalesAnalytics = Pick<DashboardQueries, 'salesByConnection' | 'notSalesByConnection' | 'notSalesByChannel' | 'notSalesByReason' | 'notSalesByReasonOverTime' | 'salesByChannel' | 'topCustomers'>;
+export type ActivityAnalytics = Pick<DashboardQueries, 'getKpis' | 'getGraph' | 'getGraphByStatus' | 'getMovimentos' | 'getFunnel' | 'getRecent' | 'teamPerformance' | 'getTopAttendants' | 'getChannelsByPeriod' | 'getTicketsByConnection'>;
+export type FinanceAnalytics = Pick<DashboardQueries, 'getFinanceiroKpis' | 'getFinanceiroEvolucao' | 'getFinanceiroOrigens' | 'getFinanceiroHistorico' | 'getFinanceiroPerdas'>;
+export type PlatformStats = Pick<DashboardQueries, 'getSuperAdminStats' | 'getSuperAdminGraph' | 'getSuperAdminFunnel' | 'getSuperAdminRecent'>;

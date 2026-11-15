@@ -28,6 +28,8 @@ const envSchema = z.object({
     FILIPE_INSTANCE: z.string().optional(),
     FILIPE_PHONE: z.string().optional(),
     REDIS_URL: z.string().optional(),
+    /** Prefixo dos canais do Socket.IO no Redis (padrão: socket.io#db<banco do REDIS_URL>). */
+    SOCKET_REDIS_KEY: z.string().optional(),
 
     // Bays (Baileys WhatsApp service)
     BAYS_URL: z.string().url().default('http://localhost:4001'),

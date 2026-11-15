@@ -734,9 +734,7 @@ export const whatsappService = {
             (rawMsg.locationMessage ? '[Localização]'                : '') ||
             '';
 
-        const { contactService } = await import('../atendimento/contact.service');
-        const { ticketService } = await import('../atendimento/ticket.service');
-        const { messageService } = await import('../atendimento/message.service');
+        const { contactResolver, conversationTickets, messageRecorder } = await import('../atendimento/atendimento.module');
         const { connections } = await import('../atendimento/atendimento.db.schema');
         const { eq } = await import('drizzle-orm');
 
@@ -757,8 +755,8 @@ export const whatsappService = {
         // Identificador de envio: número quando existe, senão o LID (contato username-only)
         const sendTarget = phone || (lid ? `lid:${lid}` : '');
 
-        let contact = await contactService.findOrCreate(companyId, phone, nome, lid, waUsername || undefined);
-        contact = await contactService.refreshNameFromPushName(contact, pushName, fromMe);
+        let contact = await contactResolver.findOrCreate(companyId, phone, nome, lid, waUsername || undefined);
+        contact = await contactResolver.refreshNameFromPushName(contact, pushName, fromMe);
 
         if (profileImgUrl && profileImgUrl.startsWith('http') && contact.profile_pic_url !== profileImgUrl) {
             const { contacts: contactsTable } = await import('../atendimento/atendimento.db.schema');
@@ -799,7 +797,7 @@ export const whatsappService = {
         // fromMe é, na prática, mensagem digitada de verdade no celular, fora
         // do sistema — segue o mesmo find-or-create das mensagens de cliente
         // (nunca reabre ticket fechado, só cria um novo se não houver aberto).
-        const { ticket, created: ticketCreated } = await ticketService.findOrCreateOpen(
+        const { ticket, created: ticketCreated } = await conversationTickets.findOrCreateOpen(
             companyId,
             contact.id,
             conn.id,
@@ -829,13 +827,13 @@ export const whatsappService = {
                 const media = (msg as Record<string, unknown>).media as
                     | { url?: string; mimetype?: string; waveform?: number[]; seconds?: number }
                     | undefined;
-                await messageService.save(ticket.id, contact.id, body, fromMe, companyId, {
+                await messageRecorder.save(ticket.id, contact.id, body, fromMe, companyId, {
                     mediaType: media?.mimetype || undefined,
                     mediaUrl: media?.url || undefined,
                     mediaWaveform: media?.waveform,
                     mediaSeconds: media?.seconds,
                 });
-                const { shouldRunBot } = await import('../atendimento/ticket.service');
+                const { shouldRunBot } = await import('../atendimento/ticket-status');
                 if (sendTarget && shouldRunBot(ticket)) {
                     const { chatbotExecutorService } = await import('../bots/chatbot-executor.service');
                     chatbotExecutorService.execute(companyId, connectionId, sendTarget, body, ticket.id, contact.id, contact.name).catch((err: Error) =>

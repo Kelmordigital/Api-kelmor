@@ -13,7 +13,8 @@ export class FilaVinculadaChatbotError extends ConflictError {
 
 /** Quem está com o sistema aberto agora. */
 export interface UserPresence {
-    isOnline(userId: string): boolean;
+    /** Quem, dentre os ids, está online em qualquer cópia da API. */
+    onlineAmong(userIds: string[]): Promise<Set<string>>;
 }
 
 /** Tira quem já está no limite de atendimentos simultâneos. */
@@ -82,19 +83,25 @@ export class QueueEligibility implements EligibilityFilter {
         private readonly capacity: CapacityFilter,
     ) {}
 
+    /** Filtra os online preservando a ordem (a distribuição depende dela). */
+    private async onlineIn(ids: string[]): Promise<string[]> {
+        const online = await this.presence.onlineAmong(ids);
+        return ids.filter((id) => online.has(id));
+    }
+
     /** Para transferir: com "só online" ligado na empresa, só quem está online. connectionId 0 = só a fila. */
     async transferTargets(companyId: string, queueId: number, connectionId: number): Promise<EligibleUser[]> {
         const [members, perms] = await Promise.all([
             this.repository.membersOf(companyId, queueId, connectionId || null),
             this.permissions.forCompany(companyId),
         ]);
-        const ids = perms.transfer_online_users ? members.filter((id) => this.presence.isOnline(id)) : members;
+        const ids = perms.transfer_online_users ? await this.onlineIn(members) : members;
         return this.repository.usersByIds(companyId, ids);
     }
 
     /** Para a distribuição automática: sempre online e com vaga (limite de atendimentos). */
     async candidates(companyId: string, queueId: number, connectionId: number): Promise<string[]> {
-        const online = (await this.repository.membersOf(companyId, queueId, connectionId)).filter((id) => this.presence.isOnline(id));
+        const online = await this.onlineIn(await this.repository.membersOf(companyId, queueId, connectionId));
         if (online.length === 0) return [];
         return this.capacity(online, await this.permissions.forCompany(companyId));
     }
