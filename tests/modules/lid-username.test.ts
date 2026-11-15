@@ -112,6 +112,33 @@ describe('WhatsApp LID / Username — fluxo de entrada', () => {
         expect(comLid[0].lid).toBe(LID);
     });
 
+    it('2b) sufixo de aparelho no JID (":34") não entra no número do contato', async () => {
+        await whatsappService.handleMessagesWebhook(
+            connectionId,
+            waPayload({ remoteJid: `${LID}:34@lid`, senderPn: '553171465394:34@s.whatsapp.net', text: 'oi do aparelho 34' }),
+        );
+        await whatsappService.handleMessagesWebhook(
+            connectionId,
+            waPayload({ remoteJid: '553171465395:12@s.whatsapp.net', text: 'oi direto pelo número' }),
+        );
+
+        const [viaLid] = await contatosComLid(LID);
+        expect(viaLid.number).toBe('553171465394');   // antes: "55317146539434"
+        const direto = await db.select().from(contacts).where(and(eq(contacts.company_id, companyId), eq(contacts.number, '553171465395')));
+        expect(direto).toHaveLength(1);
+    });
+
+    it('2c) contato gravado com o sufixo grudado é corrigido na próxima mensagem', async () => {
+        await db.insert(contacts).values({ company_id: companyId, name: 'Clayn', number: '55317146539434', lid: LID });
+        await whatsappService.handleMessagesWebhook(
+            connectionId,
+            waPayload({ remoteJid: `${LID}@lid`, senderPn: '553171465394@s.whatsapp.net', text: 'voltei' }),
+        );
+        const comLid = await contatosComLid(LID);
+        expect(comLid).toHaveLength(1);
+        expect(comLid[0].number).toBe('553171465394');
+    });
+
     it('3) contato canônico (com número) + LID-only separado → merge ao chegar número+LID juntos', async () => {
         // Canônico: mensagem normal com número, sem LID
         await whatsappService.handleMessagesWebhook(

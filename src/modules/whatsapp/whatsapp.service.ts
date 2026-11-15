@@ -29,6 +29,15 @@ function wuzapiTarget(target: string): string {
     return target.replace(/\D/g, '');
 }
 
+/**
+ * Número (ou LID) de um JID recebido. O JID pode trazer o aparelho do contato
+ * ("553171465394:34@s.whatsapp.net"): sem cortar o ":34", ele grudava no número
+ * ("55317146539434") e o envio falhava com "no LID found".
+ */
+export function jidUser(jid: string): string {
+    return jid.split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+
 /** Endpoint de mídia da WuzAPI a partir do mimetype (figurinha só em webp, senão vai como imagem). */
 function wuzapiMediaKind(mimetype: string, sticker?: boolean): 'image' | 'video' | 'audio' | 'document' | 'sticker' {
     const mime = mimetype.toLowerCase();
@@ -686,15 +695,15 @@ export const whatsappService = {
         // Sistema de usernames do WhatsApp (Meta 2026): quando o contato conversa
         // via username, o remoteJid é "<lid>@lid" e o número pode NÃO vir. Antes o
         // sistema descartava essas mensagens — agora o LID é o identificador válido.
-        const lid = jid.endsWith('@lid') ? jid.replace('@lid', '').replace(/\D/g, '') : undefined;
+        const lid = jid.endsWith('@lid') ? jidUser(jid) : undefined;
 
         let phone = '';
         if (jid.endsWith('@lid')) {
             // Número só existe se a Meta revelar via sender_pn; senão fica vazio (LID-only)
             const senderPn = String(key.sender_pn ?? '');
-            phone = senderPn ? senderPn.replace('@s.whatsapp.net', '').replace(/\D/g, '') : '';
+            phone = senderPn ? jidUser(senderPn) : '';
         } else {
-            phone = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+            phone = jidUser(jid);
         }
 
         // Username público (@apelido). A Meta ainda não o expõe no payload Baileys;
