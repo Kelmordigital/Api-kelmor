@@ -309,6 +309,13 @@
       "when": 1794696280504,
       "tag": "0043_auto_close_nao_venda",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794954458356,
+      "tag": "0044_wuzapi_media_url",
+      "breakpoints": true
     }
   ]
 }

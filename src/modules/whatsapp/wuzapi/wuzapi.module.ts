@@ -1,6 +1,7 @@
 import { env } from '../../../config/env';
 import { WuzapiClient } from './wuzapi.client';
 import { WuzapiCredentials } from './wuzapi-credentials';
+import { fixWuzapiMediaUrl } from './wuzapi-event-translator';
 
 /** Tipo de conexão (at_connections.type) atendido pela WuzAPI. */
 export const WUZAPI_CONNECTION_TYPE = 'wuzapi';
@@ -53,6 +54,10 @@ const built = build();
 
 export const wuzapiModule = {
     isConfigured: built !== null,
+    /** Endereço público da mídia recebida, sem o bucket que a WuzAPI coloca a mais. */
+    mediaUrl(url: string): string {
+        return fixWuzapiMediaUrl(url, env.R2_PUBLIC_URL, env.R2_BUCKET);
+    },
     /** Lança erro claro quando a WuzAPI não está configurada neste ambiente. */
     get client(): WuzapiClient {
         if (!built) throw new Error('WuzAPI não configurada (WUZAPI_URL, WUZAPI_ADMIN_TOKEN, WUZAPI_SECRET, WUZAPI_WEBHOOK_BASE_URL)');

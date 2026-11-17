@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'crypto';
 import { WuzapiCredentials } from '../../src/modules/whatsapp/wuzapi/wuzapi-credentials';
-import { translateConnectionEvent, translateMessage } from '../../src/modules/whatsapp/wuzapi/wuzapi-event-translator';
+import { fixWuzapiMediaUrl, translateConnectionEvent, translateMessage } from '../../src/modules/whatsapp/wuzapi/wuzapi-event-translator';
 import { WuzapiClient, WuzapiError, WUZAPI_SUBSCRIBED_EVENTS } from '../../src/modules/whatsapp/wuzapi/wuzapi.client';
 
 const SECRET = 'x'.repeat(40);
@@ -241,5 +241,25 @@ describe('WuzapiClient', () => {
     it('falha de rede vira WuzapiError com o caminho', async () => {
         const http = vi.fn(async () => { throw new Error('ECONNREFUSED'); }) as unknown as typeof fetch;
         await expect(new WuzapiClient(config, creds, http).status(5)).rejects.toThrow(/session\/status → sem resposta: ECONNREFUSED/);
+    });
+});
+
+describe('Endereço da mídia recebida pela WuzAPI (fixWuzapiMediaUrl)', () => {
+    const PUB = 'https://pub-abc.r2.dev';
+    const KEY = 'users/e2fe/inbox/556492957973/2026/11/17/audio/3EB0ABC.ogg';
+
+    it('tira o bucket que a WuzAPI coloca no meio (R2 responde 404 com ele)', () => {
+        expect(fixWuzapiMediaUrl(`${PUB}/kelmor-media/${KEY}`, PUB, 'kelmor-media')).toBe(`${PUB}/${KEY}`);
+        expect(fixWuzapiMediaUrl(`${PUB}/kelmor-media/${KEY}`, `${PUB}/`, 'kelmor-media')).toBe(`${PUB}/${KEY}`);
+    });
+
+    it('endereço já certo, da bays ou de outro lugar passa sem mudança', () => {
+        expect(fixWuzapiMediaUrl(`${PUB}/${KEY}`, PUB, 'kelmor-media')).toBe(`${PUB}/${KEY}`);
+        expect(fixWuzapiMediaUrl(`${PUB}/media%2Ffoto.jpg`, PUB, 'kelmor-media')).toBe(`${PUB}/media%2Ffoto.jpg`);
+        expect(fixWuzapiMediaUrl('https://outro.com/kelmor-media/x.ogg', PUB, 'kelmor-media')).toBe('https://outro.com/kelmor-media/x.ogg');
+    });
+
+    it('sem R2 configurado, não mexe', () => {
+        expect(fixWuzapiMediaUrl(`${PUB}/kelmor-media/${KEY}`, undefined, undefined)).toBe(`${PUB}/kelmor-media/${KEY}`);
     });
 });

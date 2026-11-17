@@ -97,6 +97,21 @@ export function translateMessage(webhook: WuzapiWebhook): BaileysLikeMessage | n
 }
 
 /**
+ * Corrige o endereço público da mídia gravada pela WuzAPI no R2.
+ *
+ * A WuzAPI 1.1.0 monta `<publicURL>/<bucket>/<chave>`, mas o domínio público do R2 já aponta
+ * para dentro do bucket: o endereço certo é `<publicURL>/<chave>`. Com o bucket no meio o R2
+ * responde 404 e o CRM mostra "Não foi possível carregar o áudio" (e o mesmo para imagem,
+ * vídeo, documento e figurinha). Endereço em outro formato passa sem mudança.
+ */
+export function fixWuzapiMediaUrl(url: string, publicUrl: string | undefined, bucket: string | undefined): string {
+    if (!publicUrl || !bucket) return url;
+    const base = publicUrl.replace(/\/+$/, '');
+    const wrong = `${base}/${bucket}/`;
+    return url.startsWith(wrong) ? `${base}/${url.slice(wrong.length)}` : url;
+}
+
+/**
  * Eventos de sessão → atualização de status da conexão.
  * `Disconnected`/`KeepAliveTimeout` são ignorados de propósito: o whatsmeow
  * reconecta sozinho, e marcar "desconectado" dispararia e-mail de queda a cada

@@ -30,6 +30,7 @@ export async function wuzapiWebhook(req: FastifyRequest, reply: FastifyReply) {
     const { whatsappService } = await import('../whatsapp.service');
     try {
         const message = translateMessage(webhook);
+        if (message?.media) message.media.url = wuzapiModule.mediaUrl(message.media.url);
         if (message) {
             await whatsappService.handleMessagesWebhook(connectionId, message);
             return;
